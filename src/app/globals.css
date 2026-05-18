@@ -1,0 +1,138 @@
+@import "tailwindcss";
+
+:root {
+  color-scheme: dark;
+  --background: #080b0e;
+  --foreground: #edf1f5;
+  --muted: #9aa8b5;
+  --line: rgba(255, 255, 255, 0.1);
+  --panel: rgba(17, 22, 28, 0.82);
+  --panel-strong: rgba(20, 26, 33, 0.96);
+  --accent: #8fb7ff;
+  --accent-2: #c7a46c;
+  --positive: #7fc8a9;
+  --warning: #e7bb6b;
+  --danger: #e07a77;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--background);
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  margin: 0;
+  background:
+    linear-gradient(180deg, rgba(8, 11, 14, 0.96), rgba(8, 11, 14, 1)),
+    #080b0e;
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.missiondesk {
+  --app-bg: #080b0e;
+  --app-fg: #edf1f5;
+  --app-muted: #a6b2be;
+  --app-soft: rgba(237, 241, 245, 0.72);
+  --app-line: rgba(255, 255, 255, 0.1);
+  --app-panel: rgba(17, 22, 28, 0.78);
+  --app-panel-strong: rgba(19, 25, 32, 0.94);
+  --app-panel-muted: rgba(255, 255, 255, 0.045);
+  --app-accent: #8fb7ff;
+  --app-accent-strong: #d0deff;
+  --app-gold: #c7a46c;
+  --app-danger: #e07a77;
+  --app-warning: #e7bb6b;
+  --app-positive: #7fc8a9;
+  min-height: 100vh;
+  background:
+    linear-gradient(140deg, rgba(143, 183, 255, 0.08), transparent 32%),
+    linear-gradient(230deg, rgba(199, 164, 108, 0.07), transparent 30%),
+    var(--app-bg);
+  color: var(--app-fg);
+}
+
+.missiondesk.light {
+  --app-bg: #f4f6f8;
+  --app-fg: #16191d;
+  --app-muted: #66717c;
+  --app-soft: rgba(22, 25, 29, 0.72);
+  --app-line: rgba(22, 25, 29, 0.12);
+  --app-panel: rgba(255, 255, 255, 0.78);
+  --app-panel-strong: rgba(255, 255, 255, 0.96);
+  --app-panel-muted: rgba(22, 25, 29, 0.045);
+  --app-accent: #315c9d;
+  --app-accent-strong: #12376d;
+  --app-gold: #8f6732;
+  --app-danger: #b94c4c;
+  --app-warning: #9a6b1f;
+  --app-positive: #24795d;
+  background:
+    linear-gradient(140deg, rgba(49, 92, 157, 0.08), transparent 36%),
+    linear-gradient(230deg, rgba(36, 121, 93, 0.06), transparent 34%),
+    var(--app-bg);
+}
+
+.surface {
+  border: 1px solid var(--app-line);
+  background: var(--app-panel);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(18px);
+}
+
+.surface-strong {
+  border: 1px solid var(--app-line);
+  background: var(--app-panel-strong);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.22);
+}
+
+.metric-bar {
+  background: linear-gradient(
+    90deg,
+    var(--app-positive) 0%,
+    var(--app-warning) 58%,
+    var(--app-danger) 100%
+  );
+}
+
+.thin-scrollbar {
+  scrollbar-color: color-mix(in srgb, var(--app-muted), transparent 35%) transparent;
+  scrollbar-width: thin;
+}
+
+.thin-scrollbar::-webkit-scrollbar {
+  height: 9px;
+  width: 9px;
+}
+
+.thin-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.thin-scrollbar::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--app-muted), transparent 42%);
+  border-radius: 999px;
+}
+
+@media (max-width: 900px) {
+  body {
+    background: var(--background);
+  }
+}

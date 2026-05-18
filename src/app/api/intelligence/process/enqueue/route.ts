@@ -1,0 +1,20 @@
+import { NextResponse } from "next/server";
+import { enqueueSelectedNationalProcessingJobs } from "@/lib/intelligence/national-processing-worker";
+
+export const dynamic = "force-dynamic";
+
+export async function POST(request: Request) {
+  const body = (await request.json().catch(() => ({}))) as {
+    limit?: number;
+    force?: boolean;
+  };
+  const jobs = enqueueSelectedNationalProcessingJobs({
+    limit: body.limit ?? 100,
+    force: body.force ?? false,
+  });
+
+  return NextResponse.json({
+    enqueuedCount: jobs.length,
+    jobs,
+  });
+}
