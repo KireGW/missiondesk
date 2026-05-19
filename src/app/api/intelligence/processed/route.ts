@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { earliestCacheExpiry, latestCacheTimestamp } from "@/lib/intelligence/dashboard-view";
+import { signalDisplaySince } from "@/lib/intelligence/cache-policy";
 import { listProcessedItems } from "@/lib/intelligence/repository";
 import type { IntelligenceCategory, ProfileMode } from "@/lib/types";
 
@@ -38,6 +39,7 @@ export async function GET(request: Request) {
   const profileParam = url.searchParams.get("profile");
   const limit = Number(url.searchParams.get("limit") ?? 60);
   const onlyFresh = url.searchParams.get("fresh") !== "0";
+  const recentDays = Number(url.searchParams.get("recentDays") ?? undefined);
 
   const items = listProcessedItems({
     category: categories.includes(categoryParam as IntelligenceCategory)
@@ -48,6 +50,7 @@ export async function GET(request: Request) {
       : undefined,
     geographicTag: url.searchParams.get("geographicTag") ?? undefined,
     onlyFresh,
+    publishedSince: onlyFresh ? signalDisplaySince(recentDays) : undefined,
     limit: Number.isFinite(limit) ? limit : 60,
   });
 

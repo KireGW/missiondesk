@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getSources, saveSources, sourceIdFromName } from "@/lib/sources/store";
 import type { IntelligenceCategory, SourceDefinition, SourceType } from "@/lib/types";
 
-const allowedTypes: SourceType[] = ["rss", "website", "structured_scrape", "api", "calendar"];
+const allowedTypes: SourceType[] = ["rss", "website", "social", "structured_scrape", "api", "calendar"];
 
 function normalizeCategories(value: unknown): IntelligenceCategory[] {
   if (!Array.isArray(value)) return ["domestic_politics"];

@@ -26,6 +26,8 @@ export type CandidateSelectionStatus =
   | "rejected"
   | "regional_hold";
 
+export type RawIngestionJobType = "ingest_raw_source";
+
 export interface RawSourceItem {
   id: string;
   source_type: SourceIntelligenceType;
@@ -97,6 +99,16 @@ export interface BackgroundJob {
   error_message?: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface RawIngestionJobPayload {
+  sourceId?: string;
+  sourceIds?: string[];
+  sourceType?: SourceIntelligenceType;
+  limitPerSource?: number;
+  concurrency?: number;
+  preserveRawContent?: boolean;
+  since?: string;
 }
 
 export interface ItemDuplicateCluster {
@@ -207,6 +219,7 @@ export interface RawSourceItemFilters {
   detectedRegion?: string;
   since?: string;
   excludeProcessed?: boolean;
+  excludeFreshProcessed?: boolean;
   limit?: number;
 }
 
@@ -215,6 +228,7 @@ export interface ProcessedItemFilters {
   profile?: ProfileMode;
   geographicTag?: string;
   onlyFresh?: boolean;
+  publishedSince?: string;
   limit?: number;
 }
 

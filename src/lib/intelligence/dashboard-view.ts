@@ -24,7 +24,7 @@ export function processedRecordToIntelligenceItem(
     source_url: record.raw.url,
     source_country: countryNameSv(record.raw.source_country) ?? record.raw.source_country,
     source_language: record.raw.source_language,
-    published_at: record.raw.published_at ?? record.processed.processed_at,
+    published_at: record.raw.published_at ?? "",
     category: record.processed.category,
     country: countryNameSv(record.raw.detected_country) ?? "Mexiko",
     region: scopeLabel(record),
@@ -79,12 +79,13 @@ export function earliestCacheExpiry(
   briefings: Briefing[],
   records: ProcessedIntelligenceRecord[],
 ) {
+  const now = Date.now();
   const timestamps = [
     ...briefings.map((briefing) => briefing.cache_expires_at),
     ...records.map((record) => record.processed.cache_expires_at),
   ]
     .map((value) => new Date(value).getTime())
-    .filter(Number.isFinite);
+    .filter((value) => Number.isFinite(value) && value > now);
 
   if (timestamps.length === 0) return undefined;
   return new Date(Math.min(...timestamps)).toISOString();

@@ -61,6 +61,10 @@ export function isBriefingGenerationConfigured() {
   return Boolean(process.env.OPENAI_API_KEY);
 }
 
+function supportsMinimalReasoning(model: string) {
+  return model.toLowerCase().startsWith("gpt-5");
+}
+
 function extractResponseText(payload: ResponsesApiResult) {
   if (payload.output_text) return payload.output_text;
 
@@ -105,6 +109,8 @@ function itemPayload(records: ProcessedIntelligenceRecord[]) {
 
 function sanitizeContent(value: string) {
   return value
+    .replace(/^```(?:json)?/i, "")
+    .replace(/```$/i, "")
     .replace(/\n{3,}/g, "\n\n")
     .trim()
     .split("\n")
@@ -115,11 +121,49 @@ function sanitizeContent(value: string) {
     .slice(0, 2600);
 }
 
+function parseBriefingOutput(text: string): BriefingGenerationOutput | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  const candidates = [
+    trimmed,
+    trimmed.slice(trimmed.indexOf("{"), trimmed.lastIndexOf("}") + 1),
+  ].filter((candidate) => candidate.startsWith("{") && candidate.endsWith("}"));
+
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as Partial<BriefingGenerationOutput>;
+      if (typeof parsed.content_sv === "string" && parsed.content_sv.trim()) {
+        return { content_sv: sanitizeContent(parsed.content_sv) };
+      }
+    } catch {
+      // Fall through to the tolerant extraction below.
+    }
+  }
+
+  const contentMatch = trimmed.match(/"content_sv"\s*:\s*"([\s\S]*)"?\s*}?$/);
+  if (contentMatch?.[1]) {
+    const rawValue = contentMatch[1]
+      .replace(/\\n/g, "\n")
+      .replace(/\\"/g, '"')
+      .replace(/\\\\/g, "\\");
+    const content = sanitizeContent(rawValue);
+    return content ? { content_sv: content } : null;
+  }
+
+  if (!trimmed.startsWith("{")) {
+    return { content_sv: sanitizeContent(trimmed) };
+  }
+
+  return null;
+}
+
 export async function generateBriefingWithOpenAI(
   input: BriefingGenerationInput,
 ): Promise<BriefingGenerationOutput | null> {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey || input.items.length === 0) return null;
+  const model = briefingModel();
 
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
@@ -128,9 +172,11 @@ export async function generateBriefingWithOpenAI(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: briefingModel(),
-      max_output_tokens: 1200,
-      reasoning: { effort: "minimal" },
+      model,
+      max_output_tokens: 2400,
+      ...(supportsMinimalReasoning(model)
+        ? { reasoning: { effort: "minimal" } }
+        : {}),
       input: [
         {
           role: "system",
@@ -195,6 +241,5 @@ export async function generateBriefingWithOpenAI(
   const text = extractResponseText(payload);
   if (!text) return null;
 
-  const parsed = JSON.parse(text) as BriefingGenerationOutput;
-  return { content_sv: sanitizeContent(parsed.content_sv) };
+  return parseBriefingOutput(text);
 }

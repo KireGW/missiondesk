@@ -449,12 +449,14 @@ export async function runFirstRunIngestionWorker(limit = 1) {
 
       updateFirstRunPhase(job.id, "ranking_candidates", 50, 1);
       const ranking = await rankAndStoreCandidates({
-        scanLimit: 600,
+        scanLimit: 500,
+        targetMin: 25,
         targetMax: 60,
-        hardCap: 120,
-        minSelectedScore: 54,
-        minCandidateScore: 45,
+        hardCap: 100,
+        minSelectedScore: 58,
+        minCandidateScore: 50,
         allowRegionalAi: false,
+        nationalOnly: true,
         enqueueAiJobs: false,
       });
 
@@ -478,7 +480,7 @@ export async function runFirstRunIngestionWorker(limit = 1) {
         throw new Error("Inga relevanta källposter hittades vid senaste körningen.");
       }
 
-      const processingJobs = enqueueSelectedNationalProcessingJobs({ limit: 120 });
+      const processingJobs = enqueueSelectedNationalProcessingJobs({ limit: 100 });
       logFirstRun(job.id, "processing jobs queued", {
         processingJobs: processingJobs.length,
       });

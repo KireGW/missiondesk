@@ -184,37 +184,111 @@ function extractDescription(html: string) {
   ]);
 }
 
+const spanishMonths: Record<string, number> = {
+  enero: 0,
+  febrero: 1,
+  marzo: 2,
+  abril: 3,
+  mayo: 4,
+  junio: 5,
+  julio: 6,
+  agosto: 7,
+  septiembre: 8,
+  setiembre: 8,
+  octubre: 9,
+  noviembre: 10,
+  diciembre: 11,
+};
+
+const englishMonths: Record<string, number> = {
+  january: 0,
+  february: 1,
+  march: 2,
+  april: 3,
+  may: 4,
+  june: 5,
+  july: 6,
+  august: 7,
+  september: 8,
+  october: 9,
+  november: 10,
+  december: 11,
+};
+
+const dateOnly = (year: number, month: number, day: number) =>
+  `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+
+function parseHumanDate(value: string) {
+  const normalized = normalize(value);
+  const spanish = normalized.match(/\b(\d{1,2})\s+de\s+([a-z]+)\s+de\s+(\d{4})\b/);
+  if (spanish) {
+    const day = Number(spanish[1]);
+    const month = spanishMonths[spanish[2]];
+    const year = Number(spanish[3]);
+    if (month !== undefined) return dateOnly(year, month, day);
+  }
+
+  const english = normalized.match(/\b([a-z]+)\s+(\d{1,2}),?\s+(\d{4})\b/);
+  if (english) {
+    const month = englishMonths[english[1]];
+    const day = Number(english[2]);
+    const year = Number(english[3]);
+    if (month !== undefined) return dateOnly(year, month, day);
+  }
+
+  return undefined;
+}
+
 function extractPublishedAt(html: string) {
   const raw = firstMatch(html, [
     /<meta[^>]+property=["']article:published_time["'][^>]+content=["']([^"']+)["'][^>]*>/i,
     /<meta[^>]+content=["']([^"']+)["'][^>]+property=["']article:published_time["'][^>]*>/i,
+    /<meta[^>]+name=["']date["'][^>]+content=["']([^"']+)["'][^>]*>/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]+name=["']date["'][^>]*>/i,
+    /<meta[^>]+name=["']dc\.date["'][^>]+content=["']([^"']+)["'][^>]*>/i,
+    /<meta[^>]+content=["']([^"']+)["'][^>]+name=["']dc\.date["'][^>]*>/i,
     /<time[^>]+datetime=["']([^"']+)["'][^>]*>/i,
     /"datePublished"\s*:\s*"([^"]+)"/i,
   ]);
-  if (!raw) return undefined;
+  const humanDate =
+    parseHumanDate(
+      firstMatch(html, [
+        /(?:publicado|actualizado)[^<]{0,80}?(\d{1,2}\s+de\s+[a-záéíóúñ]+\s+de\s+\d{4})/i,
+        /(\d{1,2}\s+de\s+[a-záéíóúñ]+\s+de\s+\d{4})/i,
+        /([a-z]+\s+\d{1,2},?\s+\d{4})/i,
+      ]),
+    );
+
+  if (!raw) return humanDate;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw.trim())) return raw.trim();
 
   const timestamp = Date.parse(raw);
-  return Number.isNaN(timestamp) ? undefined : new Date(timestamp).toISOString();
+  return Number.isNaN(timestamp) ? humanDate : new Date(timestamp).toISOString();
 }
 
-export async function fetchWebsiteMetadataSource(
-  source: SourceDefinition,
-  options: { signal?: AbortSignal; preserveRawContent?: boolean; limit?: number } = {},
-): Promise<RawSourceDocument[]> {
-  const response = await fetch(source.url, {
+async function fetchHtml(url: string, signal?: AbortSignal) {
+  const response = await fetch(url, {
     headers: {
       Accept: "text/html,application/xhtml+xml;q=0.9,*/*;q=0.7",
       "User-Agent": "MissionDesk/0.1 diplomatic briefing ingestion",
     },
     next: { revalidate: 900 },
-    signal: options.signal,
+    signal,
   });
 
   if (!response.ok) {
     throw new Error(`Website fetch failed with ${response.status}`);
   }
 
-  const html = await response.text();
+  return response.text();
+}
+
+export async function fetchWebsiteMetadataSource(
+  source: SourceDefinition,
+  options: { signal?: AbortSignal; preserveRawContent?: boolean; limit?: number } = {},
+): Promise<RawSourceDocument[]> {
+  const html = await fetchHtml(source.url, options.signal);
   const retrievedAt = new Date().toISOString();
   const title = extractTitle(html) || source.name;
   const description = extractDescription(html);
@@ -223,22 +297,40 @@ export async function fetchWebsiteMetadataSource(
   const articleLinks = extractArticleLinks(html, source, limit);
 
   if (articleLinks.length > 0) {
-    return articleLinks.map((entry, index) => ({
-      id: `${source.id}:${entry.url}:${index}`,
-      sourceId: source.id,
-      title: entry.title,
-      url: entry.url,
-      language: source.language,
-      country: source.country,
-      publishedAt: extractPublishedAt(html) ?? retrievedAt,
-      retrievedAt,
-      excerpt: description || entry.title,
-      html: options.preserveRawContent ? html.slice(0, 50000) : undefined,
-      text: options.preserveRawContent ? text : [entry.title, description].filter(Boolean).join(". "),
-      metadata: {
-        sourceType: source.type,
-      },
-    }));
+    const documents: RawSourceDocument[] = [];
+
+    for (const [index, entry] of articleLinks.entries()) {
+      let articleHtml: string | undefined;
+      try {
+        articleHtml = entry.url === source.url ? html : await fetchHtml(entry.url, options.signal);
+      } catch {
+        articleHtml = undefined;
+      }
+
+      const articleDescription = articleHtml ? extractDescription(articleHtml) : undefined;
+      const articleText = articleHtml ? stripHtml(articleHtml).slice(0, 5000) : undefined;
+
+      documents.push({
+        id: `${source.id}:${entry.url}:${index}`,
+        sourceId: source.id,
+        title: articleHtml ? extractTitle(articleHtml) || entry.title : entry.title,
+        url: entry.url,
+        language: source.language,
+        country: source.country,
+        publishedAt: articleHtml ? extractPublishedAt(articleHtml) : undefined,
+        retrievedAt,
+        excerpt: articleDescription || description || entry.title,
+        html: options.preserveRawContent ? articleHtml?.slice(0, 50000) : undefined,
+        text: options.preserveRawContent
+          ? articleText
+          : [entry.title, articleDescription || description].filter(Boolean).join(". "),
+        metadata: {
+          sourceType: source.type,
+        },
+      });
+    }
+
+    return documents;
   }
 
   return [

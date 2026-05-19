@@ -8,6 +8,7 @@ import {
   Building2,
   CalendarDays,
   Check,
+  ChevronDown,
   CircleAlert,
   Clock3,
   ClipboardList,
@@ -23,11 +24,12 @@ import {
   LineChart,
   ListFilter,
   Loader2,
-  Map,
+  Map as MapIcon,
   MapPin,
   Moon,
   Newspaper,
   PanelRightOpen,
+  Printer,
   RefreshCw,
   Search,
   Shield,
@@ -61,6 +63,7 @@ interface MissionDashboardProps {
   initialBriefings: Briefing[];
   initialCacheTimestamp?: string;
   initialCacheExpiresAt?: string;
+  activeSourceCount: number;
 }
 
 type GeographySelection =
@@ -96,6 +99,20 @@ interface FirstRunStatusPayload {
   activeStepIndex: number;
   estimatedDurationLabel: string;
   longRunning: boolean;
+  logs: Array<{
+    at: string;
+    message: string;
+    data?: Record<string, unknown>;
+  }>;
+}
+
+interface CacheRefreshStatusPayload {
+  active: boolean;
+  job?: BackgroundJob;
+  message: string;
+  progressPercent: number;
+  activeStepIndex: number;
+  steps: string[];
   logs: Array<{
     at: string;
     message: string;
@@ -144,6 +161,38 @@ const categoryIcon: Record<IntelligenceCategory, LucideIcon> = {
   culture_soft_power: Building2,
 };
 
+const categoryIconTone: Record<IntelligenceCategory, string> = {
+  economy: "text-[var(--app-warning)]",
+  trade: "text-[color-mix(in_srgb,var(--app-warning),white_12%)]",
+  domestic_politics: "text-[var(--app-positive)]",
+  foreign_policy: "text-[color-mix(in_srgb,var(--app-accent),#c084fc_45%)]",
+  sweden_connection: "text-[var(--app-positive)]",
+  security: "text-[var(--app-danger)]",
+  markets: "text-[var(--app-warning)]",
+  investment_climate: "text-[var(--app-positive)]",
+  migration: "text-[color-mix(in_srgb,var(--app-warning),white_22%)]",
+  society: "text-[color-mix(in_srgb,var(--app-positive),white_10%)]",
+  energy: "text-[var(--app-positive)]",
+  technology: "text-[color-mix(in_srgb,var(--app-accent),white_22%)]",
+  culture_soft_power: "text-[color-mix(in_srgb,var(--app-accent),white_8%)]",
+};
+
+const themeFilterOrder: IntelligenceCategory[] = [
+  "economy",
+  "trade",
+  "markets",
+  "technology",
+  "investment_climate",
+  "energy",
+  "domestic_politics",
+  "security",
+  "foreign_policy",
+  "migration",
+  "sweden_connection",
+  "society",
+  "culture_soft_power",
+];
+
 const profileIcon: Record<ProfileMode, LucideIcon> = {
   daily_overview: Gauge,
   ambassador_briefing: Landmark,
@@ -161,6 +210,13 @@ const scoreTone = (score: number) => {
   return "text-[var(--app-positive)]";
 };
 
+const priorityLabel = (score: number) => {
+  if (score >= 82) return "Kräver uppföljning";
+  if (score >= 65) return "Hög relevans";
+  if (score >= 45) return "Måttlig relevans";
+  return "Bakgrund";
+};
+
 const urgencyLabel = (score: number) => {
   if (score >= 82) return "Kräver uppmärksamhet";
   if (score >= 65) return "Följ i dag";
@@ -170,10 +226,22 @@ const urgencyLabel = (score: number) => {
 
 const formatDate = (value?: string, includeTime = false) => {
   if (!value) return "Ej daterad";
+  const dateOnly = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (dateOnly) {
+    const [, year, month, day] = dateOnly;
+    const parsedYear = Number(year);
+    return new Intl.DateTimeFormat("sv-SE", {
+      day: "numeric",
+      month: "short",
+      ...(parsedYear !== new Date().getFullYear() ? { year: "numeric" } : {}),
+    }).format(new Date(parsedYear, Number(month) - 1, Number(day)));
+  }
   const date = new Date(value);
+  const isCurrentYear = date.getFullYear() === new Date().getFullYear();
   return new Intl.DateTimeFormat("sv-SE", {
     day: "numeric",
     month: "short",
+    ...(!isCurrentYear ? { year: "numeric" } : {}),
     ...(includeTime ? { hour: "2-digit", minute: "2-digit" } : {}),
   }).format(date);
 };
@@ -240,6 +308,50 @@ const itemMatchesGeography = (
 const getCategoryLabel = (config: EmbassyConfig, category: IntelligenceCategory) =>
   config.themeCategories.find((theme) => theme.id === category)?.label ?? category;
 
+const getGeographyLabel = (item: IntelligenceItem, config: EmbassyConfig) => {
+  if (item.geographic_tags.length > 1) return "Flera delstater";
+
+  const division = item.geographic_tags[0]
+    ? config.geography.administrativeDivisions.find(
+        (candidate) => candidate.id === item.geographic_tags[0],
+      )
+    : undefined;
+
+  return division?.displayName ?? item.region;
+};
+
+const getOrderedThemeCategories = (config: EmbassyConfig) => {
+  const byId = new Map(config.themeCategories.map((category) => [category.id, category]));
+  const orderedIds = new Set(themeFilterOrder);
+  return [
+    ...themeFilterOrder.flatMap((id) => {
+      const category = byId.get(id);
+      return category ? [category] : [];
+    }),
+    ...config.themeCategories.filter((category) => !orderedIds.has(category.id)),
+  ];
+};
+
+const getSignalThemeTags = (item: IntelligenceItem, config: EmbassyConfig) => {
+  const tagIds = new Set<IntelligenceCategory>([item.category]);
+
+  if (item.sweden_relevance_score >= 55) tagIds.add("sweden_connection");
+  if (item.economic_impact_score >= 65) tagIds.add("economy");
+  if (item.security_impact_score >= 55) tagIds.add("security");
+
+  if (item.profile_tags.includes("trade_business")) tagIds.add("trade");
+  if (item.profile_tags.includes("political_risk")) tagIds.add("domestic_politics");
+
+  return Array.from(tagIds)
+    .map((id) => ({
+      id,
+      label: getCategoryLabel(config, id),
+      Icon: categoryIcon[id],
+    }))
+    .filter(({ label }) => Boolean(label))
+    .slice(0, 5);
+};
+
 const byScore =
   (config: EmbassyConfig, profile: ProfileMode) =>
   (a: IntelligenceItem, b: IntelligenceItem) =>
@@ -251,6 +363,7 @@ export function MissionDashboard({
   initialBriefings,
   initialCacheTimestamp,
   initialCacheExpiresAt,
+  activeSourceCount,
 }: MissionDashboardProps) {
   const [items, setItems] = useState<IntelligenceItem[]>(initialItems);
   const [briefings, setBriefings] = useState<Briefing[]>(initialBriefings);
@@ -260,12 +373,18 @@ export function MissionDashboard({
     "idle",
   );
   const [profile, setProfile] = useState<ProfileMode>("daily_overview");
+  const [showBriefingPanel, setShowBriefingPanel] = useState(false);
+  const [showPrintPanel, setShowPrintPanel] = useState(false);
+  const [manualPriorityIds, setManualPriorityIds] = useState<string[]>([]);
+  const [suppressedPriorityIds, setSuppressedPriorityIds] = useState<string[]>([]);
+  const [printItemIds, setPrintItemIds] = useState<string[]>([]);
   const [selectedCategories, setSelectedCategories] = useState<IntelligenceCategory[]>([]);
   const [geographySelection, setGeographySelection] = useState<GeographySelection>({
     type: "national",
     ids: [],
   });
   const [geoView, setGeoView] = useState<"list" | "map">("list");
+  const [expandedRegionIds, setExpandedRegionIds] = useState<string[]>([]);
   const [expandedId, setExpandedId] = useState(initialItems[0]?.id ?? "");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [sourceQuery, setSourceQuery] = useState("");
@@ -277,8 +396,11 @@ export function MissionDashboard({
   const [regionalError, setRegionalError] = useState("");
   const [regionalLabels, setRegionalLabels] = useState<string[]>([]);
   const [cacheRefreshStatus, setCacheRefreshStatus] = useState<
-    "idle" | "queued" | "loading" | "error"
+    "idle" | "queued" | "loading" | "ready" | "error"
   >("idle");
+  const [cacheRefreshJobStatus, setCacheRefreshJobStatus] = useState<
+    CacheRefreshStatusPayload | undefined
+  >();
   const [firstRunStatus, setFirstRunStatus] = useState<FirstRunStatusPayload | undefined>();
   const [firstRunRequestStatus, setFirstRunRequestStatus] = useState<
     "idle" | "starting" | "ready" | "error"
@@ -362,7 +484,7 @@ export function MissionDashboard({
 
   const loadCachedDashboardData = useCallback(async () => {
     const [processedResponse, briefingsResponse] = await Promise.all([
-      fetch("/api/intelligence/processed?limit=140", { cache: "no-store" }),
+      fetch("/api/intelligence/processed?limit=220", { cache: "no-store" }),
       fetch("/api/intelligence/briefings?limit=12", { cache: "no-store" }),
     ]);
 
@@ -485,6 +607,46 @@ export function MissionDashboard({
   }, [firstRunStatus?.active, initiallyNeedsFirstRun, loadCachedDashboardData]);
 
   useEffect(() => {
+    if (cacheRefreshStatus !== "queued" && cacheRefreshStatus !== "loading") return;
+    let cancelled = false;
+
+    const timer = window.setInterval(() => {
+      void fetch("/api/intelligence/cache/refresh", { cache: "no-store" })
+        .then((response) => {
+          if (!response.ok) throw new Error("Could not fetch refresh status");
+          return response.json() as Promise<CacheRefreshStatusPayload>;
+        })
+        .then((payload) => {
+          if (cancelled) return;
+          setCacheRefreshJobStatus(payload);
+
+          if (payload.active) {
+            setCacheRefreshStatus("queued");
+            return;
+          }
+
+          if (payload.job?.status === "failed") {
+            setCacheRefreshStatus("error");
+            return;
+          }
+
+          if (payload.job?.status === "completed") {
+            setCacheRefreshStatus("ready");
+            void loadCachedDashboardData().catch(() => setSecondaryStatus("error"));
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setCacheRefreshStatus("error");
+        });
+    }, 3000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [cacheRefreshStatus, loadCachedDashboardData]);
+
+  useEffect(() => {
     if (regionalRequestIds.length === 0) {
       return;
     }
@@ -521,10 +683,7 @@ export function MissionDashboard({
     return () => window.clearInterval(timer);
   }, [regionalStatus]);
 
-  const activeProfile = config.profileModes.find((mode) => mode.id === profile)!;
-  const ActiveProfileIcon = profileIcon[profile];
-
-  const filteredItems = useMemo(() => {
+  const baseFilteredItems = useMemo(() => {
     return items
       .filter((item) =>
         selectedCategories.length === 0
@@ -535,28 +694,50 @@ export function MissionDashboard({
       .sort(byScore(config, profile));
   }, [config, geographySelection, items, profile, selectedCategories]);
 
+  const filteredItems = baseFilteredItems;
+
   const highSignalItems = filteredItems.filter(
     (item) => getCompositeScore(item, config, profile) >= 55,
   );
-  const topFive = (highSignalItems.length > 0 ? highSignalItems : filteredItems).slice(0, 5);
-  const urgentItems = filteredItems
-    .filter((item) => item.urgency_score >= 78 || item.security_impact_score >= 82)
-    .slice(0, 6);
+  const manualPriorityItems = manualPriorityIds
+    .map((id) => filteredItems.find((item) => item.id === id))
+    .filter((item): item is IntelligenceItem => Boolean(item));
+  const automaticPriorityItems = (highSignalItems.length > 0 ? highSignalItems : filteredItems)
+    .filter((item) => !suppressedPriorityIds.includes(item.id));
+  const automaticTopItems = automaticPriorityItems.slice(0, 5);
+  const priorityItems = [
+    ...manualPriorityItems,
+    ...automaticTopItems.filter((item) => !manualPriorityIds.includes(item.id)),
+  ];
+  const topFive = priorityItems;
+  const prioritizedIds = topFive.map((item) => item.id);
+  const printItems = printItemIds
+    .map((id) => items.find((item) => item.id === id))
+    .filter((item): item is IntelligenceItem => Boolean(item));
   const expandedItem =
     filteredItems.find((item) => item.id === expandedId) ?? filteredItems[0];
 
-  const weeklyItems = filteredItems
-    .filter((item) => item.profile_tags.includes("weekly_summary"))
-    .slice(0, 5);
+  const toggleManualPriority = (id: string, checked: boolean) => {
+    if (checked) {
+      setSuppressedPriorityIds((current) => current.filter((itemId) => itemId !== id));
+      setManualPriorityIds((current) => [id, ...current.filter((itemId) => itemId !== id)]);
+      setExpandedId(id);
+      return;
+    }
 
-  const upcomingItems = filteredItems
-    .filter((item) => item.event_date)
-    .sort((a, b) => (a.event_date ?? "").localeCompare(b.event_date ?? ""))
-    .slice(0, 5);
+    setManualPriorityIds((current) => current.filter((itemId) => itemId !== id));
+    setSuppressedPriorityIds((current) =>
+      current.includes(id) ? current : [id, ...current],
+    );
+  };
 
-  const ambassadorItems = filteredItems
-    .filter((item) => item.profile_tags.includes("ambassador_briefing"))
-    .slice(0, 4);
+  const togglePrintItem = (id: string, checked: boolean) => {
+    setPrintItemIds((current) =>
+      checked
+        ? [id, ...current.filter((itemId) => itemId !== id)]
+        : current.filter((itemId) => itemId !== id),
+    );
+  };
 
   const sourceRows = filteredItems.filter((item) => {
     const q = sourceQuery.trim().toLowerCase();
@@ -622,13 +803,21 @@ export function MissionDashboard({
       const response = await fetch("/api/intelligence/cache/refresh", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scope: "all", force: true }),
+        body: JSON.stringify({
+          scope: "all",
+          rescanSources: true,
+          force: false,
+          limitPerSource: 12,
+        }),
       });
 
       if (!response.ok) {
-        throw new Error("Cacheuppdatering kunde inte köas.");
+        const payload = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(payload.error ?? "Cacheuppdatering kunde inte köas.");
       }
 
+      const payload = (await response.json()) as CacheRefreshStatusPayload;
+      setCacheRefreshJobStatus(payload);
       setCacheRefreshStatus("queued");
     } catch {
       setCacheRefreshStatus("error");
@@ -663,7 +852,14 @@ export function MissionDashboard({
     );
   };
 
+  const activateSignalView = () => {
+    setProfile("daily_overview");
+    setShowBriefingPanel(false);
+    setShowPrintPanel(false);
+  };
+
   const toggleDivision = (id: string) => {
+    activateSignalView();
     setGeographySelection((current) => {
       const currentIds = current.type === "division" ? current.ids : [];
       const nextIds = currentIds.includes(id)
@@ -677,6 +873,7 @@ export function MissionDashboard({
   };
 
   const toggleRegion = (id: string) => {
+    activateSignalView();
     setGeographySelection((current) => {
       const currentIds = current.type === "region" ? current.ids : [];
       const nextIds = currentIds.includes(id)
@@ -689,20 +886,19 @@ export function MissionDashboard({
     });
   };
 
-  const highRiskCount = filteredItems.filter(
-    (item) => item.urgency_score >= 80 || item.security_impact_score >= 85,
-  ).length;
+  const toggleRegionExpansion = (id: string) => {
+    setExpandedRegionIds((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id],
+    );
+  };
 
   const swedenRelevantCount = filteredItems.filter(
     (item) => item.sweden_relevance_score >= 75,
   ).length;
-  const briefingByType = (type: string) =>
-    briefings.find((briefing) => briefing.type === type);
-  const morningBriefing = briefingByType("morning_brief");
-  const ambassadorBriefing = briefingByType("ambassador_brief");
-  const urgentBriefing = briefingByType("urgent_developments");
-  const upcomingBriefing = briefingByType("upcoming_events_advisories");
-  const hasPrimaryData = Boolean(morningBriefing || topFive.length > 0);
+  const morningBriefing = briefings.find((briefing) => briefing.type === "morning_brief");
+  const ambassadorBriefing =
+    briefings.find((briefing) => briefing.type === "ambassador_brief") ?? morningBriefing;
+  const hasPrimaryData = Boolean(ambassadorBriefing || topFive.length > 0);
 
   return (
     <main className={clsx("missiondesk", theme === "light" && "light")}>
@@ -714,53 +910,45 @@ export function MissionDashboard({
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.16em] text-[var(--app-muted)]">
-                <span>{config.embassyName}</span>
+                <span>Sveriges ambassad</span>
                 <span className="h-1 w-1 rounded-full bg-[var(--app-gold)]" />
-                <span>Situationsbild</span>
+                <span>{config.city}</span>
               </div>
               <h1 className="mt-2 text-3xl font-semibold tracking-normal text-[var(--app-fg)] sm:text-4xl">
                 MissionDesk
               </h1>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--app-soft)]">
-                Vad behöver jag förstå i dag? En cache-first lägesbild för {config.city},
-                med prioriterade signaler och spårbara underlag.
+                Verifierade signaler för snabb daglig orientering.
               </p>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:w-[680px]">
-            <StatTile label="Signaler" value={filteredItems.length} icon={Newspaper} />
-            <StatTile label="Kräver koll" value={highRiskCount} icon={CircleAlert} danger />
-            <StatTile label="Sverige" value={swedenRelevantCount} icon={Flag} />
-            <div className="grid min-w-0 grid-cols-2 gap-2">
-              <a
-                href="/sources"
-                className="flex min-h-20 min-w-0 flex-col justify-between rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-3 text-left transition hover:border-[var(--app-accent)]"
-                aria-label="Öppna källhanteraren"
-              >
-                <span className="flex items-center justify-between gap-2 text-xs leading-none text-[var(--app-muted)]">
-                  Källor
-                  <Database className="h-4 w-4" />
-                </span>
-                <span className="text-sm font-semibold leading-5 text-[var(--app-fg)]">
-                  Hantera
-                </span>
-              </a>
-              <button
-                type="button"
-                onClick={() => setTheme((value) => (value === "dark" ? "light" : "dark"))}
-                className="flex min-h-20 min-w-0 flex-col justify-between rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-3 text-left transition hover:border-[var(--app-accent)]"
-                aria-label="Växla färgtema"
-              >
-                <span className="flex items-center justify-between gap-2 text-xs leading-none text-[var(--app-muted)]">
-                  Tema
-                  {theme === "dark" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-                </span>
-                <span className="text-sm font-semibold leading-5 text-[var(--app-fg)]">
-                  {theme === "dark" ? "Mörkt" : "Ljust"}
-                </span>
-              </button>
-            </div>
+          <div className="flex flex-wrap items-center justify-start gap-2 lg:max-w-[520px] lg:justify-end">
+            <a
+              href="/sources"
+              className="flex min-h-12 min-w-[92px] flex-col justify-between rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-2.5 py-1.5 text-left transition hover:border-[var(--app-accent)] hover:text-[var(--app-fg)]"
+              aria-label="Öppna källhanteraren"
+            >
+              <span className="flex items-center justify-between gap-2 text-[11px] leading-none text-[var(--app-fg)]">
+                {activeSourceCount} {activeSourceCount === 1 ? "källa" : "källor"}
+                <Database className="h-3 w-3 text-[var(--app-muted)]" />
+              </span>
+              <span className="text-[11px] leading-4 text-[var(--app-muted)]">Hantera</span>
+            </a>
+            <button
+              type="button"
+              onClick={() => setTheme((value) => (value === "dark" ? "light" : "dark"))}
+              className="flex min-h-12 min-w-[92px] flex-col justify-between rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-2.5 py-1.5 text-left transition hover:border-[var(--app-accent)] hover:text-[var(--app-fg)]"
+              aria-label="Växla färgtema"
+            >
+              <span className="flex items-center justify-between gap-2 text-[11px] leading-none text-[var(--app-fg)]">
+                Tema
+                {theme === "dark" ? <Moon className="h-3 w-3 text-[var(--app-muted)]" /> : <Sun className="h-3 w-3 text-[var(--app-muted)]" />}
+              </span>
+              <span className="text-[11px] leading-4 text-[var(--app-muted)]">
+                {theme === "dark" ? "Mörkt" : "Ljust"}
+              </span>
+            </button>
           </div>
         </header>
 
@@ -794,38 +982,65 @@ export function MissionDashboard({
               Cache till {formatDate(cacheExpiresAt, true)}
             </span>
           )}
+          {geographySelection.type !== "national" && (
+            <span
+              className={clsx(
+                "text-xs",
+                regionalStatus === "error"
+                  ? "text-[var(--app-warning)]"
+                  : "text-[var(--app-muted)]",
+              )}
+            >
+              {regionalStatus === "loading"
+                ? regionalLoadingMessages[regionalMessageIndex]
+                : regionalStatus === "ready"
+                  ? `Regional cache ${regionalFreshness ? `uppdaterad ${formatDate(regionalFreshness, true)}` : "redo"}`
+                  : regionalStatus === "empty"
+                    ? "Inga regionala signaler över tröskeln"
+                    : regionalStatus === "error"
+                      ? regionalError || "Regional signalbearbetning misslyckades"
+                      : null}
+            </span>
+          )}
+          {cacheRefreshJobStatus && cacheRefreshStatus !== "idle" && (
+            <span
+              className={clsx(
+                "text-xs",
+                cacheRefreshStatus === "error"
+                  ? "text-[var(--app-warning)]"
+                  : "text-[var(--app-muted)]",
+              )}
+            >
+              {cacheRefreshJobStatus.message}
+              {cacheRefreshJobStatus.active
+                ? ` ${Math.round(cacheRefreshJobStatus.progressPercent)}%`
+                : ""}
+            </span>
+          )}
           <button
             type="button"
             onClick={() => void handleNationalCacheRefresh()}
-            disabled={cacheRefreshStatus === "loading"}
+            disabled={cacheRefreshStatus === "loading" || cacheRefreshStatus === "queued"}
             className="inline-flex items-center gap-2 rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-3 py-2 text-xs font-medium text-[var(--app-soft)] transition hover:border-[var(--app-accent)] hover:text-[var(--app-fg)] disabled:cursor-wait disabled:opacity-60"
           >
             <RefreshCw
               className={clsx(
                 "h-3.5 w-3.5",
-                cacheRefreshStatus === "loading" && "animate-spin",
+                (cacheRefreshStatus === "loading" || cacheRefreshStatus === "queued") &&
+                  "animate-spin",
               )}
             />
-            {cacheRefreshStatus === "queued"
-              ? "Uppdatering köad"
-              : cacheRefreshStatus === "error"
-                ? "Försök igen"
-                : "Uppdatera"}
+            {cacheRefreshStatus === "loading"
+              ? "Startar..."
+              : cacheRefreshStatus === "queued"
+                ? "Skannar..."
+                : cacheRefreshStatus === "ready"
+                  ? "Uppdatera igen"
+                  : cacheRefreshStatus === "error"
+                    ? "Försök igen"
+                    : "Uppdatera"}
           </button>
         </section>
-
-        {geographySelection.type !== "national" && (
-          <RegionalCachePanel
-            label={activeGeoLabel}
-            status={regionalStatus}
-            message={regionalLoadingMessages[regionalMessageIndex]}
-            freshnessTimestamp={regionalFreshness}
-            cacheExpiresAt={regionalCacheExpiresAt}
-            fromCache={regionalFromCache}
-            error={regionalError}
-            onRefresh={() => void handleRegionalRefresh()}
-          />
-        )}
 
         {showFirstRunPanel && (
           <FirstRunPanel
@@ -835,331 +1050,392 @@ export function MissionDashboard({
           />
         )}
 
-        <PrimaryBriefingPanel
-          briefing={morningBriefing}
-          fallbackItems={topFive}
-          cacheTimestamp={cacheTimestamp}
-        />
-
-        <div className="grid gap-5 xl:grid-cols-[390px_minmax(0,1fr)]">
-          <aside className="flex flex-col gap-5">
-            <section className="surface rounded-lg p-4">
-              <SectionKicker icon={ListFilter} label="Profil" />
-              <p className="mt-2 text-xs leading-5 text-[var(--app-muted)]">
-                Välj ett perspektiv när urvalet behöver vägas om.
-              </p>
-              <div className="mt-4 grid gap-2">
-                {config.profileModes.map((mode) => {
-                  const Icon = profileIcon[mode.id];
-                  const active = mode.id === profile;
-                  return (
-                    <button
-                      key={mode.id}
-                      type="button"
-                      onClick={() => setProfile(mode.id)}
-                      className={clsx(
-                        "flex items-center gap-3 rounded-md border px-3 py-3 text-left transition",
-                        active
-                          ? "border-[var(--app-accent)] bg-[color-mix(in_srgb,var(--app-accent),transparent_84%)]"
-                          : "border-[var(--app-line)] bg-[var(--app-panel-muted)] hover:border-[var(--app-accent)]",
-                      )}
-                    >
-                      <Icon className="h-4 w-4 shrink-0 text-[var(--app-accent)]" />
-                      <span className="min-w-0">
-                        <span className="block text-sm font-medium text-[var(--app-fg)]">
-                          {mode.label}
-                        </span>
-                        <span className="mt-0.5 block text-xs leading-5 text-[var(--app-muted)]">
-                          {mode.description}
-                        </span>
-                      </span>
-                    </button>
-                  );
-                })}
+        <div className="grid gap-6 xl:grid-cols-[300px_minmax(0,1fr)]">
+          <aside className="thin-scrollbar surface-strong rounded-xl p-4 xl:sticky xl:top-4 xl:max-h-[calc(100dvh-2rem)] xl:self-start xl:overflow-y-auto xl:overscroll-contain">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <SectionKicker icon={Filter} label="Filter" />
+                <p className="mt-2 text-xs leading-5 text-[var(--app-muted)]">
+                  Välj perspektiv, tematiska filter och geografi utan att lämna huvudflödet.
+                </p>
               </div>
-            </section>
+            </div>
 
-            <section className="surface rounded-lg p-4">
-              <div className="flex items-center justify-between gap-3">
-                <SectionKicker icon={Filter} label="Tematiska filter" />
-                {selectedCategories.length > 0 && (
+            <div className="mt-5 space-y-5">
+              <div>
+                <p className="mb-2 text-xs leading-5 text-[var(--app-muted)]">Perspektiv</p>
+                <div className="grid gap-2">
+                  <SidebarBriefingToggle
+                    active={showBriefingPanel && !showPrintPanel}
+                    briefing={ambassadorBriefing}
+                    onClick={() => {
+                      setShowBriefingPanel(true);
+                      setShowPrintPanel(false);
+                    }}
+                  />
+                  {config.profileModes
+                    .filter(
+                      (mode) =>
+                        mode.id !== "sweden_connection" &&
+                        mode.id !== "ambassador_briefing" &&
+                        mode.id !== "trade_business" &&
+                        mode.id !== "political_risk" &&
+                        mode.id !== "security",
+                    )
+                    .map((mode) => {
+                    const Icon = profileIcon[mode.id];
+                    const active = !showBriefingPanel && !showPrintPanel && mode.id === profile;
+                    return (
+                      <div key={mode.id} className="grid gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setProfile(mode.id);
+                            setShowBriefingPanel(false);
+                            setShowPrintPanel(false);
+                          }}
+                          className={clsx(
+                            "flex items-center gap-3 rounded-lg border px-3 py-3 text-left transition",
+                            active
+                              ? "border-[var(--app-accent)] bg-[color-mix(in_srgb,var(--app-accent),transparent_86%)]"
+                              : "border-[var(--app-line)] bg-[var(--app-panel-muted)] hover:border-[var(--app-accent)]",
+                          )}
+                        >
+                          <Icon className="h-4 w-4 shrink-0 text-[var(--app-accent)]" />
+                          <span className="min-w-0">
+                            <span className="block text-sm font-medium text-[var(--app-fg)]">
+                              {mode.label}
+                            </span>
+                            <span className="mt-0.5 block text-xs leading-5 text-[var(--app-muted)]">
+                              {mode.shortLabel}
+                            </span>
+                          </span>
+                        </button>
+                      </div>
+                    );
+                  })}
                   <button
                     type="button"
-                    onClick={() => setSelectedCategories([])}
-                    className="text-xs text-[var(--app-accent)] hover:text-[var(--app-accent-strong)]"
+                    onClick={() => {
+                      setShowBriefingPanel(false);
+                      setShowPrintPanel(true);
+                    }}
+                    className={clsx(
+                      "flex items-center gap-3 rounded-lg border px-3 py-3 text-left transition",
+                      showPrintPanel
+                        ? "border-[var(--app-accent)] bg-[color-mix(in_srgb,var(--app-accent),transparent_86%)]"
+                        : "border-[var(--app-line)] bg-[var(--app-panel-muted)] hover:border-[var(--app-accent)]",
+                    )}
                   >
-                    Rensa
+                    <Printer className="h-4 w-4 shrink-0 text-[var(--app-accent)]" />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-[var(--app-fg)]">
+                        Skapa mötesunderlag
+                      </span>
+                      <span className="mt-0.5 block text-xs leading-5 text-[var(--app-muted)]">
+                        Anpassad utskrift
+                      </span>
+                    </span>
                   </button>
-                )}
-              </div>
-              <div className="mt-4 flex flex-wrap gap-2">
-                {config.themeCategories.map((category) => {
-                  const active = selectedCategories.includes(category.id);
-                  const Icon = categoryIcon[category.id];
-                  return (
-                    <button
-                      key={category.id}
-                      type="button"
-                      onClick={() => toggleCategory(category.id)}
-                      className={clsx(
-                        "flex items-center gap-2 rounded-md border px-3 py-2 text-xs font-medium transition",
-                        active
-                          ? "border-[var(--app-accent)] bg-[color-mix(in_srgb,var(--app-accent),transparent_82%)] text-[var(--app-accent-strong)]"
-                          : "border-[var(--app-line)] bg-[var(--app-panel-muted)] text-[var(--app-soft)] hover:border-[var(--app-accent)]",
-                      )}
-                    >
-                      <Icon className="h-3.5 w-3.5" />
-                      {category.label}
-                    </button>
-                  );
-                })}
-              </div>
-            </section>
-
-            <section className="surface rounded-lg p-4">
-              <div className="flex items-center justify-between gap-3">
-                <SectionKicker icon={MapPin} label="Geografisk filtrering" />
-                <div className="flex rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-1">
-                  <IconButton
-                    label="Lista"
-                    active={geoView === "list"}
-                    onClick={() => setGeoView("list")}
-                    icon={ListFilter}
-                  />
-                  <IconButton
-                    label="Karta"
-                    active={geoView === "map"}
-                    onClick={() => setGeoView("map")}
-                    icon={Map}
-                  />
                 </div>
               </div>
 
-              <button
-                type="button"
-                onClick={() => setGeographySelection({ type: "national", ids: [] })}
-                className={clsx(
-                  "mt-4 flex w-full items-center justify-between rounded-md border px-3 py-3 text-left transition",
-                  geographySelection.type === "national"
-                    ? "border-[var(--app-accent)] bg-[color-mix(in_srgb,var(--app-accent),transparent_84%)]"
-                    : "border-[var(--app-line)] bg-[var(--app-panel-muted)] hover:border-[var(--app-accent)]",
-                )}
-              >
-                <span>
-                  <span className="block text-sm font-medium">Nationellt</span>
-                  <span className="block text-xs text-[var(--app-muted)]">
-                    Endast nationella signaler som standard
-                  </span>
-                </span>
-                {geographySelection.type === "national" && (
-                  <Check className="h-4 w-4 text-[var(--app-accent)]" />
-                )}
-              </button>
+              <div className="border-t border-[var(--app-line)] pt-5">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs leading-5 text-[var(--app-muted)]">Regional filtrering</p>
+                  <div className="flex rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-1">
+                    <IconButton
+                      label="Lista"
+                      active={geoView === "list"}
+                      onClick={() => setGeoView("list")}
+                      icon={ListFilter}
+                    />
+                    <IconButton
+                      label="Karta"
+                      active={geoView === "map"}
+                      onClick={() => setGeoView("map")}
+                      icon={MapIcon}
+                    />
+                  </div>
+                </div>
 
-              <div className="mt-4">
-                <p className="mb-2 text-xs uppercase tracking-[0.14em] text-[var(--app-muted)]">
-                  Regiongrupper
-                </p>
-                <div className="grid gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    activateSignalView();
+                    setGeographySelection({ type: "national", ids: [] });
+                  }}
+                  className={clsx(
+                    "mt-3 flex w-full items-center justify-between rounded-lg border px-3 py-3 text-left transition",
+                    geographySelection.type === "national"
+                      ? "border-[var(--app-accent)] bg-[color-mix(in_srgb,var(--app-accent),transparent_86%)]"
+                      : "border-[var(--app-line)] bg-[var(--app-panel-muted)] hover:border-[var(--app-accent)]",
+                  )}
+                >
+                  <span>
+                    <span className="block text-sm font-medium">Nationellt</span>
+                    <span className="block text-xs text-[var(--app-muted)]">
+                      Utgångsläget för hela landet
+                    </span>
+                  </span>
+                  {geographySelection.type === "national" && (
+                    <Check className="h-4 w-4 text-[var(--app-accent)]" />
+                  )}
+                </button>
+
+                <div className="mt-3 space-y-3">
                   {config.geography.regions.map((region) => {
                     const active =
                       geographySelection.type === "region" &&
                       geographySelection.ids.includes(region.id);
+                    const hasActiveDivision =
+                      geographySelection.type === "division" &&
+                      geographySelection.ids.some((id) => region.divisionIds.includes(id));
+                    const expanded = expandedRegionIds.includes(region.id) || hasActiveDivision;
+                    const divisions = config.geography.administrativeDivisions.filter(
+                      (division) => region.divisionIds.includes(division.id),
+                    );
+
                     return (
-                      <button
+                      <div
                         key={region.id}
-                        type="button"
-                        onClick={() => toggleRegion(region.id)}
-                        className={clsx(
-                          "rounded-md border px-3 py-2 text-left transition",
-                          active
-                            ? "border-[var(--app-accent)] bg-[color-mix(in_srgb,var(--app-accent),transparent_84%)]"
-                            : "border-[var(--app-line)] bg-[var(--app-panel-muted)] hover:border-[var(--app-accent)]",
-                        )}
+                        className="rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-2"
                       >
-                        <span className="flex items-center justify-between gap-3">
-                          <span className="text-sm font-medium text-[var(--app-fg)]">
-                            {region.displayName}
-                          </span>
-                          <span className="font-mono text-xs text-[var(--app-muted)]">
-                            {region.divisionIds.length}
-                          </span>
-                        </span>
-                        <span className="mt-1 block text-xs leading-5 text-[var(--app-muted)]">
-                          {region.description}
-                        </span>
-                      </button>
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => toggleRegion(region.id)}
+                            className={clsx(
+                              "w-full rounded-md border px-3 py-2 text-left transition",
+                              active
+                                ? "border-[var(--app-accent)] bg-[color-mix(in_srgb,var(--app-accent),transparent_86%)]"
+                                : "border-transparent bg-transparent hover:border-[var(--app-accent)] hover:bg-[var(--app-panel-muted)]",
+                            )}
+                          >
+                            <span className="flex items-center justify-between gap-3">
+                              <span className="text-sm font-medium text-[var(--app-fg)]">
+                                {region.displayName}
+                              </span>
+                              <span className="font-mono text-xs text-[var(--app-muted)]">
+                                {region.divisionIds.length}
+                              </span>
+                            </span>
+                            <span className="mt-1 block pr-7 text-xs leading-5 text-[var(--app-muted)]">
+                              {region.description}
+                            </span>
+                          </button>
+
+                          <button
+                            type="button"
+                            aria-expanded={expanded}
+                            aria-label={
+                              expanded
+                                ? `Dölj delstater i ${region.displayName}`
+                                : `Visa delstater i ${region.displayName}`
+                            }
+                            onClick={() => toggleRegionExpansion(region.id)}
+                            className="absolute bottom-2 right-2 z-10 inline-flex h-5 w-5 items-center justify-center rounded text-[var(--app-muted)] transition hover:bg-[var(--app-panel)] hover:text-[var(--app-fg)]"
+                          >
+                            <ChevronDown
+                              className={clsx(
+                                "h-3 w-3 opacity-80 transition-transform",
+                                expanded && "rotate-180",
+                              )}
+                            />
+                          </button>
+                        </div>
+
+                        {expanded && (
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {divisions.map((division) => {
+                              const divisionActive =
+                                geographySelection.type === "division" &&
+                                geographySelection.ids.includes(division.id);
+
+                              return (
+                                <button
+                                  key={division.id}
+                                  type="button"
+                                  onClick={() => toggleDivision(division.id)}
+                                  className={clsx(
+                                    "inline-flex min-h-7 max-w-full items-center rounded-[4px] border px-2 py-1 text-left text-[11px] font-medium leading-4 transition",
+                                    divisionActive
+                                      ? "border-[var(--app-accent)] bg-[color-mix(in_srgb,var(--app-accent),transparent_84%)] text-[var(--app-accent-strong)]"
+                                      : "border-[var(--app-line)] bg-[var(--app-panel)] text-[var(--app-soft)] hover:border-[var(--app-accent)]",
+                                  )}
+                                >
+                                  <span className="min-w-0 whitespace-nowrap">
+                                    {division.displayName}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
               </div>
 
-              <div className="mt-4">
-                <p className="mb-2 text-xs uppercase tracking-[0.14em] text-[var(--app-muted)]">
-                  {config.geography.geographicUnitPluralLabel}
-                </p>
-                {geoView === "list" ? (
-                  <div className="thin-scrollbar max-h-[360px] overflow-y-auto pr-1">
-                    <div className="flex flex-wrap gap-2">
-                      {config.geography.administrativeDivisions.map((division) => {
-                        const active =
-                          geographySelection.type === "division" &&
-                          geographySelection.ids.includes(division.id);
-                        return (
-                          <button
-                            key={division.id}
-                            type="button"
-                            onClick={() => toggleDivision(division.id)}
-                            className={clsx(
-                              "flex items-center gap-2 rounded-md border px-2.5 py-2 text-xs transition",
-                              active
-                                ? "border-[var(--app-accent)] bg-[color-mix(in_srgb,var(--app-accent),transparent_80%)] text-[var(--app-accent-strong)]"
-                                : "border-[var(--app-line)] bg-[var(--app-panel-muted)] text-[var(--app-soft)] hover:border-[var(--app-accent)]",
-                            )}
-                          >
-                            {division.priority && (
-                              <span className="h-1.5 w-1.5 rounded-full bg-[var(--app-gold)]" />
-                            )}
-                            {division.displayName}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 gap-2">
-                    {config.geography.regions.map((region) => {
-                      const regionItems = items.filter((item) =>
-                        item.geographic_tags.some((tag) =>
-                          region.divisionIds.includes(tag),
-                        ),
-                      );
-                      return (
-                        <button
-                          key={region.id}
-                          type="button"
-                          onClick={() => setGeographySelection({ type: "region", ids: [region.id] })}
-                          className="min-h-[112px] rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-3 text-left transition hover:border-[var(--app-accent)]"
-                        >
-                          <span className="block text-sm font-semibold">{region.displayName}</span>
-                          <span className="mt-2 block h-1.5 rounded-full bg-[color-mix(in_srgb,var(--app-muted),transparent_70%)]">
-                            <span
-                              className="block h-1.5 rounded-full bg-[var(--app-accent)]"
-                              style={{
-                                width: `${Math.min(100, regionItems.length * 22)}%`,
-                              }}
-                            />
-                          </span>
-                          <span className="mt-3 block text-xs text-[var(--app-muted)]">
-                            {regionItems.length} signaler i urvalet
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </section>
-          </aside>
-
-          <div className="flex min-w-0 flex-col gap-5">
-            <section className="surface-strong overflow-hidden rounded-lg">
-              <div className="border-b border-[var(--app-line)] px-5 py-4">
-                <div className="flex flex-col gap-4">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.16em] text-[var(--app-muted)]">
-                        <ActiveProfileIcon className="h-4 w-4 text-[var(--app-accent)]" />
-                        <span>{activeProfile.label}</span>
-                        <span className="h-1 w-1 rounded-full bg-[var(--app-gold)]" />
-                        <span>{activeGeoLabel}</span>
-                      </div>
-                      <h2 className="mt-2 text-2xl font-semibold tracking-normal">
-                        Topp prioriterade signaler
-                      </h2>
-                      <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--app-soft)]">
-                        Det här är de starkaste signalerna i urvalet just nu. Använd dem som
-                        underlag för snabb prioritering och fortsatt läsning.
-                      </p>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2">
-                      <MiniSignal label="Signaler" value={filteredItems.length} />
-                      <MiniSignal label="Kräver koll" value={highRiskCount} danger />
-                      <MiniSignal label="Sverige" value={swedenRelevantCount} />
-                    </div>
-                  </div>
-                  <p className="max-w-3xl text-xs leading-5 text-[var(--app-muted)]">
-                    Detaljerna till höger visar spårbart underlag för den valda signalen.
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid gap-0 xl:grid-cols-[minmax(0,1fr)_380px]">
-                <div className="divide-y divide-[var(--app-line)]">
-                  {topFive.length > 0 ? (
-                    topFive.map((item, index) => (
-                      <IntelligenceCard
-                        key={item.id}
-                        item={item}
-                        index={index}
-                        config={config}
-                        profile={profile}
-                        active={expandedItem?.id === item.id}
-                        onSelect={() => setExpandedId(item.id)}
-                      />
-                    ))
-                  ) : (
-                    <SkeletonStack
-                      label={
-                        geographySelection.type === "national"
-                          ? "Ingen färsk nationell signalcache"
-                          : "Ingen regional signal över tröskeln"
-                      }
-                    />
+              <div className="border-t border-[var(--app-line)] pt-5">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs leading-5 text-[var(--app-muted)]">Tematiska filter</p>
+                  {selectedCategories.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setSelectedCategories([])}
+                      className="text-xs text-[var(--app-accent)] hover:text-[var(--app-accent-strong)]"
+                    >
+                      Rensa
+                    </button>
                   )}
                 </div>
-
-                <DetailPanel item={expandedItem} config={config} profile={profile} />
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {getOrderedThemeCategories(config).map((category) => {
+                    const active = selectedCategories.includes(category.id);
+                    const Icon = categoryIcon[category.id];
+                    return (
+                      <button
+                        key={category.id}
+                        type="button"
+                        onClick={() => toggleCategory(category.id)}
+                        className={clsx(
+                          "inline-flex min-h-7 max-w-full items-center gap-1.5 rounded-[4px] border px-2 py-1 text-left text-[11px] font-medium leading-4 transition",
+                          active
+                            ? "border-[var(--app-accent)] bg-[color-mix(in_srgb,var(--app-accent),transparent_86%)] text-[var(--app-accent-strong)]"
+                            : "border-[var(--app-line)] bg-[var(--app-panel-muted)] text-[var(--app-soft)] hover:border-[var(--app-accent)]",
+                        )}
+                      >
+                        <Icon
+                          className={clsx(
+                            "h-3 w-3 shrink-0",
+                            categoryIconTone[category.id],
+                            active && "brightness-125",
+                          )}
+                        />
+                        <span className="min-w-0 whitespace-nowrap">{category.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </section>
+            </div>
+          </aside>
 
-            <section className="grid gap-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)]">
-              <AmbassadorBriefing
-                items={ambassadorItems}
+          <div className="flex min-w-0 flex-col gap-6">
+            {showBriefingPanel && !showPrintPanel && (
+              <PrimaryBriefingPanel
                 briefing={ambassadorBriefing}
-                config={config}
-                profile={profile}
-              />
-              <UrgentDevelopments
-                items={urgentItems}
-                briefing={urgentBriefing}
+                fallbackItems={topFive}
+                allItems={items}
+                cacheTimestamp={cacheTimestamp}
                 config={config}
               />
-            </section>
+            )}
 
-            <EventTimeline
-              items={upcomingItems}
-              briefing={upcomingBriefing}
-              config={config}
-              loading={secondaryStatus === "loading" && items.length === initialItems.length}
-            />
-
-            <ProgressiveSection loading={secondaryStatus === "loading"} label="Läser sekundär cache">
-              <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.85fr)]">
-                <WeeklySummary items={weeklyItems} config={config} />
-                <ThemeMatrix items={filteredItems} config={config} />
-              </section>
-            </ProgressiveSection>
-
-            <ProgressiveSection loading={secondaryStatus === "loading"} label="Läser källindex">
+            {showBriefingPanel && !showPrintPanel && (
               <SourceFeed
                 rows={sourceRows}
                 query={sourceQuery}
                 onQueryChange={setSourceQuery}
                 config={config}
                 profile={profile}
+                prioritizedIds={prioritizedIds}
+                onTogglePriority={toggleManualPriority}
               />
-            </ProgressiveSection>
+            )}
+
+            {showPrintPanel && (
+              <CustomPrintPanel
+                items={printItems}
+                config={config}
+                cacheTimestamp={cacheTimestamp}
+                onRemove={(id) => togglePrintItem(id, false)}
+              />
+            )}
+
+            {!showBriefingPanel && !showPrintPanel && (
+              <section className="surface-strong rounded-xl p-5">
+                <div className="flex flex-col gap-3 border-b border-[var(--app-line)] pb-5 lg:flex-row lg:items-end lg:justify-between">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <SectionKicker icon={Target} label="Aktuella signaler" />
+                      <span className="text-xs text-[var(--app-muted)]">–</span>
+                      <span className="inline-flex items-center rounded border border-[color-mix(in_srgb,var(--app-gold),transparent_42%)] bg-[color-mix(in_srgb,var(--app-gold),transparent_86%)] px-2 py-1 text-xs font-medium text-[var(--app-gold)]">
+                        {activeGeoLabel || config.geography.nationalLabel}
+                      </span>
+                    </div>
+                    <h2 className="mt-3 text-2xl font-semibold tracking-normal">
+                      Prioriterade signaler
+                    </h2>
+                    <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--app-soft)]">
+                      Bearbetade signaler från verifierade källor. Öppna en signal för
+                      spårbarhet, relevans och uppföljning.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Pill tone="neutral">{filteredItems.length} signaler</Pill>
+                    <Pill tone={swedenRelevantCount > 0 ? "gold" : "neutral"}>
+                      {swedenRelevantCount > 0
+                        ? `${swedenRelevantCount} med Sverigekoppling`
+                        : "Ingen tydlig svensk koppling"}
+                    </Pill>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
+                  <div className="space-y-3">
+                    {topFive.length > 0 ? (
+                      topFive.map((item, index) => (
+                        <IntelligenceCard
+                          key={item.id}
+                          item={item}
+                          index={index}
+                          config={config}
+                          profile={profile}
+                          active={expandedItem?.id === item.id}
+                          onSelect={() => setExpandedId(item.id)}
+                          onUnprioritize={() => toggleManualPriority(item.id, false)}
+                        />
+                      ))
+                    ) : (
+                      <SkeletonStack
+                        label={
+                          geographySelection.type === "national"
+                            ? "Ingen färsk nationell signalcache"
+                            : "Ingen regional signal över tröskeln"
+                        }
+                      />
+                    )}
+                  </div>
+
+                  <DetailPanel
+                    item={expandedItem}
+                    composite={expandedItem ? getCompositeScore(expandedItem, config, profile) : 0}
+                    config={config}
+                    printSelected={expandedItem ? printItemIds.includes(expandedItem.id) : false}
+                    onTogglePrint={
+                      expandedItem
+                        ? (checked) => togglePrintItem(expandedItem.id, checked)
+                        : undefined
+                    }
+                  />
+                </div>
+              </section>
+            )}
+
+            {!showBriefingPanel && !showPrintPanel && (
+              <SourceFeed
+                rows={sourceRows}
+                query={sourceQuery}
+                onQueryChange={setSourceQuery}
+                config={config}
+                profile={profile}
+                prioritizedIds={prioritizedIds}
+                onTogglePriority={toggleManualPriority}
+              />
+            )}
           </div>
         </div>
       </div>
@@ -1167,61 +1443,156 @@ export function MissionDashboard({
   );
 }
 
-function StatTile({
-  label,
-  value,
-  icon: Icon,
-  danger,
+function CustomPrintPanel({
+  items,
+  config,
+  cacheTimestamp,
+  onRemove,
 }: {
-  label: string;
-  value: number;
-  icon: LucideIcon;
-  danger?: boolean;
+  items: IntelligenceItem[];
+  config: EmbassyConfig;
+  cacheTimestamp?: string;
+  onRemove: (id: string) => void;
 }) {
+  const [printGeneratedAt, setPrintGeneratedAt] = useState(() => new Date().toISOString());
+
+  const handlePrint = () => {
+    setPrintGeneratedAt(new Date().toISOString());
+    window.setTimeout(() => window.print(), 0);
+  };
+
   return (
-    <div className="flex min-h-20 min-w-0 flex-col justify-between rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-3">
-      <span className="flex items-center justify-between gap-2 text-xs leading-none text-[var(--app-muted)]">
-        {label}
-        <Icon className={clsx("h-4 w-4", danger && "text-[var(--app-danger)]")} />
-      </span>
-      <span className="font-mono text-2xl font-semibold leading-none text-[var(--app-fg)]">
-        {value}
-      </span>
-    </div>
+    <section className="missiondesk-print-panel surface-strong rounded-xl p-5">
+      <div className="flex flex-col gap-4 border-b border-[var(--app-line)] pb-5 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <h2 className="missiondesk-print-title text-2xl font-semibold tracking-normal">
+            Mötesunderlag
+          </h2>
+          <p className="missiondesk-print-meta mt-1 text-sm">
+            Sveriges ambassad · {config.city}
+          </p>
+          <p className="missiondesk-print-generated text-sm">
+            Utskriven {formatDate(printGeneratedAt, true)}
+          </p>
+          <div className="missiondesk-print-screen-header">
+            <SectionKicker icon={Printer} label="Skapa mötesunderlag" />
+            <h2 className="mt-3 text-2xl font-semibold tracking-normal">
+              Anpassad utskrift
+            </h2>
+            <p className="mt-1 text-sm text-[var(--app-muted)]">
+              MissionDesk · Sveriges ambassad · {config.city}
+            </p>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--app-soft)]">
+              Valda signaler sammanställs med kort sammanfattning, betydelse och spårbar källa.
+            </p>
+          </div>
+        </div>
+        <div className="missiondesk-print-actions flex flex-wrap gap-2">
+          <Pill tone="neutral">{items.length} valda signaler</Pill>
+          {cacheTimestamp && <Pill tone="accent">Uppdaterad {formatDate(cacheTimestamp, true)}</Pill>}
+          <button
+            type="button"
+            onClick={handlePrint}
+            disabled={items.length === 0}
+            className="inline-flex items-center gap-2 rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-3 py-2 text-xs font-medium text-[var(--app-soft)] transition hover:border-[var(--app-accent)] hover:text-[var(--app-fg)] disabled:cursor-not-allowed disabled:opacity-45"
+          >
+            <Printer className="h-3.5 w-3.5" />
+            Skriv ut
+          </button>
+        </div>
+      </div>
+
+      {items.length > 0 ? (
+        <div className="missiondesk-print-list mt-4 space-y-3">
+          {items.map((item, index) => {
+            const Icon = categoryIcon[item.category];
+
+            return (
+              <article
+                key={item.id}
+                className="missiondesk-print-item rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-3"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="missiondesk-print-title-row">
+                      <div className="missiondesk-print-meta-line mb-2 flex flex-wrap items-center gap-2 text-xs text-[var(--app-muted)]">
+                        <span className="missiondesk-print-index font-mono text-[var(--app-gold)]">
+                          {String(index + 1).padStart(2, "0")}
+                        </span>
+                        <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
+                        <span className="flex items-center gap-1.5">
+                          <Icon className={clsx("h-3.5 w-3.5", categoryIconTone[item.category])} />
+                          {getCategoryLabel(config, item.category)}
+                        </span>
+                        <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
+                        <span>{getGeographyLabel(item, config)}</span>
+                        <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
+                        <span>{formatDate(item.published_at, true)}</span>
+                      </div>
+                      <h3 className="min-w-0 text-base font-semibold leading-6 text-[var(--app-fg)]">
+                        {item.title_sv}
+                      </h3>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onRemove(item.id)}
+                    className="missiondesk-print-remove shrink-0 rounded border border-[var(--app-line)] bg-[var(--app-panel)] px-2 py-1 text-xs text-[var(--app-muted)] transition hover:border-[var(--app-danger)] hover:text-[var(--app-danger)]"
+                  >
+                    Ta bort
+                  </button>
+                </div>
+
+                <div className="mt-3 space-y-2.5">
+                  <div>
+                    <p className="missiondesk-summary-label text-xs tracking-[0.08em] text-[var(--app-muted)]">
+                      Sammanfattning
+                    </p>
+                    <p className="mt-1 text-sm leading-5 text-[var(--app-soft)]">
+                      {item.summary_sv}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs tracking-[0.08em] text-[var(--app-muted)]">
+                      Varför det kan spela roll
+                    </p>
+                    <p className="mt-1 text-sm leading-5 text-[var(--app-soft)]">
+                      {item.why_it_matters_sv}
+                    </p>
+                  </div>
+                  <div className="missiondesk-print-source text-xs leading-5 text-[var(--app-muted)]">
+                    <span className="font-medium text-[var(--app-soft)]">
+                      {item.source_name}
+                    </span>
+                    <span className="mx-1 text-[var(--app-muted)]">·</span>
+                    <a
+                      href={item.source_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="break-all font-medium text-[var(--app-accent)] hover:text-[var(--app-accent-strong)]"
+                    >
+                      {item.source_url}
+                    </a>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="mt-5">
+          <EmptyState title="Inga signaler valda för anpassad utskrift" />
+        </div>
+      )}
+    </section>
   );
 }
 
 function SectionKicker({ icon: Icon, label }: { icon: LucideIcon; label: string }) {
   return (
-    <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.14em] text-[var(--app-muted)]">
+    <div className="flex items-center gap-2 text-xs font-medium tracking-[0.08em] text-[var(--app-muted)]">
       <Icon className="h-4 w-4 text-[var(--app-accent)]" />
       {label}
-    </div>
-  );
-}
-
-function MiniSignal({
-  label,
-  value,
-  danger,
-}: {
-  label: string;
-  value: number;
-  danger?: boolean;
-}) {
-  return (
-    <div className="flex min-w-0 flex-col justify-between rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-3 py-2">
-      <span className="text-[10px] uppercase tracking-[0.14em] text-[var(--app-muted)]">
-        {label}
-      </span>
-      <span
-        className={clsx(
-          "mt-1 font-mono text-lg font-semibold leading-none text-[var(--app-fg)]",
-          danger && "text-[var(--app-danger)]",
-        )}
-      >
-        {value}
-      </span>
     </div>
   );
 }
@@ -1251,6 +1622,38 @@ function IconButton({
       )}
     >
       <Icon className="h-4 w-4" />
+    </button>
+  );
+}
+
+function SidebarBriefingToggle({
+  active,
+  briefing,
+  onClick,
+}: {
+  active: boolean;
+  briefing?: Briefing;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={clsx(
+        "flex items-center gap-3 rounded-lg border px-3 py-3 text-left transition",
+        active
+          ? "border-[var(--app-accent)] bg-[color-mix(in_srgb,var(--app-accent),transparent_86%)]"
+          : "border-[var(--app-line)] bg-[var(--app-panel-muted)] hover:border-[var(--app-accent)]",
+      )}
+      aria-pressed={active}
+    >
+      <Gauge className="h-4 w-4 shrink-0 text-[var(--app-accent)]" />
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-[var(--app-fg)]">Briefing</span>
+        <span className="mt-0.5 block text-xs leading-5 text-[var(--app-muted)]">
+          Daglig överblick
+        </span>
+      </span>
     </button>
   );
 }
@@ -1506,84 +1909,174 @@ function FirstRunPanel({
 function PrimaryBriefingPanel({
   briefing,
   fallbackItems,
+  allItems,
   cacheTimestamp,
+  config,
 }: {
   briefing?: Briefing;
   fallbackItems: IntelligenceItem[];
+  allItems: IntelligenceItem[];
   cacheTimestamp?: string;
+  config: EmbassyConfig;
 }) {
   const lines = briefing?.content_sv
     .split("\n")
-    .map((line) => line.trim())
+    .map((line) => line.trim().replace(/^[-*]\s*/, "").replace(/^\d+[.)]\s*/, ""))
     .filter(Boolean)
-    .slice(0, 6);
+    .filter((line) => !/^(ambassadörsbrief|briefing|morning brief|morgonbrief)\b/i.test(line))
+    .slice(0, 7);
+
+  const sourceCount = briefing?.source_item_ids.length ?? fallbackItems.length;
+  const sourceItems = briefing
+    ? briefing.source_item_ids
+        .map((sourceId) =>
+          allItems.find((item) => item.id === `processed-${sourceId}`),
+        )
+        .filter((item): item is IntelligenceItem => Boolean(item))
+    : fallbackItems.slice(0, 5);
 
   return (
-    <section className="surface-strong rounded-lg p-5">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <SectionKicker icon={Gauge} label="Morgonbrief" />
-          <h2 className="mt-3 text-2xl font-semibold">Lägesbild på fem minuter</h2>
-          <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--app-soft)]">
-            En kort, cachead överblick för att snabbt förstå vad som har hänt, vad som kräver
-            uppmärksamhet och vad som bör följas vidare.
-          </p>
+    <section className="surface-strong rounded-xl p-6">
+      <div className="flex flex-col gap-3 border-b border-[var(--app-line)] pb-5">
+        <SectionKicker icon={Gauge} label="Briefing" />
+        <h2 className="text-2xl font-semibold tracking-normal">
+          Daglig överblick med verifierbart underlag
+        </h2>
+        <p className="max-w-3xl text-sm leading-6 text-[var(--app-soft)]">
+          En kort lägesbild av de viktigaste utvecklingarna. Varje punkt kan följas tillbaka
+          till verifierade signaler och originalkällor.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Pill tone={briefing ? "accent" : "neutral"}>
+            {briefing
+              ? `Genererad ${formatDate(briefing.generated_at, true)}`
+              : cacheTimestamp
+                ? `Cache ${formatDate(cacheTimestamp, true)}`
+                : "Inväntar briefing"}
+          </Pill>
+          <Pill tone="neutral">Underlag {sourceCount}</Pill>
+          <Pill tone="neutral">Bearbetad från verifierade källor</Pill>
         </div>
-        <Pill tone={briefing ? "accent" : "neutral"}>
-          {briefing
-            ? `Genererad ${formatDate(briefing.generated_at, true)}`
-            : cacheTimestamp
-              ? `Cache ${formatDate(cacheTimestamp, true)}`
-              : "Inväntar briefing"}
-        </Pill>
       </div>
 
       {lines && lines.length > 0 ? (
-        <div className="mt-5 rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-4">
-          <p className="text-xs uppercase tracking-[0.14em] text-[var(--app-muted)]">
-            Briefing
-          </p>
-          <div className="mt-4 space-y-3">
-            {lines.map((line, index) => (
-              <div key={line} className="flex gap-3">
-                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--app-accent)]" />
-                <p
-                  className={clsx(
-                    "text-sm leading-6 text-[var(--app-soft)]",
-                    index === 0 && "font-medium text-[var(--app-fg)]",
-                  )}
-                >
-                  {line.replace(/^[-*]\s*/, "")}
-                </p>
-              </div>
-            ))}
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Pill tone="neutral">
-              Underlag: {briefing?.source_item_ids.length ?? fallbackItems.length} poster
-            </Pill>
-            <Pill tone="neutral">Cachead och spårbar</Pill>
-            <Pill tone="neutral">Ingen live-AI vid sidladdning</Pill>
-          </div>
-        </div>
-      ) : fallbackItems.length > 0 ? (
-        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {fallbackItems.slice(0, 6).map((item) => (
-            <div
-              key={item.id}
-              className="rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-4"
-            >
-              <p className="text-sm font-semibold leading-5">{item.title_sv}</p>
-              <p className="mt-2 text-xs leading-5 text-[var(--app-muted)]">
-                {item.why_it_matters_sv}
-              </p>
-            </div>
+        <ol className="mt-5 space-y-3">
+          {lines.map((line, index) => (
+            <BriefingBullet
+              key={line}
+              line={line}
+              index={index}
+              item={sourceItems[index]}
+              config={config}
+            />
           ))}
-        </div>
+        </ol>
+      ) : fallbackItems.length > 0 ? (
+        <ol className="mt-5 space-y-3">
+          {fallbackItems.slice(0, 5).map((item, index) => (
+            <BriefingBullet
+              key={item.id}
+              line={`${item.title_sv}. Betydelse: ${item.why_it_matters_sv}`}
+              index={index}
+              item={item}
+              config={config}
+            />
+          ))}
+        </ol>
       ) : (
         <SkeletonStack label="Ingen färsk morgonbrief i cache" />
       )}
+
+      {sourceItems.length > 0 && (
+        <div className="mt-6 border-t border-[var(--app-line)] pt-5">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <SectionKicker icon={ExternalLink} label="Underlag och spårbarhet" />
+              <p className="mt-2 text-sm leading-6 text-[var(--app-soft)]">
+                Källposter som briefingen bygger på.
+              </p>
+            </div>
+            <Pill tone="neutral">{sourceItems.length} verifierbara underlag</Pill>
+          </div>
+          <div className="mt-4 grid gap-2">
+            {sourceItems.map((item) => (
+              <a
+                key={item.id}
+                href={item.source_url}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-3 transition hover:border-[var(--app-accent)]"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium leading-5 text-[var(--app-fg)]">
+                      {item.title_sv}
+                    </span>
+                    <span className="mt-1 block text-xs leading-5 text-[var(--app-muted)]">
+                      {item.source_name} · {formatDate(item.published_at, true)}
+                    </span>
+                  </span>
+                  <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--app-muted)]" />
+                </div>
+              </a>
+            ))}
+          </div>
+        </div>
+      )}
     </section>
+  );
+}
+
+function BriefingBullet({
+  line,
+  index,
+  item,
+  config,
+}: {
+  line: string;
+  index: number;
+  item?: IntelligenceItem;
+  config: EmbassyConfig;
+}) {
+  const Icon = item ? categoryIcon[item.category] : Target;
+  const [mainText, implicationText] = line.split(/\bBetydelse:\s*/i);
+  const iconTone = item ? categoryIconTone[item.category] : "text-[var(--app-accent)]";
+
+  return (
+    <li className="rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-4 py-3">
+      <div className="flex gap-3">
+        <div
+          className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--app-line)] bg-[var(--app-panel)] font-mono text-xs font-semibold text-[var(--app-muted)]"
+        >
+          {String(index + 1).padStart(2, "0")}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--app-muted)]">
+            <span className="flex items-center gap-1.5">
+              <Icon className={clsx("h-3.5 w-3.5", iconTone)} />
+              {item ? getCategoryLabel(config, item.category) : "Briefingpunkt"}
+            </span>
+            {item && (
+              <>
+                <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
+                <span>{getGeographyLabel(item, config)}</span>
+              </>
+            )}
+          </div>
+          <p className="mt-1.5 text-sm font-medium leading-6 text-[var(--app-fg)]">
+            {mainText.trim()}
+          </p>
+          {implicationText?.trim() && (
+            <div className="mt-2 border-t border-[var(--app-line)] pt-2">
+              <p className="text-sm leading-6 text-[var(--app-soft)]">
+                <span className="font-medium text-[var(--app-fg)]">Betydelse: </span>
+                {implicationText.trim()}
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+    </li>
   );
 }
 
@@ -1594,6 +2087,7 @@ function IntelligenceCard({
   profile,
   active,
   onSelect,
+  onUnprioritize,
 }: {
   item: IntelligenceItem;
   index: number;
@@ -1601,122 +2095,117 @@ function IntelligenceCard({
   profile: ProfileMode;
   active: boolean;
   onSelect: () => void;
+  onUnprioritize: () => void;
 }) {
   const Icon = categoryIcon[item.category];
   const composite = getCompositeScore(item, config, profile);
 
   return (
-    <button
-      type="button"
-      onClick={onSelect}
+    <div
       className={clsx(
-        "grid w-full gap-4 px-5 py-4 text-left transition md:grid-cols-[40px_minmax(0,1fr)_132px]",
+        "relative w-full rounded-lg border transition",
         active
-          ? "bg-[color-mix(in_srgb,var(--app-accent),transparent_90%)]"
-          : "hover:bg-[var(--app-panel-muted)]",
+          ? "border-[color-mix(in_srgb,var(--app-accent),transparent_45%)] bg-[color-mix(in_srgb,var(--app-accent),transparent_90%)]"
+          : "border-[var(--app-line)] bg-[var(--app-panel-muted)] hover:border-[var(--app-accent)]",
       )}
     >
-      <div className="flex h-10 w-10 items-center justify-center rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] font-mono text-sm text-[var(--app-muted)]">
-        {String(index + 1).padStart(2, "0")}
-      </div>
-
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--app-muted)]">
-          <span className="flex items-center gap-1.5">
-            <Icon className="h-3.5 w-3.5 text-[var(--app-accent)]" />
-            {getCategoryLabel(config, item.category)}
-          </span>
-          <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
-          <span>{item.region}</span>
-          <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
-          <span>{formatDate(item.published_at, true)}</span>
-        </div>
-        <h3 className="mt-2 text-base font-semibold leading-6 text-[var(--app-fg)]">
-          {item.title_sv}
-        </h3>
-        <p className="mt-1 line-clamp-2 text-sm leading-5 text-[var(--app-soft)]">
-          {item.summary_sv}
-        </p>
-        <div className="mt-2 flex flex-wrap gap-2">
-          <Pill tone="accent">{urgencyLabel(item.urgency_score)}</Pill>
-          {item.sweden_relevance_score >= 80 && <Pill tone="gold">Sverigekritisk</Pill>}
-          {item.event_date && <Pill tone="neutral">Händelse {formatDate(item.event_date)}</Pill>}
-        </div>
-      </div>
-
-      <div className="flex md:justify-end">
-        <div className="w-full max-w-[160px]">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-[var(--app-muted)]">Läsning</span>
-            <span className={clsx("font-mono text-sm font-semibold", scoreTone(composite))}>
-              {Math.min(99, composite)}
-            </span>
+      <label
+        className="absolute right-3 top-3 z-10 flex h-7 w-7 cursor-pointer items-center justify-center rounded border border-[var(--app-line)] bg-[color-mix(in_srgb,var(--app-panel),transparent_8%)] text-[var(--app-muted)] transition hover:border-[var(--app-accent)] hover:text-[var(--app-accent-strong)]"
+        title="Ta bort från prioriterade signaler"
+        aria-label="Ta bort från prioriterade signaler"
+      >
+        <input
+          type="checkbox"
+          checked
+          onChange={onUnprioritize}
+          className="h-3.5 w-3.5 cursor-pointer accent-[var(--app-accent)]"
+        />
+      </label>
+      <button
+        type="button"
+        onClick={onSelect}
+        className="w-full px-4 py-4 pr-12 text-left"
+      >
+        <div className="flex items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] font-mono text-sm text-[var(--app-muted)]">
+            {String(index + 1).padStart(2, "0")}
           </div>
-          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-[var(--app-panel-muted)]">
-            <div
-              className="metric-bar h-full rounded-full"
-              style={{ width: `${Math.min(100, composite)}%` }}
-            />
-          </div>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {item.urgency_score >= 80 && <Pill tone="danger">Brådskande</Pill>}
-            {item.sweden_relevance_score >= 80 && <Pill tone="gold">Sverigekritisk</Pill>}
-            {item.security_impact_score >= 80 && <Pill tone="neutral">Säkerhet</Pill>}
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--app-muted)]">
+              <span className="flex items-center gap-1.5">
+                <Icon className={clsx("h-3.5 w-3.5", categoryIconTone[item.category])} />
+                {getCategoryLabel(config, item.category)}
+              </span>
+              <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
+              <span>{getGeographyLabel(item, config)}</span>
+              <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
+              <span>{formatDate(item.published_at, true)}</span>
+            </div>
+            <h3 className="mt-2 text-base font-semibold leading-6 text-[var(--app-fg)]">
+              {item.title_sv}
+            </h3>
+            <p className="mt-1 line-clamp-2 text-sm leading-6 text-[var(--app-soft)]">
+              {item.summary_sv}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Pill tone="accent">{priorityLabel(composite)}</Pill>
+              {item.sweden_relevance_score >= 80 && <Pill tone="gold">Sverigekritisk</Pill>}
+              {item.event_date && <Pill tone="neutral">Händelse {formatDate(item.event_date)}</Pill>}
+            </div>
           </div>
         </div>
-      </div>
-    </button>
+      </button>
+    </div>
   );
 }
 
 function DetailPanel({
   item,
+  composite,
   config,
-  profile,
+  printSelected,
+  onTogglePrint,
 }: {
   item?: IntelligenceItem;
+  composite: number;
   config: EmbassyConfig;
-  profile: ProfileMode;
+  printSelected: boolean;
+  onTogglePrint?: (checked: boolean) => void;
 }) {
   if (!item) {
     return (
-      <aside className="border-l border-[var(--app-line)] p-5">
+      <div className="rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-5">
         <EmptyState title="Välj en signal för detaljer" />
-      </aside>
+      </div>
     );
   }
 
   return (
-    <aside className="border-l border-[var(--app-line)] bg-[var(--app-panel-muted)] p-5">
-      <div className="flex items-start justify-between gap-4">
+    <div className="rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-5">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <SectionKicker icon={PanelRightOpen} label="Signaldetalj" />
-          <h3 className="mt-3 text-xl font-semibold leading-7">{item.title_sv}</h3>
+          <SectionKicker icon={PanelRightOpen} label="Fördjupning" />
+          <h3 className="mt-3 text-lg font-semibold leading-7">{item.title_sv}</h3>
+          <p className="mt-2 text-sm leading-6 text-[var(--app-soft)]">{item.summary_sv}</p>
         </div>
-        <span className={clsx("font-mono text-3xl font-semibold", scoreTone(getCompositeScore(item, config, profile)))}>
-          {Math.min(99, getCompositeScore(item, config, profile))}
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <Pill tone="neutral">{priorityLabel(composite)}</Pill>
+        </div>
       </div>
 
-      <div className="mt-5 grid grid-cols-2 gap-2">
-        {scoreMeta.map(({ key, compact, label }) => (
-          <div key={key} className="rounded-md border border-[var(--app-line)] bg-[var(--app-panel)] p-3">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs text-[var(--app-muted)]" title={label}>
-                {compact}
-              </span>
-              <span className={clsx("font-mono text-sm font-semibold", scoreTone(item[key]))}>
-                {item[key]}
-              </span>
-            </div>
-            <div className="mt-2 h-1 rounded-full bg-[var(--app-panel-muted)]">
-              <div
-                className="h-1 rounded-full bg-[var(--app-accent)]"
-                style={{ width: `${item[key]}%` }}
-              />
-            </div>
-          </div>
-        ))}
+      <div className="mt-5 rounded-md border border-[var(--app-line)] bg-[var(--app-panel)] p-3">
+        <p className="text-xs tracking-[0.08em] text-[var(--app-muted)]">Teman</p>
+        <div className="mt-3 flex flex-wrap gap-2">
+          {getSignalThemeTags(item, config).map(({ id, label, Icon }) => (
+            <span
+              key={id}
+              className="inline-flex items-center gap-1.5 rounded border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-2 py-1 text-xs font-medium text-[var(--app-soft)]"
+            >
+              <Icon className={clsx("h-3.5 w-3.5", categoryIconTone[id])} />
+              {label}
+            </span>
+          ))}
+        </div>
       </div>
 
       <div className="mt-5 space-y-4">
@@ -1727,7 +2216,7 @@ function DetailPanel({
         )}
 
         <div>
-          <p className="text-xs uppercase tracking-[0.14em] text-[var(--app-muted)]">
+          <p className="text-xs tracking-[0.08em] text-[var(--app-muted)]">
             Uppföljning
           </p>
           <div className="mt-3 space-y-2">
@@ -1743,7 +2232,7 @@ function DetailPanel({
         </div>
 
         <div className="rounded-md border border-[var(--app-line)] bg-[var(--app-panel)] p-3">
-          <p className="text-xs uppercase tracking-[0.14em] text-[var(--app-muted)]">
+          <p className="text-xs tracking-[0.08em] text-[var(--app-muted)]">
             Ursprung och spårbarhet
           </p>
           <p className="mt-2 text-sm leading-6 text-[var(--app-soft)]">
@@ -1762,320 +2251,30 @@ function DetailPanel({
             <ExternalLink className="h-3.5 w-3.5" />
           </a>
         </div>
-      </div>
-    </aside>
-  );
-}
 
-function AmbassadorBriefing({
-  items,
-  briefing,
-  config,
-  profile,
-}: {
-  items: IntelligenceItem[];
-  briefing?: Briefing;
-  config: EmbassyConfig;
-  profile: ProfileMode;
-}) {
-  const primary = items[0];
-  const briefingLines = briefing?.content_sv
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .slice(0, 5);
-  return (
-    <section className="surface rounded-lg p-5">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <SectionKicker icon={Landmark} label="Ambassadörsunderlag" />
-          <h2 className="mt-3 text-xl font-semibold">Kort, beslutsnära underlag</h2>
-        </div>
-        <Pill tone="gold">Kortformat</Pill>
-      </div>
-
-      {briefingLines && briefingLines.length > 0 ? (
-        <div className="mt-5 space-y-2">
-          {briefingLines.map((line) => (
-            <p
-              key={line}
-              className="rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-3 py-2 text-sm leading-6 text-[var(--app-soft)]"
-            >
-              {line.replace(/^[-*]\s*/, "")}
-            </p>
-          ))}
-        </div>
-      ) : primary ? (
-        <div className="mt-5">
-          <div className="rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-4">
-            <div className="flex items-center justify-between gap-4">
-              <p className="text-sm font-semibold text-[var(--app-fg)]">
-                För intern avstämning
-              </p>
-              <span className={clsx("font-mono text-lg font-semibold", scoreTone(getCompositeScore(primary, config, profile)))}>
-                {Math.min(99, getCompositeScore(primary, config, profile))}
-              </span>
-            </div>
-            <p className="mt-3 text-sm leading-6 text-[var(--app-soft)]">
-              Det finns ännu ingen cachead ambassadörsbrief. Använd punkterna nedan som
-              orientering och kontrollera originalkällorna inför mötet.
-            </p>
-          </div>
-
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            {items.map((item) => (
-              <div
-                key={item.id}
-                className="rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-3"
-              >
-                <p className="text-sm font-medium leading-5">{item.title_sv}</p>
-                <p className="mt-2 text-xs leading-5 text-[var(--app-muted)]">
-                  {item.why_it_matters_sv}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <EmptyState title="Ingen ambassadörsbrief i aktuell cache" />
-      )}
-    </section>
-  );
-}
-
-function UrgentDevelopments({
-  items,
-  briefing,
-  config,
-}: {
-  items: IntelligenceItem[];
-  briefing?: Briefing;
-  config: EmbassyConfig;
-}) {
-  const lines = briefing?.content_sv
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .slice(0, 5);
-
-  return (
-    <section className="surface rounded-lg p-5">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <SectionKicker icon={CircleAlert} label="Varningar och avvikelser" />
-          <h2 className="mt-3 text-xl font-semibold">Kräver åtgärd eller bevakning</h2>
-        </div>
-        <Pill tone={items.length > 0 ? "danger" : "neutral"}>{items.length} signaler</Pill>
-      </div>
-
-      <div className="mt-5 space-y-3">
-        {lines && lines.length > 0 ? (
-          lines.map((line) => (
-            <p
-              key={line}
-              className="rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-3 py-2 text-sm leading-6 text-[var(--app-soft)]"
-            >
-              {line.replace(/^[-*]\s*/, "")}
-            </p>
-          ))
-        ) : items.length > 0 ? (
-          items.map((item) => (
-            <div
-              key={item.id}
-              className="rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-3"
-            >
-              <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--app-muted)]">
-                <span>{getCategoryLabel(config, item.category)}</span>
-                <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
-                <span>{item.region}</span>
-              </div>
-              <p className="mt-2 text-sm font-medium leading-5">{item.title_sv}</p>
-              <p className="mt-2 text-xs leading-5 text-[var(--app-muted)]">
-                {item.why_it_matters_sv}
-              </p>
-            </div>
-          ))
-        ) : (
-          <EmptyState title="Inga brådskande signaler över tröskeln" />
+        {onTogglePrint && (
+          <label
+            className={clsx(
+              "flex cursor-pointer items-center justify-between gap-3 rounded-md border px-3 py-2 text-sm transition",
+              printSelected
+                ? "border-[color-mix(in_srgb,var(--app-gold),transparent_35%)] bg-[color-mix(in_srgb,var(--app-gold),transparent_86%)] text-[var(--app-gold)]"
+                : "border-[var(--app-line)] bg-[var(--app-panel)] text-[var(--app-soft)] hover:border-[var(--app-accent)]",
+            )}
+          >
+            <span className="flex items-center gap-2">
+              <Printer className="h-4 w-4" />
+              Skicka till anpassad utskrift
+            </span>
+            <input
+              type="checkbox"
+              checked={printSelected}
+              onChange={(event) => onTogglePrint(event.target.checked)}
+              className="h-3.5 w-3.5 accent-[var(--app-gold)]"
+            />
+          </label>
         )}
       </div>
-    </section>
-  );
-}
-
-function EventTimeline({
-  items,
-  briefing,
-  config,
-  loading,
-}: {
-  items: IntelligenceItem[];
-  briefing?: Briefing;
-  config: EmbassyConfig;
-  loading?: boolean;
-}) {
-  const lines = briefing?.content_sv
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .slice(0, 5);
-
-  return (
-    <section className="surface rounded-lg p-5">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <SectionKicker icon={CalendarDays} label="Kommande händelser" />
-          <h2 className="mt-3 text-xl font-semibold">Händelser att förbereda</h2>
-        </div>
-        <Pill tone="neutral">{items.length} händelser</Pill>
-      </div>
-
-      <div className="mt-5 space-y-3">
-        {lines && lines.length > 0 ? (
-          lines.map((line) => (
-            <p
-              key={line}
-              className="rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-3 py-2 text-sm leading-6 text-[var(--app-soft)]"
-            >
-              {line.replace(/^[-*]\s*/, "")}
-            </p>
-          ))
-        ) : loading ? (
-          <SkeletonStack label="Hämtar händelsecache" compact />
-        ) : items.length > 0 ? (
-          items.map((item) => (
-            <div key={item.id} className="grid grid-cols-[74px_minmax(0,1fr)] gap-3">
-              <div className="rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-2 text-center">
-                <span className="block font-mono text-lg font-semibold">
-                  {new Date(item.event_date ?? item.published_at).getDate()}
-                </span>
-                <span className="text-xs text-[var(--app-muted)]">
-                  {new Intl.DateTimeFormat("sv-SE", { month: "short" }).format(
-                    new Date(item.event_date ?? item.published_at),
-                  )}
-                </span>
-              </div>
-              <div className="rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-3">
-                <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--app-muted)]">
-                  <span>{getCategoryLabel(config, item.category)}</span>
-                  <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
-                  <span>{item.region}</span>
-                </div>
-                <p className="mt-1 text-sm font-medium leading-5">{item.title_sv}</p>
-                <p className="mt-2 line-clamp-2 text-xs leading-5 text-[var(--app-muted)]">
-                  {item.why_it_matters_sv}
-                </p>
-              </div>
-            </div>
-          ))
-        ) : (
-          <EmptyState title="Inga kommande händelser över tröskeln" />
-        )}
-      </div>
-    </section>
-  );
-}
-
-function WeeklySummary({
-  items,
-  config,
-}: {
-  items: IntelligenceItem[];
-  config: EmbassyConfig;
-}) {
-  return (
-    <section className="surface rounded-lg p-5">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <SectionKicker icon={ClipboardList} label="Veckosammanfattning" />
-          <h2 className="mt-3 text-xl font-semibold">Följ upp från veckan</h2>
-        </div>
-        <Pill tone="accent">Veckobild</Pill>
-      </div>
-
-      <div className="mt-5 grid gap-3 md:grid-cols-2">
-        {items.length > 0 ? (
-          items.map((item) => {
-            const Icon = categoryIcon[item.category];
-            return (
-              <div
-                key={item.id}
-                className="rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-4"
-              >
-                <div className="flex items-center gap-2 text-xs text-[var(--app-muted)]">
-                  <Icon className="h-3.5 w-3.5 text-[var(--app-accent)]" />
-                  {getCategoryLabel(config, item.category)}
-                  <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
-                  {formatDate(item.published_at)}
-                </div>
-                <p className="mt-2 text-sm font-semibold leading-5">{item.title_sv}</p>
-                <p className="mt-2 text-xs leading-5 text-[var(--app-muted)]">
-                  {item.summary_sv}
-                </p>
-              </div>
-            );
-          })
-        ) : (
-          <EmptyState title="Inga veckosignaler i aktuell cache" />
-        )}
-      </div>
-    </section>
-  );
-}
-
-function ThemeMatrix({
-  items,
-  config,
-}: {
-  items: IntelligenceItem[];
-  config: EmbassyConfig;
-}) {
-  const categoryCounts = config.themeCategories
-    .map((category) => ({
-      ...category,
-      count: items.filter((item) => item.category === category.id).length,
-      average:
-        Math.round(
-          median(
-            items
-              .filter((item) => item.category === category.id)
-              .map((item) => item.sweden_relevance_score),
-          ),
-        ) || 0,
-    }))
-    .filter((category) => category.count > 0)
-    .slice(0, 8);
-
-  return (
-    <section className="surface rounded-lg p-5">
-      <SectionKicker icon={Target} label="Teman" />
-      <h2 className="mt-3 text-xl font-semibold">Var signalerna samlas</h2>
-
-      <div className="mt-5 space-y-3">
-        {categoryCounts.map((category) => {
-          const Icon = categoryIcon[category.id];
-          return (
-            <div key={category.id} className="rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-3">
-              <div className="flex items-center justify-between gap-3">
-                <span className="flex items-center gap-2 text-sm font-medium">
-                  <Icon className="h-4 w-4 text-[var(--app-accent)]" />
-                  {category.label}
-                </span>
-                <span className="font-mono text-sm text-[var(--app-muted)]">
-                  {category.count} / {category.average}
-                </span>
-              </div>
-              <div className="mt-3 h-1.5 rounded-full bg-[var(--app-panel)]">
-                <div
-                  className="h-1.5 rounded-full bg-[var(--app-accent)]"
-                  style={{ width: `${Math.min(100, category.average)}%` }}
-                />
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </section>
+    </div>
   );
 }
 
@@ -2085,19 +2284,23 @@ function SourceFeed({
   onQueryChange,
   config,
   profile,
+  prioritizedIds,
+  onTogglePriority,
 }: {
   rows: IntelligenceItem[];
   query: string;
   onQueryChange: (value: string) => void;
   config: EmbassyConfig;
   profile: ProfileMode;
+  prioritizedIds: string[];
+  onTogglePriority: (id: string, checked: boolean) => void;
 }) {
   return (
     <section className="surface rounded-lg">
       <div className="flex flex-col gap-4 border-b border-[var(--app-line)] p-5 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <SectionKicker icon={Newspaper} label="Källor och verifiering" />
-          <h2 className="mt-3 text-xl font-semibold">Spårbara underlag</h2>
+          <SectionKicker icon={Newspaper} label="Källflöde" />
+          <h2 className="mt-3 text-xl font-semibold">Fler signaler</h2>
         </div>
         <label className="flex min-h-10 w-full items-center gap-2 rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-3 lg:w-[360px]">
           <Search className="h-4 w-4 text-[var(--app-muted)]" />
@@ -2112,7 +2315,7 @@ function SourceFeed({
 
       {rows.length > 0 ? (
         <div className="thin-scrollbar overflow-x-auto">
-          <table className="w-full min-w-[980px] border-collapse text-left text-sm">
+          <table className="w-full min-w-[1080px] border-collapse text-left text-sm">
             <thead>
               <tr className="border-b border-[var(--app-line)] text-xs uppercase tracking-[0.12em] text-[var(--app-muted)]">
                 <th className="px-5 py-3 font-medium">Original / svensk titel</th>
@@ -2120,51 +2323,74 @@ function SourceFeed({
                 <th className="px-5 py-3 font-medium">Datum</th>
                 <th className="px-5 py-3 font-medium">Geografi</th>
                 <th className="px-5 py-3 font-medium">Relevans</th>
+                <th className="px-5 py-3 font-medium">Prioritera</th>
                 <th className="px-5 py-3 font-medium">Länk</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--app-line)]">
-              {rows.map((item) => (
-                <tr key={item.id} className="hover:bg-[var(--app-panel-muted)]">
-                  <td className="max-w-[420px] px-5 py-4">
-                    <p className="font-medium leading-5 text-[var(--app-fg)]">{item.title_sv}</p>
-                    <p className="mt-1 text-xs leading-5 text-[var(--app-muted)]">
-                      {item.title_original}
-                    </p>
-                  </td>
-                  <td className="px-5 py-4">
-                    <p className="font-medium">{item.source_name}</p>
-                    <p className="mt-1 flex items-center gap-2 text-xs text-[var(--app-muted)]">
-                      <Languages className="h-3.5 w-3.5" />
-                      {countryNameSv(item.source_country) ?? item.source_country} ·{" "}
-                      {item.source_language.toUpperCase()}
-                    </p>
-                  </td>
-                  <td className="px-5 py-4 font-mono text-xs text-[var(--app-muted)]">
-                    {formatDate(item.published_at, true)}
-                  </td>
-                  <td className="px-5 py-4">
-                    <p className="text-sm">{item.region}</p>
-                    <p className="mt-1 text-xs text-[var(--app-muted)]">{item.subregion}</p>
-                  </td>
-                  <td className="px-5 py-4">
-                    <span className={clsx("font-mono text-lg font-semibold", scoreTone(getCompositeScore(item, config, profile)))}>
-                      {Math.min(99, getCompositeScore(item, config, profile))}
-                    </span>
-                  </td>
-                  <td className="px-5 py-4">
-                    <a
-                      href={item.source_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="inline-flex items-center gap-2 rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-3 py-2 text-xs font-medium text-[var(--app-accent)] hover:border-[var(--app-accent)]"
-                    >
-                      Öppna
-                      <ArrowUpRight className="h-3.5 w-3.5" />
-                    </a>
-                  </td>
-                </tr>
-              ))}
+              {rows.map((item) => {
+                const isPrioritized = prioritizedIds.includes(item.id);
+
+                return (
+                  <tr key={item.id} className="hover:bg-[var(--app-panel-muted)]">
+                    <td className="max-w-[420px] px-5 py-4">
+                      <p className="font-medium leading-5 text-[var(--app-fg)]">{item.title_sv}</p>
+                      <p className="mt-1 text-xs leading-5 text-[var(--app-muted)]">
+                        {item.title_original}
+                      </p>
+                    </td>
+                    <td className="px-5 py-4">
+                      <p className="font-medium">{item.source_name}</p>
+                      <p className="mt-1 flex items-center gap-2 text-xs text-[var(--app-muted)]">
+                        <Languages className="h-3.5 w-3.5" />
+                        {countryNameSv(item.source_country) ?? item.source_country} ·{" "}
+                        {item.source_language.toUpperCase()}
+                      </p>
+                    </td>
+                    <td className="px-5 py-4 font-mono text-xs text-[var(--app-muted)]">
+                      {formatDate(item.published_at, true)}
+                    </td>
+                    <td className="px-5 py-4">
+                      <p className="text-sm">{getGeographyLabel(item, config)}</p>
+                      <p className="mt-1 text-xs text-[var(--app-muted)]">{item.subregion}</p>
+                    </td>
+                    <td className="px-5 py-4">
+                      <span className={clsx("font-mono text-lg font-semibold", scoreTone(getCompositeScore(item, config, profile)))}>
+                        {Math.min(99, getCompositeScore(item, config, profile))}
+                      </span>
+                    </td>
+                    <td className="px-5 py-4">
+                      <label
+                        className={clsx(
+                          "inline-flex items-center gap-2 rounded-md border px-3 py-2 text-xs font-medium transition",
+                          isPrioritized
+                            ? "border-[color-mix(in_srgb,var(--app-accent),transparent_35%)] bg-[color-mix(in_srgb,var(--app-accent),transparent_84%)] text-[var(--app-accent-strong)]"
+                            : "border-[var(--app-line)] bg-[var(--app-panel-muted)] text-[var(--app-soft)] hover:border-[var(--app-accent)]",
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isPrioritized}
+                          onChange={(event) => onTogglePriority(item.id, event.target.checked)}
+                          className="h-3.5 w-3.5 accent-[var(--app-accent)]"
+                        />
+                        Prioritera
+                      </label>
+                    </td>
+                    <td className="px-5 py-4">
+                      <a
+                        href={item.source_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-3 py-2 text-xs font-medium text-[var(--app-accent)] hover:border-[var(--app-accent)]"
+                      >
+                        Öppna
+                        <ArrowUpRight className="h-3.5 w-3.5" />
+                      </a>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

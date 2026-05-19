@@ -53,6 +53,24 @@ const firstLink = (item: Record<string, unknown>) => {
   return firstText(item.guid);
 };
 
+const normalizedLink = (rawUrl: string, sourceUrl: string) => {
+  if (!rawUrl) return "";
+
+  try {
+    const source = new URL(sourceUrl);
+    const parsed = new URL(rawUrl, source);
+    if (["localhost", "127.0.0.1", "::1"].includes(parsed.hostname)) {
+      parsed.protocol = source.protocol;
+      parsed.hostname = source.hostname;
+      parsed.port = "";
+    }
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return rawUrl;
+  }
+};
+
 const parseDate = (...values: unknown[]) => {
   const raw = firstText(...values);
   if (!raw) return undefined;
@@ -90,7 +108,7 @@ export async function fetchRssSource(
 
   return entries.slice(0, options.limit ?? 12).map((item, index) => {
     const title = firstText(item.title);
-    const url = firstLink(item);
+    const url = normalizedLink(firstLink(item), source.url);
     const publishedAt = parseDate(
       item.pubDate,
       item.published,

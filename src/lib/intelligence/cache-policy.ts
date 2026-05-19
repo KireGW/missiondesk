@@ -4,12 +4,16 @@ export type MissionDeskCacheScope =
   | "regional"
   | "breaking";
 
+export type CacheFreshnessState = "missing" | "fresh" | "stale";
+
 const cacheDefaults: Record<MissionDeskCacheScope, { hours: number; min: number; max: number }> = {
   national_dashboard: { hours: 8, min: 6, max: 12 },
   briefing: { hours: 8, min: 6, max: 12 },
   regional: { hours: 18, min: 12, max: 24 },
   breaking: { hours: 2, min: 1, max: 4 },
 };
+
+const signalDisplayWindow = { days: 3, min: 1, max: 14 };
 
 function envNumber(name: string) {
   const value = Number(process.env[name]);
@@ -56,4 +60,14 @@ export function isCacheFresh(cacheExpiresAt?: string, now: Date = new Date()) {
 export function cacheFreshnessState(cacheExpiresAt?: string, now: Date = new Date()) {
   if (!cacheExpiresAt) return "missing";
   return isCacheFresh(cacheExpiresAt, now) ? "fresh" : "stale";
+}
+
+export function signalDisplayDays(override?: number) {
+  const configured = override ?? envNumber("MISSIONDESK_SIGNAL_DISPLAY_DAYS");
+  const value = Number.isFinite(configured) ? configured! : signalDisplayWindow.days;
+  return Math.max(signalDisplayWindow.min, Math.min(signalDisplayWindow.max, Math.round(value)));
+}
+
+export function signalDisplaySince(overrideDays?: number, now: Date = new Date()) {
+  return new Date(now.getTime() - signalDisplayDays(overrideDays) * 24 * 36e5).toISOString();
 }

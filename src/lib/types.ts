@@ -9,6 +9,7 @@ export type ScoreKey =
 export type SourceType =
   | "rss"
   | "website"
+  | "social"
   | "structured_scrape"
   | "api"
   | "calendar";

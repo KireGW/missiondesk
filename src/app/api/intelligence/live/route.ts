@@ -5,9 +5,8 @@ import { getSources } from "@/lib/sources/store";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
-  const url = new URL(request.url);
   const payload = await fetchLiveIntelligence(undefined, await getSources(), {
-    enhanceWithAi: url.searchParams.get("ai") === "1",
+    enhanceWithAi: false,
   });
 
   return NextResponse.json(payload, {

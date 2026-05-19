@@ -299,7 +299,8 @@ function termScore(text: string, terms: string[], maxScore = 100) {
 }
 
 function freshnessScore(item: RawSourceItem, now: Date) {
-  const value = item.published_at ?? item.created_at;
+  if (!item.published_at) return 8;
+  const value = item.published_at;
   const ageHours = Math.max(0, (now.getTime() - new Date(value).getTime()) / 36e5);
   if (ageHours <= 6) return 100;
   if (ageHours <= 24) return 88;
@@ -307,6 +308,28 @@ function freshnessScore(item: RawSourceItem, now: Date) {
   if (ageHours <= 96) return 52;
   if (ageHours <= 168) return 32;
   return 12;
+}
+
+function stalenessPenalty(item: RawSourceItem, now: Date) {
+  if (!item.published_at) return 18;
+  const ageDays = Math.max(0, (now.getTime() - new Date(item.published_at).getTime()) / 864e5);
+  if (ageDays > 365) return 55;
+  if (ageDays > 90) return 42;
+  if (ageDays > 30) return 25;
+  return 0;
+}
+
+function selectionWindowForScanLimit(scanLimit?: number) {
+  const scanned = Math.max(200, Math.min(500, scanLimit ?? 500));
+  const targetMin = Math.max(25, Math.min(40, Math.round(scanned / 16)));
+  const targetMax = Math.max(targetMin, Math.min(60, Math.round(scanned / 10)));
+  const hardCap = Math.max(targetMax, Math.min(100, Math.round(scanned / 5)));
+
+  return {
+    targetMin,
+    targetMax,
+    hardCap,
+  };
 }
 
 function geographicRelevanceScore(item: RawSourceItem, config: EmbassyConfig) {
@@ -345,8 +368,10 @@ function noveltyScore(
   item: RawSourceItem,
   titleFp: string,
   processedTitleFingerprints: Set<string>,
+  processedUrlFingerprints: Set<string>,
 ) {
-  if (processedTitleFingerprints.has(titleFp)) return 18;
+  if (processedTitleFingerprints.has(titleFp)) return 14;
+  if (processedUrlFingerprints.has(canonicalUrlFingerprint(item.url))) return 10;
   if (item.source_type === "social") return 54;
   return 76;
 }
@@ -394,14 +419,17 @@ function selectionStatus(
   options: Required<
     Pick<
       CandidateRankingOptions,
-      "targetMax" | "hardCap" | "allowRegionalAi" | "minSelectedScore" | "minCandidateScore"
+      | "targetMin"
+      | "targetMax"
+      | "hardCap"
+      | "nationalOnly"
+      | "allowRegionalAi"
+      | "minSelectedScore"
+      | "minCandidateScore"
     >
   >,
 ): CandidateSelectionStatus {
   if (draft.duplicateOfRawSourceItemId) return "rejected";
-  if (!options.allowRegionalAi && draft.item.detected_region && draft.scores.rank_score < 88) {
-    return "regional_hold";
-  }
   if (draft.scores.rank_score < options.minCandidateScore) return "rejected";
   if (
     draft.scores.rank_score >= options.minSelectedScore &&
@@ -444,8 +472,12 @@ export function rankRawSourceItems(
 ): NewRankedProcessingCandidate[] {
   const config = options.config ?? swedenMexicoEmbassyConfig;
   const now = new Date();
+  const defaults = selectionWindowForScanLimit(options.scanLimit);
   const processedTitleFingerprints = new Set(
     processedItems.map((item) => titleFingerprint(item.title_original)),
+  );
+  const processedUrlFingerprints = new Set(
+    processedItems.map((item) => canonicalUrlFingerprint(item.url)),
   );
   const clusters = buildDuplicateClusters(items);
   const drafts: RankedDraft[] = [];
@@ -468,9 +500,15 @@ export function rankRawSourceItems(
       const sweden = termScore(text, swedenTerms, 100);
       const geography = geographicRelevanceScore(item, config);
       const category = categoryRelevanceScore(text, item, config);
-      const novelty = noveltyScore(item, titleFingerprint(item.title_original), processedTitleFingerprints);
+      const novelty = noveltyScore(
+        item,
+        titleFingerprint(item.title_original),
+        processedTitleFingerprints,
+        processedUrlFingerprints,
+      );
       const crossSource = sourceCount > 1 ? clampScore(48 + sourceCount * 16) : 22;
       const fresh = freshnessScore(item, now);
+      const stalePenalty = stalenessPenalty(item, now);
       const source = item.source_priority;
       const credibility = item.credibility_score;
       const duplicateOfRawSourceItemId = item.id === canonical.id ? undefined : canonical.id;
@@ -488,6 +526,7 @@ export function rankRawSourceItems(
           novelty * 0.08 +
           crossSource * 0.08 -
           noisePenalty * 0.22 -
+          stalePenalty -
           duplicatePenalty,
       );
 
@@ -521,11 +560,13 @@ export function rankRawSourceItems(
     .sort((a, b) => b.scores.rank_score - a.scores.rank_score)
     .map((draft, index) => {
       const status = selectionStatus(draft, index, {
-        targetMax: options.targetMax ?? 60,
-        hardCap: options.hardCap ?? 120,
+        targetMin: options.targetMin ?? defaults.targetMin,
+        targetMax: options.targetMax ?? defaults.targetMax,
+        hardCap: options.hardCap ?? defaults.hardCap,
+        nationalOnly: options.nationalOnly ?? false,
         allowRegionalAi: options.allowRegionalAi ?? false,
-        minSelectedScore: options.minSelectedScore ?? 54,
-        minCandidateScore: options.minCandidateScore ?? 45,
+        minSelectedScore: options.minSelectedScore ?? 58,
+        minCandidateScore: options.minCandidateScore ?? 50,
       });
 
       return {
@@ -539,6 +580,8 @@ export function rankRawSourceItems(
           planned: true,
           strategy: "future_embedding_cluster",
           titleFingerprint: draft.titleFingerprint,
+          urlFingerprint: draft.urlFingerprint,
+          sourceCount: draft.sourceCount,
         }),
         ranking_version: rankingVersion,
         ranked_at: now.toISOString(),
@@ -551,7 +594,7 @@ export async function rankAndStoreCandidates(
 ): Promise<CandidateRankingRunResult> {
   const rawItems = listRawSourceItems({
     since: options.since,
-    excludeProcessed: true,
+    excludeFreshProcessed: true,
     limit: options.scanLimit ?? 500,
   });
   const processedRawItems = listProcessedItems({

@@ -12,6 +12,28 @@ export interface DetectedGeography {
   detectedCity?: string;
 }
 
+function includesGeographicTerm(normalizedValue: string, term: string) {
+  const normalizedTerm = normalize(term).trim();
+  if (!normalizedTerm) return false;
+
+  const escaped = normalizedTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`).test(normalizedValue);
+}
+
+export function detectGeographicDivisionIds(value: string, config: EmbassyConfig) {
+  const normalized = normalize(value);
+
+  return config.geography.administrativeDivisions
+    .filter((division) => {
+      const terms = [division.displayName, ...(division.aliases ?? [])].sort(
+        (a, b) => b.length - a.length,
+      );
+
+      return terms.some((term) => includesGeographicTerm(normalized, term));
+    })
+    .map((division) => division.id);
+}
+
 export function detectGeography(
   value: string,
   config: EmbassyConfig,
@@ -26,10 +48,9 @@ export function detectGeography(
     const terms = [
       division.displayName,
       ...(division.aliases ?? []),
-      ...(division.tags ?? []),
     ];
 
-    return terms.some((term) => normalized.includes(normalize(term)));
+    return terms.some((term) => includesGeographicTerm(normalized, term));
   });
 
   const matchedRegion = matchedDivision
@@ -38,12 +59,12 @@ export function detectGeography(
       )
     : config.geography.regions.find((region) =>
         [region.displayName, region.description].some((term) =>
-          normalized.includes(normalize(term)),
+          includesGeographicTerm(normalized, term),
         ),
       );
 
   const cityAlias = matchedDivision?.aliases?.find((alias) =>
-    normalized.includes(normalize(alias)),
+    includesGeographicTerm(normalized, alias),
   );
 
   return {

@@ -4,6 +4,7 @@ import type {
   IngestionRunResult,
 } from "@/lib/ingestion/types";
 import { fetchRssSource } from "@/lib/ingestion/rss";
+import { fetchSocialSource } from "@/lib/ingestion/social";
 import { fetchWebsiteMetadataSource } from "@/lib/ingestion/website";
 import type { SourceDefinition } from "@/lib/types";
 
@@ -22,6 +23,38 @@ export const ingestionAdapters: IngestionAdapter[] = [
     canHandle: (source) => source.type === "website",
     fetch: (source, context) =>
       fetchWebsiteMetadataSource(source, {
+        limit: context.limit,
+        preserveRawContent: context.preserveRawContent,
+      }),
+  },
+  {
+    type: "social",
+    canHandle: (source) =>
+      source.sourceType === "social" ||
+      (source.type === "website" &&
+        (() => {
+          try {
+            const host = new URL(source.url).hostname.toLowerCase();
+            return [
+              "x.com",
+              "twitter.com",
+              "www.x.com",
+              "www.twitter.com",
+              "linkedin.com",
+              "www.linkedin.com",
+              "facebook.com",
+              "www.facebook.com",
+              "instagram.com",
+              "www.instagram.com",
+              "youtube.com",
+              "www.youtube.com",
+            ].includes(host);
+          } catch {
+            return false;
+          }
+        })()),
+    fetch: (source, context) =>
+      fetchSocialSource(source, {
         limit: context.limit,
         preserveRawContent: context.preserveRawContent,
       }),

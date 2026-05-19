@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { getMigratedDb } from "@/lib/db/sqlite";
+import { cacheFreshnessState } from "@/lib/intelligence/cache-policy";
 import type {
   BackgroundJob,
   BackgroundJobFilters,
@@ -22,6 +23,7 @@ import type {
   RawSourceItem,
   RawSourceItemFilters,
 } from "@/lib/intelligence/models";
+import type { CacheFreshnessState } from "@/lib/intelligence/cache-policy";
 
 type DbValue = string | number | null;
 
@@ -51,6 +53,21 @@ type BriefingRow = Omit<Briefing, "region" | "source_item_ids"> & {
   region: string | null;
   source_item_ids: string;
 };
+
+export interface RawSourceItemCacheStatus {
+  freshness: CacheFreshnessState;
+  item: RawSourceItem | null;
+}
+
+export interface ProcessedItemCacheStatus {
+  freshness: CacheFreshnessState;
+  item: ProcessedItem | null;
+}
+
+export interface BriefingCacheStatus {
+  freshness: CacheFreshnessState;
+  item: Briefing | null;
+}
 
 type BackgroundJobRow = Omit<
   BackgroundJob,
@@ -360,6 +377,14 @@ export function getRawSourceItemById(id: string, db: DatabaseSync = getMigratedD
   return row ? mapRawSourceItem(row) : null;
 }
 
+export function getRawSourceItemByUrl(url: string, db: DatabaseSync = getMigratedDb()) {
+  const row = db
+    .prepare("SELECT * FROM raw_source_items WHERE url = ? LIMIT 1")
+    .get(url) as RawSourceItemRow | undefined;
+
+  return row ? mapRawSourceItem(row) : null;
+}
+
 export function listRawSourceItems(filters: RawSourceItemFilters = {}, db: DatabaseSync = getMigratedDb()) {
   const where: string[] = [];
   const params: DbValue[] = [];
@@ -402,6 +427,18 @@ export function listRawSourceItems(filters: RawSourceItemFilters = {}, db: Datab
         WHERE processed_items.raw_source_item_id = raw_source_items.id
       )
     `);
+  }
+
+  if (filters.excludeFreshProcessed) {
+    where.push(`
+      NOT EXISTS (
+        SELECT 1
+        FROM processed_items
+        WHERE processed_items.raw_source_item_id = raw_source_items.id
+          AND datetime(processed_items.cache_expires_at) > datetime(?)
+      )
+    `);
+    params.push(nowIso());
   }
 
   const rows = db
@@ -725,8 +762,18 @@ export function listProcessedItems(
   }
 
   if (filters.onlyFresh ?? true) {
-    where.push("datetime(processed_items.cache_expires_at) > datetime(?)");
-    params.push(now);
+    if (filters.publishedSince) {
+      where.push(`
+        (
+          datetime(processed_items.cache_expires_at) > datetime(?)
+          OR datetime(COALESCE(raw_source_items.published_at, raw_source_items.created_at)) >= datetime(?)
+        )
+      `);
+      params.push(now, filters.publishedSince);
+    } else {
+      where.push("datetime(processed_items.cache_expires_at) > datetime(?)");
+      params.push(now);
+    }
   }
 
   const rows = db
@@ -779,6 +826,18 @@ export function listExpiredProcessedItems(limit = 100, db: DatabaseSync = getMig
     .all(nowIso(), limitValue(limit, 100)) as unknown as ProcessedItemRow[];
 
   return rows.map(mapProcessedItem);
+}
+
+export function getProcessedItemCacheStatus(
+  rawSourceItemId: string,
+  db: DatabaseSync = getMigratedDb(),
+): ProcessedItemCacheStatus {
+  const item = getProcessedItemByRawId(rawSourceItemId, db);
+
+  return {
+    freshness: cacheFreshnessState(item?.cache_expires_at),
+    item,
+  };
 }
 
 export function upsertBriefing(input: NewBriefing, db: DatabaseSync = getMigratedDb()) {
@@ -901,6 +960,57 @@ export function listBriefings(
     .all(...params, limitValue(filters.limit, 25)) as unknown as BriefingRow[];
 
   return rows.map(mapBriefing);
+}
+
+export function listExpiredBriefings(limit = 25, db: DatabaseSync = getMigratedDb()) {
+  const rows = db
+    .prepare(`
+      SELECT *
+      FROM briefings
+      WHERE datetime(cache_expires_at) <= datetime(?)
+      ORDER BY cache_expires_at ASC
+      LIMIT ?
+    `)
+    .all(nowIso(), limitValue(limit, 25)) as unknown as BriefingRow[];
+
+  return rows.map(mapBriefing);
+}
+
+export function getBriefingCacheStatus(
+  input: Pick<Briefing, "type" | "profile" | "geographic_scope"> & { region?: string },
+  db: DatabaseSync = getMigratedDb(),
+): BriefingCacheStatus {
+  const item = getFreshBriefing(input, db) ?? getLatestBriefingByKey(input, db);
+
+  return {
+    freshness: cacheFreshnessState(item?.cache_expires_at),
+    item,
+  };
+}
+
+function getLatestBriefingByKey(
+  input: Pick<Briefing, "type" | "profile" | "geographic_scope"> & { region?: string },
+  db: DatabaseSync = getMigratedDb(),
+) {
+  const row = db
+    .prepare(`
+      SELECT *
+      FROM briefings
+      WHERE type = ?
+        AND profile = ?
+        AND geographic_scope = ?
+        AND COALESCE(region, '') = COALESCE(?, '')
+      ORDER BY generated_at DESC
+      LIMIT 1
+    `)
+    .get(
+      input.type,
+      input.profile,
+      input.geographic_scope,
+      nullable(input.region),
+    ) as BriefingRow | undefined;
+
+  return row ? mapBriefing(row) : null;
 }
 
 export function enqueueBackgroundJob(input: NewBackgroundJob, db: DatabaseSync = getMigratedDb()) {

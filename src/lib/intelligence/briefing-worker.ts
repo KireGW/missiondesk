@@ -106,10 +106,10 @@ function sourceTypeMatches(type: BriefingType, record: ProcessedIntelligenceReco
 }
 
 function thresholdFor(type: BriefingType) {
-  if (type === "urgent_developments") return 78;
-  if (type === "ambassador_brief") return 72;
-  if (type === "upcoming_events_advisories") return 64;
-  return 68;
+  if (type === "urgent_developments") return 56;
+  if (type === "ambassador_brief") return 54;
+  if (type === "upcoming_events_advisories") return 44;
+  return 48;
 }
 
 export function selectBriefingItems(
@@ -131,7 +131,7 @@ export function selectBriefingItems(
     limit: 120,
   });
   const sourceRecords = profileRecords.length >= minItems ? profileRecords : fallbackRecords;
-  const candidates = sourceRecords.filter((record) => {
+  const scopedRecords = sourceRecords.filter((record) => {
     if (!sourceTypeMatches(options.type, record)) return false;
     if (
       options.geographicScope &&
@@ -143,14 +143,19 @@ export function selectBriefingItems(
     if (options.region && !record.processed.geographic_tags.includes(options.region)) {
       return false;
     }
-    return compositeScore(record, options.type) >= threshold;
+    return true;
   });
+  const rankedRecords = scopedRecords.sort(
+    (a, b) => compositeScore(b, options.type) - compositeScore(a, options.type),
+  );
+  const thresholdRecords = rankedRecords.filter(
+    (record) => compositeScore(record, options.type) >= threshold,
+  );
+  const candidates = thresholdRecords.length >= minItems ? thresholdRecords : rankedRecords;
 
   const uniqueByCategory = new Map<string, ProcessedIntelligenceRecord>();
 
-  for (const record of candidates.sort(
-    (a, b) => compositeScore(b, options.type) - compositeScore(a, options.type),
-  )) {
+  for (const record of candidates) {
     const key = `${record.processed.category}:${record.raw.source_name}`;
     if (!uniqueByCategory.has(key)) {
       uniqueByCategory.set(key, record);

@@ -7,10 +7,12 @@ export async function POST(request: Request) {
   const body = (await request.json().catch(() => ({}))) as {
     limit?: number;
     force?: boolean;
+    reprocessStale?: boolean;
   };
   const jobs = enqueueSelectedNationalProcessingJobs({
     limit: body.limit ?? 100,
     force: body.force ?? false,
+    reprocessStale: body.reprocessStale ?? false,
   });
 
   return NextResponse.json({

@@ -3,18 +3,19 @@ import {
   completeBackgroundJob,
   enqueueBackgroundJob,
   failBackgroundJob,
-  getFreshProcessedItemByRawId,
   getProcessedItemByRawId,
   listPendingBackgroundJobs,
   listRankedCandidates,
   upsertProcessedItem,
 } from "@/lib/intelligence/repository";
 import { cacheExpiresAtFor, cacheHoursFor, isCacheFresh } from "@/lib/intelligence/cache-policy";
+import { swedenMexicoEmbassyConfig } from "@/lib/config/embassies/sweden-mexico";
 import {
   isNationalProcessingConfigured,
   nationalProcessingModel,
   processNationalSourceItemWithOpenAI,
 } from "@/lib/ai/national-processing";
+import { detectGeographicDivisionIds } from "@/lib/ingestion/geography";
 import type {
   BackgroundJob,
   NewProcessedItem,
@@ -27,6 +28,7 @@ export interface NationalProcessingOptions {
   enqueueMissingJobs?: boolean;
   cacheHours?: number;
   force?: boolean;
+  reprocessStale?: boolean;
 }
 
 export interface NationalProcessingRunResult {
@@ -52,7 +54,6 @@ function payloadBoolean(job: BackgroundJob, key: string) {
 
 function isNationalCandidate(record: RankedCandidateRecord) {
   if (record.candidate.selection_status !== "selected") return false;
-  if (record.raw.detected_region || record.raw.detected_city) return false;
   if (record.candidate.duplicate_of_raw_source_item_id) return false;
   return true;
 }
@@ -67,13 +68,22 @@ function hasPendingProcessingJob(rawSourceItemId: string) {
 }
 
 export function enqueueSelectedNationalProcessingJobs(
-  input: number | { limit?: number; force?: boolean } = 100,
+  input: number | { limit?: number; force?: boolean; reprocessStale?: boolean } = 100,
 ) {
   const limit = typeof input === "number" ? input : input.limit ?? 100;
   const force = typeof input === "number" ? false : input.force ?? false;
+  const reprocessStale =
+    typeof input === "number" ? false : input.reprocessStale ?? false;
   const selected = listRankedCandidates({ status: "selected", limit })
     .filter(isNationalCandidate)
-    .filter((record) => force || !getFreshProcessedItemByRawId(record.raw.id))
+    .filter((record) => {
+      if (force) return true;
+
+      const existing = getProcessedItemByRawId(record.raw.id);
+      if (!existing) return true;
+
+      return reprocessStale && !isCacheFresh(existing.cache_expires_at);
+    })
     .filter((record) => !hasPendingProcessingJob(record.raw.id));
 
   return selected.map((record) =>
@@ -85,6 +95,7 @@ export function enqueueSelectedNationalProcessingJobs(
         rankingVersion: record.candidate.ranking_version,
         nationalOnly: true,
         force,
+        reprocessStale,
       },
     }),
   );
@@ -98,13 +109,17 @@ function findCandidate(rawSourceItemId: string) {
 
 async function processJob(
   job: BackgroundJob,
-  options: Required<Pick<NationalProcessingOptions, "cacheHours" | "force">>,
+  options: Required<
+    Pick<NationalProcessingOptions, "cacheHours" | "force" | "reprocessStale">
+  >,
 ) {
   const rawSourceItemId = payloadString(job, "rawSourceItemId");
   if (!rawSourceItemId) {
     throw new Error("Missing rawSourceItemId in processing job payload");
   }
   const force = payloadBoolean(job, "force") ?? options.force;
+  const reprocessStale =
+    payloadBoolean(job, "reprocessStale") ?? options.reprocessStale;
 
   const record = findCandidate(rawSourceItemId);
   if (!record) {
@@ -112,12 +127,18 @@ async function processJob(
   }
 
   if (!isNationalCandidate(record)) {
-    return { skipped: true, reason: "candidate is regional, duplicate or no longer selected" };
+    return { skipped: true, reason: "candidate is duplicate or no longer selected" };
   }
 
   const existing = getProcessedItemByRawId(rawSourceItemId);
-  if (existing && !force && isCacheFresh(existing.cache_expires_at)) {
-    return { skipped: true, reason: "fresh processed cache already exists" };
+  if (existing && !force) {
+    if (isCacheFresh(existing.cache_expires_at)) {
+      return { skipped: true, reason: "fresh processed cache already exists" };
+    }
+
+    if (!reprocessStale) {
+      return { skipped: true, reason: "stale processed cache reused" };
+    }
   }
 
   const analysis = await processNationalSourceItemWithOpenAI(record.raw, record.candidate);
@@ -130,6 +151,24 @@ async function processJob(
     analysis.urgency_score >= 90 || analysis.security_impact_score >= 90
       ? "breaking"
       : "national_dashboard";
+  const explicitGeographicTags = detectGeographicDivisionIds(
+    [
+      record.raw.title_original,
+      record.raw.snippet,
+      record.raw.raw_content?.slice(0, 5000),
+    ]
+      .filter(Boolean)
+      .join(" "),
+    swedenMexicoEmbassyConfig,
+  );
+  const geographicTags = [
+    ...new Set([
+      ...analysis.geographic_tags,
+      ...explicitGeographicTags,
+    ]),
+  ];
+  const geographicScope =
+    geographicTags.length > 0 ? "administrative_division" : analysis.geographic_scope;
   const processed: NewProcessedItem = {
     raw_source_item_id: rawSourceItemId,
     title_sv: analysis.title_sv,
@@ -140,8 +179,8 @@ async function processJob(
     sweden_relevance_score: analysis.sweden_relevance_score,
     economic_impact_score: analysis.economic_impact_score,
     security_impact_score: analysis.security_impact_score,
-    geographic_scope: analysis.geographic_scope,
-    geographic_tags: analysis.geographic_tags,
+    geographic_scope: geographicScope,
+    geographic_tags: geographicTags,
     why_it_may_matter_sv: analysis.why_it_may_matter_sv,
     profile_tags: analysis.profile_tags,
     processed_model: nationalProcessingModel(),
@@ -164,6 +203,7 @@ export async function runNationalProcessingWorker(
     enqueueSelectedNationalProcessingJobs({
       limit: options.limit ?? 100,
       force: options.force ?? false,
+      reprocessStale: options.reprocessStale ?? false,
     });
   }
 
@@ -182,6 +222,7 @@ export async function runNationalProcessingWorker(
       const result = await processJob(job, {
         cacheHours: cacheHoursFor("national_dashboard", options.cacheHours),
         force: options.force ?? false,
+        reprocessStale: options.reprocessStale ?? false,
       });
 
       if (result.skipped) {

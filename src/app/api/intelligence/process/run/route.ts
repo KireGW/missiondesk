@@ -9,6 +9,7 @@ export async function POST(request: Request) {
     enqueueMissingJobs?: boolean;
     cacheHours?: number;
     force?: boolean;
+    reprocessStale?: boolean;
   };
 
   const result = await runNationalProcessingWorker({
@@ -16,6 +17,7 @@ export async function POST(request: Request) {
     enqueueMissingJobs: body.enqueueMissingJobs,
     cacheHours: body.cacheHours,
     force: body.force,
+    reprocessStale: body.reprocessStale,
   });
 
   return NextResponse.json(result);

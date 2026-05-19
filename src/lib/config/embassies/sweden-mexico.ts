@@ -105,9 +105,9 @@ export const swedenMexicoEmbassyConfig: EmbassyConfig = {
   profileModes: [
     {
       id: "daily_overview",
-      label: "Dagens lägesbild",
-      shortLabel: "Dagens",
-      description: "Standardviktning för dagens samlade lägesbild.",
+      label: "Aktuella signaler",
+      shortLabel: "Från spårbara, verifierade källor",
+      description: "Standardviktning för dagens samlade överblick.",
       emphasis: ["prioritet", "förändring", "diplomatisk relevans"],
       categoryWeights: {},
       scoreWeights: {
