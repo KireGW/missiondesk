@@ -1,9 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { defaultSources } from "@/lib/sources/default-sources";
+import { missiondeskDataDir } from "@/lib/runtime/paths";
 import type { SourceDefinition } from "@/lib/types";
 
-const dataDir = path.join(process.cwd(), "data");
+const dataDir = missiondeskDataDir();
 const sourceFile = path.join(dataDir, "sources.json");
 const legacySeedIds = new Set([
   "el-universal",
