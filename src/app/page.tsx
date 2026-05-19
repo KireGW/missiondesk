@@ -10,19 +10,19 @@ import {
   listProcessedItems,
 } from "@/lib/intelligence/repository";
 import { signalDisplaySince } from "@/lib/intelligence/cache-policy";
-import { getSourcesSync } from "@/lib/sources/store";
+import { getSources } from "@/lib/sources/store";
 
 export const dynamic = "force-dynamic";
 
-export default function Home() {
-  const primaryBriefings = listBriefings({ onlyFresh: true, limit: 8 });
-  const primaryRecords = listProcessedItems({
+export default async function Home() {
+  const primaryBriefings = await listBriefings({ onlyFresh: true, limit: 8 });
+  const primaryRecords = await listProcessedItems({
     onlyFresh: true,
     publishedSince: signalDisplaySince(),
     limit: 100,
   });
   const initialItems = processedRecordsToIntelligenceItems(primaryRecords);
-  const activeSourceCount = getSourcesSync().filter((source) => source.enabled).length;
+  const activeSourceCount = (await getSources()).filter((source) => source.enabled).length;
 
   return (
     <MissionDashboard

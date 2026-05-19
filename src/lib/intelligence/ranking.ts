@@ -592,15 +592,15 @@ export function rankRawSourceItems(
 export async function rankAndStoreCandidates(
   options: CandidateRankingOptions = {},
 ): Promise<CandidateRankingRunResult> {
-  const rawItems = listRawSourceItems({
+  const rawItems = await listRawSourceItems({
     since: options.since,
     excludeFreshProcessed: true,
     limit: options.scanLimit ?? 500,
   });
-  const processedRawItems = listProcessedItems({
+  const processedRawItems = (await listProcessedItems({
     limit: 250,
     onlyFresh: false,
-  }).map((record) => record.raw);
+  })).map((record) => record.raw);
   const ranked = rankRawSourceItems(rawItems, processedRawItems, options);
   const clusters = new Map<string, NewRankedProcessingCandidate[]>();
 
@@ -616,7 +616,7 @@ export async function rankAndStoreCandidates(
       candidates.find((candidate) => !candidate.duplicate_of_raw_source_item_id) ?? candidates[0];
     const raw = rawItems.find((item) => item.id === canonical.raw_source_item_id);
 
-    upsertDuplicateCluster({
+    await upsertDuplicateCluster({
       id: clusterId,
       canonical_raw_source_item_id:
         canonical.duplicate_of_raw_source_item_id ?? canonical.raw_source_item_id,
@@ -636,12 +636,12 @@ export async function rankAndStoreCandidates(
     });
   }
 
-  const stored = ranked.map((candidate) => upsertRankedCandidate(candidate));
+  const stored = await Promise.all(ranked.map((candidate) => upsertRankedCandidate(candidate)));
 
   if (options.enqueueAiJobs) {
-    stored
+    await Promise.all(stored
       .filter((candidate) => candidate.selection_status === "selected")
-      .forEach((candidate) => {
+      .map((candidate) =>
         enqueueBackgroundJob({
           type: "process_ranked_candidate",
           priority: candidate.rank_score,
@@ -649,8 +649,8 @@ export async function rankAndStoreCandidates(
             rawSourceItemId: candidate.raw_source_item_id,
             rankingVersion: candidate.ranking_version,
           },
-        });
-      });
+        }),
+      ));
   }
 
   return {

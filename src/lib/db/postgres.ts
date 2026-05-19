@@ -1,93 +1,149 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
-import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
-import { missiondeskDataDir } from "@/lib/runtime/paths";
+import { Pool, type QueryResultRow } from "pg";
 
-let database: DatabaseSync | null = null;
-let migrationsApplied = false;
-
-export function getDatabasePath() {
-  return process.env.MISSIONDESK_DB_PATH ?? path.join(missiondeskDataDir(), "missiondesk.sqlite");
+export interface MissionDeskStatement {
+  run(...params: DbParam[]): Promise<void>;
+  get<T extends QueryResultRow = QueryResultRow>(...params: DbParam[]): Promise<T | undefined>;
+  all<T extends QueryResultRow = QueryResultRow>(...params: DbParam[]): Promise<T[]>;
 }
 
-export function getDb() {
-  if (!database) {
-    const dbPath = getDatabasePath();
-    if (dbPath !== ":memory:") {
-      mkdirSync(path.dirname(dbPath), { recursive: true });
-    }
+export interface MissionDeskDb {
+  prepare(sql: string): MissionDeskStatement;
+  exec(sql: string): Promise<void>;
+}
 
-    database = new DatabaseSync(dbPath);
-    database.exec("PRAGMA foreign_keys = ON");
-    database.exec("PRAGMA journal_mode = WAL");
+type DbParam = string | number | boolean | null | undefined;
+
+let pool: Pool | null = null;
+let migrationsApplied: Promise<void> | null = null;
+
+const nowTextSql =
+  "to_char(now() at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')";
+const nowPlusTenMinutesTextSql =
+  "to_char((now() at time zone 'UTC') + interval '10 minutes', 'YYYY-MM-DD\"T\"HH24:MI:SS.MS\"Z\"')";
+
+function databaseUrl() {
+  const url = process.env.DATABASE_URL;
+  if (!url) {
+    throw new Error(
+      "DATABASE_URL saknas. Lägg till Neon Postgres DATABASE_URL i .env.local och i Vercel Production.",
+    );
+  }
+  return url;
+}
+
+function getPool() {
+  if (!pool) {
+    pool = new Pool({
+      connectionString: databaseUrl(),
+      max: Number(process.env.MISSIONDESK_PG_POOL_MAX ?? 5),
+    });
   }
 
-  return database;
+  return pool;
 }
 
-export function closeDb() {
-  if (!database) return;
-  database.close();
-  database = null;
-  migrationsApplied = false;
-}
-
-export function runMigrations(db = getDb()) {
-  if (migrationsApplied) return;
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS schema_migrations (
-      id TEXT PRIMARY KEY,
-      applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+function translateSql(sql: string) {
+  let translated = sql
+    .replace(
+      /datetime\(COALESCE\(published_at, created_at\)\)/g,
+      "(COALESCE(published_at, created_at))::timestamptz",
     )
-  `);
+    .replace(
+      /datetime\(COALESCE\(raw_source_items\.published_at, raw_source_items\.created_at\)\)/g,
+      "(COALESCE(raw_source_items.published_at, raw_source_items.created_at))::timestamptz",
+    )
+    .replace(/datetime\('now', '\+10 minutes'\)/g, nowPlusTenMinutesTextSql)
+    .replace(/datetime\('now'\)/g, nowTextSql)
+    .replace(/datetime\(\?\)/g, "?::timestamptz")
+    .replace(/datetime\(([^?][^)]+)\)/g, "($1)::timestamptz");
 
-  const appliedRows = db
-    .prepare("SELECT id FROM schema_migrations")
-    .all() as Array<{ id: string }>;
-  const applied = new Set(appliedRows.map((row) => row.id));
-  const migrations = loadMigrations();
+  let index = 0;
+  translated = translated.replace(/\?/g, () => `$${++index}`);
+  return translated;
+}
 
-  for (const migration of migrations) {
-    if (applied.has(migration.id)) continue;
+async function query<T extends QueryResultRow = QueryResultRow>(sql: string, params: DbParam[] = []) {
+  await runMigrations();
+  const result = await getPool().query<T>(translateSql(sql), params);
+  return result.rows;
+}
 
-    try {
-      db.exec("BEGIN");
-      db.exec(migration.sql);
-      db.prepare("INSERT INTO schema_migrations (id) VALUES (?)").run(migration.id);
-      db.exec("COMMIT");
-    } catch (error) {
-      db.exec("ROLLBACK");
-      throw error;
-    }
+export function getMigratedDb(): MissionDeskDb {
+  return {
+    prepare(sql: string): MissionDeskStatement {
+      return {
+        async run(...params: DbParam[]) {
+          await query(sql, params);
+        },
+        async get<T extends QueryResultRow = QueryResultRow>(...params: DbParam[]) {
+          const rows = await query<T>(sql, params);
+          return rows[0];
+        },
+        async all<T extends QueryResultRow = QueryResultRow>(...params: DbParam[]) {
+          return query<T>(sql, params);
+        },
+      };
+    },
+    async exec(sql: string) {
+      await query(sql);
+    },
+  };
+}
+
+export async function runMigrations() {
+  if (!migrationsApplied) {
+    migrationsApplied = applyMigrations();
   }
 
-  migrationsApplied = true;
+  return migrationsApplied;
 }
 
-export function getMigratedDb() {
-  const db = getDb();
-  runMigrations(db);
-  return db;
+export async function closeDb() {
+  if (!pool) return;
+  await pool.end();
+  pool = null;
+  migrationsApplied = null;
 }
 
-function loadMigrations() {
-  const migrationsDir = path.join(process.cwd(), "src", "lib", "db", "migrations");
-  if (!existsSync(migrationsDir)) return embeddedMigrations;
+async function applyMigrations() {
+  const client = await getPool().connect();
 
-  const migrationFiles = readdirSync(migrationsDir)
-    .filter((file) => file.endsWith(".sql"))
-    .sort();
+  try {
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        id TEXT PRIMARY KEY,
+        applied_at TEXT NOT NULL DEFAULT ${nowTextSql}
+      )
+    `);
 
-  return migrationFiles.map((file) => ({
-    id: file,
-    sql: readFileSync(path.join(migrationsDir, file), "utf8"),
-  }));
+    const appliedRows = await client.query<{ id: string }>(
+      "SELECT id FROM schema_migrations",
+    );
+    const applied = new Set(appliedRows.rows.map((row) => row.id));
+
+    for (const migration of postgresMigrations) {
+      if (applied.has(migration.id)) continue;
+
+      await client.query("BEGIN");
+      try {
+        await client.query(migration.sql);
+        await client.query("INSERT INTO schema_migrations (id) VALUES ($1)", [
+          migration.id,
+        ]);
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      }
+    }
+  } finally {
+    client.release();
+  }
 }
 
-const embeddedMigrations = [
+export const postgresMigrations = [
   {
-    id: "0001_source_intelligence.sql",
+    id: "0001_source_intelligence_postgres.sql",
     sql: `
 CREATE TABLE IF NOT EXISTS raw_source_items (
   id TEXT PRIMARY KEY,
@@ -119,8 +175,8 @@ CREATE TABLE IF NOT EXISTS raw_source_items (
   crawl_status TEXT NOT NULL DEFAULT 'pending' CHECK (
     crawl_status IN ('pending', 'fetched', 'failed', 'skipped', 'stale')
   ),
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT ${nowTextSql},
+  updated_at TEXT NOT NULL DEFAULT ${nowTextSql}
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS raw_source_items_url_unique
@@ -184,8 +240,8 @@ CREATE TABLE IF NOT EXISTS processed_items (
   processed_model TEXT NOT NULL,
   processed_at TEXT NOT NULL,
   cache_expires_at TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_at TEXT NOT NULL DEFAULT ${nowTextSql},
+  updated_at TEXT NOT NULL DEFAULT ${nowTextSql},
   FOREIGN KEY (raw_source_item_id)
     REFERENCES raw_source_items(id)
     ON DELETE CASCADE
@@ -234,8 +290,8 @@ CREATE TABLE IF NOT EXISTS briefings (
   generated_model TEXT NOT NULL,
   generated_at TEXT NOT NULL,
   cache_expires_at TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT ${nowTextSql},
+  updated_at TEXT NOT NULL DEFAULT ${nowTextSql}
 );
 
 CREATE INDEX IF NOT EXISTS briefings_lookup_idx
@@ -257,12 +313,12 @@ CREATE TABLE IF NOT EXISTS background_jobs (
   payload TEXT NOT NULL DEFAULT '{}',
   attempts INTEGER NOT NULL DEFAULT 0,
   max_attempts INTEGER NOT NULL DEFAULT 3,
-  run_after TEXT NOT NULL DEFAULT (datetime('now')),
+  run_after TEXT NOT NULL DEFAULT ${nowTextSql},
   locked_at TEXT,
   locked_by TEXT,
   error_message TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  created_at TEXT NOT NULL DEFAULT ${nowTextSql},
+  updated_at TEXT NOT NULL DEFAULT ${nowTextSql}
 );
 
 CREATE INDEX IF NOT EXISTS background_jobs_claim_idx
@@ -273,7 +329,7 @@ CREATE INDEX IF NOT EXISTS background_jobs_type_idx
 `,
   },
   {
-    id: "0002_ranked_candidates.sql",
+    id: "0002_ranked_candidates_postgres.sql",
     sql: `
 CREATE TABLE IF NOT EXISTS item_duplicate_clusters (
   id TEXT PRIMARY KEY,
@@ -284,8 +340,8 @@ CREATE TABLE IF NOT EXISTS item_duplicate_clusters (
   url_fingerprint TEXT,
   embedding_cluster_id TEXT,
   source_count INTEGER NOT NULL DEFAULT 1,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_at TEXT NOT NULL DEFAULT ${nowTextSql},
+  updated_at TEXT NOT NULL DEFAULT ${nowTextSql},
   FOREIGN KEY (canonical_raw_source_item_id)
     REFERENCES raw_source_items(id)
     ON DELETE CASCADE
@@ -322,8 +378,8 @@ CREATE TABLE IF NOT EXISTS ranked_processing_candidates (
   embedding_similarity_hook TEXT,
   ranking_version TEXT NOT NULL,
   ranked_at TEXT NOT NULL,
-  created_at TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  created_at TEXT NOT NULL DEFAULT ${nowTextSql},
+  updated_at TEXT NOT NULL DEFAULT ${nowTextSql},
   FOREIGN KEY (raw_source_item_id)
     REFERENCES raw_source_items(id)
     ON DELETE CASCADE,
@@ -346,7 +402,7 @@ CREATE INDEX IF NOT EXISTS ranked_processing_candidates_cluster_idx
 `,
   },
   {
-    id: "0003_source_intelligence_cache_indexes.sql",
+    id: "0003_source_intelligence_cache_indexes_postgres.sql",
     sql: `
 CREATE INDEX IF NOT EXISTS raw_source_items_priority_idx
   ON raw_source_items(source_priority DESC, published_at DESC, created_at DESC);
@@ -362,6 +418,21 @@ CREATE INDEX IF NOT EXISTS briefings_key_cache_idx
 
 CREATE INDEX IF NOT EXISTS background_jobs_queue_idx
   ON background_jobs(type, status, run_after, priority DESC, created_at ASC);
+`,
+  },
+  {
+    id: "0004_source_definitions_postgres.sql",
+    sql: `
+CREATE TABLE IF NOT EXISTS source_definitions (
+  id TEXT PRIMARY KEY,
+  data JSONB NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL DEFAULT ${nowTextSql},
+  updated_at TEXT NOT NULL DEFAULT ${nowTextSql}
+);
+
+CREATE INDEX IF NOT EXISTS source_definitions_sort_idx
+  ON source_definitions(sort_order ASC, id ASC);
 `,
   },
 ];

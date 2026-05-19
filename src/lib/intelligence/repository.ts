@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { DatabaseSync } from "node:sqlite";
-import { getMigratedDb } from "@/lib/db/sqlite";
+import type { MissionDeskDb } from "@/lib/db/postgres";
+import { getMigratedDb } from "@/lib/db/postgres";
 import { cacheFreshnessState } from "@/lib/intelligence/cache-policy";
 import type {
   BackgroundJob,
@@ -301,7 +301,7 @@ function mapJoinedRankedCandidate(row: JoinedRankedCandidateRow): RankedCandidat
   };
 }
 
-export function upsertRawSourceItem(input: NewRawSourceItem, db: DatabaseSync = getMigratedDb()) {
+export async function upsertRawSourceItem(input: NewRawSourceItem, db: MissionDeskDb = getMigratedDb()) {
   const id = input.id || createRawSourceItemId(input);
   const item: NewRawSourceItem = {
     ...input,
@@ -310,7 +310,7 @@ export function upsertRawSourceItem(input: NewRawSourceItem, db: DatabaseSync = 
     credibility_score: clampScore(input.credibility_score),
   };
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO raw_source_items (
       id,
       source_type,
@@ -366,26 +366,26 @@ export function upsertRawSourceItem(input: NewRawSourceItem, db: DatabaseSync = 
     item.crawl_status,
   );
 
-  return getRawSourceItemById(id, db)!;
+  return (await getRawSourceItemById(id, db))!;
 }
 
-export function getRawSourceItemById(id: string, db: DatabaseSync = getMigratedDb()) {
-  const row = db
+export async function getRawSourceItemById(id: string, db: MissionDeskDb = getMigratedDb()) {
+  const row = await db
     .prepare("SELECT * FROM raw_source_items WHERE id = ?")
     .get(id) as RawSourceItemRow | undefined;
 
   return row ? mapRawSourceItem(row) : null;
 }
 
-export function getRawSourceItemByUrl(url: string, db: DatabaseSync = getMigratedDb()) {
-  const row = db
+export async function getRawSourceItemByUrl(url: string, db: MissionDeskDb = getMigratedDb()) {
+  const row = await db
     .prepare("SELECT * FROM raw_source_items WHERE url = ? LIMIT 1")
     .get(url) as RawSourceItemRow | undefined;
 
   return row ? mapRawSourceItem(row) : null;
 }
 
-export function listRawSourceItems(filters: RawSourceItemFilters = {}, db: DatabaseSync = getMigratedDb()) {
+export async function listRawSourceItems(filters: RawSourceItemFilters = {}, db: MissionDeskDb = getMigratedDb()) {
   const where: string[] = [];
   const params: DbValue[] = [];
 
@@ -441,7 +441,7 @@ export function listRawSourceItems(filters: RawSourceItemFilters = {}, db: Datab
     params.push(nowIso());
   }
 
-  const rows = db
+  const rows = await db
     .prepare(`
       SELECT *
       FROM raw_source_items
@@ -456,11 +456,11 @@ export function listRawSourceItems(filters: RawSourceItemFilters = {}, db: Datab
   return rows.map(mapRawSourceItem);
 }
 
-export function upsertDuplicateCluster(
+export async function upsertDuplicateCluster(
   input: NewItemDuplicateCluster,
-  db: DatabaseSync = getMigratedDb(),
+  db: MissionDeskDb = getMigratedDb(),
 ) {
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO item_duplicate_clusters (
       id,
       canonical_raw_source_item_id,
@@ -492,22 +492,22 @@ export function upsertDuplicateCluster(
     input.source_count,
   );
 
-  return getDuplicateClusterById(input.id, db)!;
+  return (await getDuplicateClusterById(input.id, db))!;
 }
 
-export function getDuplicateClusterById(id: string, db: DatabaseSync = getMigratedDb()) {
-  const row = db
+export async function getDuplicateClusterById(id: string, db: MissionDeskDb = getMigratedDb()) {
+  const row = await db
     .prepare("SELECT * FROM item_duplicate_clusters WHERE id = ?")
     .get(id) as ItemDuplicateClusterRow | undefined;
 
   return row ? mapDuplicateCluster(row) : null;
 }
 
-export function upsertRankedCandidate(
+export async function upsertRankedCandidate(
   input: NewRankedProcessingCandidate,
-  db: DatabaseSync = getMigratedDb(),
+  db: MissionDeskDb = getMigratedDb(),
 ) {
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO ranked_processing_candidates (
       raw_source_item_id,
       rank_score,
@@ -572,23 +572,23 @@ export function upsertRankedCandidate(
     input.ranked_at,
   );
 
-  return getRankedCandidateByRawId(input.raw_source_item_id, db)!;
+  return (await getRankedCandidateByRawId(input.raw_source_item_id, db))!;
 }
 
-export function getRankedCandidateByRawId(
+export async function getRankedCandidateByRawId(
   rawSourceItemId: string,
-  db: DatabaseSync = getMigratedDb(),
+  db: MissionDeskDb = getMigratedDb(),
 ) {
-  const row = db
+  const row = await db
     .prepare("SELECT * FROM ranked_processing_candidates WHERE raw_source_item_id = ?")
     .get(rawSourceItemId) as RankedProcessingCandidateRow | undefined;
 
   return row ? mapRankedCandidate(row) : null;
 }
 
-export function listRankedCandidates(
+export async function listRankedCandidates(
   filters: RankedCandidateFilters = {},
-  db: DatabaseSync = getMigratedDb(),
+  db: MissionDeskDb = getMigratedDb(),
 ) {
   const where: string[] = [];
   const params: DbValue[] = [];
@@ -603,7 +603,7 @@ export function listRankedCandidates(
     params.push(filters.since);
   }
 
-  const rows = db
+  const rows = await db
     .prepare(`
       SELECT
         ranked_processing_candidates.*,
@@ -639,12 +639,12 @@ export function listRankedCandidates(
   return rows.map(mapJoinedRankedCandidate);
 }
 
-export function markRawSourceItemStatus(
+export async function markRawSourceItemStatus(
   id: string,
   crawlStatus: RawSourceItem["crawl_status"],
-  db: DatabaseSync = getMigratedDb(),
+  db: MissionDeskDb = getMigratedDb(),
 ) {
-  db.prepare(`
+  await db.prepare(`
     UPDATE raw_source_items
     SET crawl_status = ?, updated_at = datetime('now')
     WHERE id = ?
@@ -653,8 +653,8 @@ export function markRawSourceItemStatus(
   return getRawSourceItemById(id, db);
 }
 
-export function upsertProcessedItem(input: NewProcessedItem, db: DatabaseSync = getMigratedDb()) {
-  db.prepare(`
+export async function upsertProcessedItem(input: NewProcessedItem, db: MissionDeskDb = getMigratedDb()) {
+  await db.prepare(`
     INSERT INTO processed_items (
       raw_source_item_id,
       title_sv,
@@ -710,22 +710,22 @@ export function upsertProcessedItem(input: NewProcessedItem, db: DatabaseSync = 
     input.cache_expires_at,
   );
 
-  return getProcessedItemByRawId(input.raw_source_item_id, db)!;
+  return (await getProcessedItemByRawId(input.raw_source_item_id, db))!;
 }
 
-export function getProcessedItemByRawId(rawSourceItemId: string, db: DatabaseSync = getMigratedDb()) {
-  const row = db
+export async function getProcessedItemByRawId(rawSourceItemId: string, db: MissionDeskDb = getMigratedDb()) {
+  const row = await db
     .prepare("SELECT * FROM processed_items WHERE raw_source_item_id = ?")
     .get(rawSourceItemId) as ProcessedItemRow | undefined;
 
   return row ? mapProcessedItem(row) : null;
 }
 
-export function getFreshProcessedItemByRawId(
+export async function getFreshProcessedItemByRawId(
   rawSourceItemId: string,
-  db: DatabaseSync = getMigratedDb(),
+  db: MissionDeskDb = getMigratedDb(),
 ) {
-  const row = db
+  const row = await db
     .prepare(`
       SELECT *
       FROM processed_items
@@ -738,9 +738,9 @@ export function getFreshProcessedItemByRawId(
   return row ? mapProcessedItem(row) : null;
 }
 
-export function listProcessedItems(
+export async function listProcessedItems(
   filters: ProcessedItemFilters = {},
-  db: DatabaseSync = getMigratedDb(),
+  db: MissionDeskDb = getMigratedDb(),
 ) {
   const where: string[] = [];
   const params: DbValue[] = [];
@@ -776,7 +776,7 @@ export function listProcessedItems(
     }
   }
 
-  const rows = db
+  const rows = await db
     .prepare(`
       SELECT
         processed_items.*,
@@ -814,8 +814,8 @@ export function listProcessedItems(
   return rows.map(mapJoinedProcessed);
 }
 
-export function listExpiredProcessedItems(limit = 100, db: DatabaseSync = getMigratedDb()) {
-  const rows = db
+export async function listExpiredProcessedItems(limit = 100, db: MissionDeskDb = getMigratedDb()) {
+  const rows = await db
     .prepare(`
       SELECT *
       FROM processed_items
@@ -828,11 +828,11 @@ export function listExpiredProcessedItems(limit = 100, db: DatabaseSync = getMig
   return rows.map(mapProcessedItem);
 }
 
-export function getProcessedItemCacheStatus(
+export async function getProcessedItemCacheStatus(
   rawSourceItemId: string,
-  db: DatabaseSync = getMigratedDb(),
-): ProcessedItemCacheStatus {
-  const item = getProcessedItemByRawId(rawSourceItemId, db);
+  db: MissionDeskDb = getMigratedDb(),
+): Promise<ProcessedItemCacheStatus> {
+  const item = await getProcessedItemByRawId(rawSourceItemId, db);
 
   return {
     freshness: cacheFreshnessState(item?.cache_expires_at),
@@ -840,8 +840,8 @@ export function getProcessedItemCacheStatus(
   };
 }
 
-export function upsertBriefing(input: NewBriefing, db: DatabaseSync = getMigratedDb()) {
-  db.prepare(`
+export async function upsertBriefing(input: NewBriefing, db: MissionDeskDb = getMigratedDb()) {
+  await db.prepare(`
     INSERT INTO briefings (
       id,
       type,
@@ -879,22 +879,22 @@ export function upsertBriefing(input: NewBriefing, db: DatabaseSync = getMigrate
     input.cache_expires_at,
   );
 
-  return getBriefingById(input.id, db)!;
+  return (await getBriefingById(input.id, db))!;
 }
 
-export function getBriefingById(id: string, db: DatabaseSync = getMigratedDb()) {
-  const row = db
+export async function getBriefingById(id: string, db: MissionDeskDb = getMigratedDb()) {
+  const row = await db
     .prepare("SELECT * FROM briefings WHERE id = ?")
     .get(id) as BriefingRow | undefined;
 
   return row ? mapBriefing(row) : null;
 }
 
-export function getFreshBriefing(
+export async function getFreshBriefing(
   input: Pick<Briefing, "type" | "profile" | "geographic_scope"> & { region?: string },
-  db: DatabaseSync = getMigratedDb(),
+  db: MissionDeskDb = getMigratedDb(),
 ) {
-  const row = db
+  const row = await db
     .prepare(`
       SELECT *
       FROM briefings
@@ -917,9 +917,9 @@ export function getFreshBriefing(
   return row ? mapBriefing(row) : null;
 }
 
-export function listBriefings(
+export async function listBriefings(
   filters: BriefingFilters = {},
-  db: DatabaseSync = getMigratedDb(),
+  db: MissionDeskDb = getMigratedDb(),
 ) {
   const where: string[] = [];
   const params: DbValue[] = [];
@@ -949,7 +949,7 @@ export function listBriefings(
     params.push(nowIso());
   }
 
-  const rows = db
+  const rows = await db
     .prepare(`
       SELECT *
       FROM briefings
@@ -962,8 +962,8 @@ export function listBriefings(
   return rows.map(mapBriefing);
 }
 
-export function listExpiredBriefings(limit = 25, db: DatabaseSync = getMigratedDb()) {
-  const rows = db
+export async function listExpiredBriefings(limit = 25, db: MissionDeskDb = getMigratedDb()) {
+  const rows = await db
     .prepare(`
       SELECT *
       FROM briefings
@@ -976,11 +976,11 @@ export function listExpiredBriefings(limit = 25, db: DatabaseSync = getMigratedD
   return rows.map(mapBriefing);
 }
 
-export function getBriefingCacheStatus(
+export async function getBriefingCacheStatus(
   input: Pick<Briefing, "type" | "profile" | "geographic_scope"> & { region?: string },
-  db: DatabaseSync = getMigratedDb(),
-): BriefingCacheStatus {
-  const item = getFreshBriefing(input, db) ?? getLatestBriefingByKey(input, db);
+  db: MissionDeskDb = getMigratedDb(),
+): Promise<BriefingCacheStatus> {
+  const item = (await getFreshBriefing(input, db)) ?? (await getLatestBriefingByKey(input, db));
 
   return {
     freshness: cacheFreshnessState(item?.cache_expires_at),
@@ -988,11 +988,11 @@ export function getBriefingCacheStatus(
   };
 }
 
-function getLatestBriefingByKey(
+async function getLatestBriefingByKey(
   input: Pick<Briefing, "type" | "profile" | "geographic_scope"> & { region?: string },
-  db: DatabaseSync = getMigratedDb(),
+  db: MissionDeskDb = getMigratedDb(),
 ) {
-  const row = db
+  const row = await db
     .prepare(`
       SELECT *
       FROM briefings
@@ -1013,7 +1013,7 @@ function getLatestBriefingByKey(
   return row ? mapBriefing(row) : null;
 }
 
-export function enqueueBackgroundJob(input: NewBackgroundJob, db: DatabaseSync = getMigratedDb()) {
+export async function enqueueBackgroundJob(input: NewBackgroundJob, db: MissionDeskDb = getMigratedDb()) {
   const job: Required<
     Pick<NewBackgroundJob, "id" | "status" | "priority" | "attempts" | "max_attempts" | "run_after">
   > &
@@ -1027,7 +1027,7 @@ export function enqueueBackgroundJob(input: NewBackgroundJob, db: DatabaseSync =
     run_after: input.run_after ?? nowIso(),
   };
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO background_jobs (
       id,
       type,
@@ -1068,26 +1068,26 @@ export function enqueueBackgroundJob(input: NewBackgroundJob, db: DatabaseSync =
     nullable(job.error_message),
   );
 
-  return getBackgroundJobById(job.id, db)!;
+  return (await getBackgroundJobById(job.id, db))!;
 }
 
-export function getBackgroundJobById(id: string, db: DatabaseSync = getMigratedDb()) {
-  const row = db
+export async function getBackgroundJobById(id: string, db: MissionDeskDb = getMigratedDb()) {
+  const row = await db
     .prepare("SELECT * FROM background_jobs WHERE id = ?")
     .get(id) as BackgroundJobRow | undefined;
 
   return row ? mapBackgroundJob(row) : null;
 }
 
-export function updateBackgroundJobPayload(
+export async function updateBackgroundJobPayload(
   id: string,
   payload: Record<string, unknown>,
-  db: DatabaseSync = getMigratedDb(),
+  db: MissionDeskDb = getMigratedDb(),
 ) {
-  const current = getBackgroundJobById(id, db);
+  const current = await getBackgroundJobById(id, db);
   if (!current) return null;
 
-  db.prepare(`
+  await db.prepare(`
     UPDATE background_jobs
     SET
       payload = ?,
@@ -1098,8 +1098,8 @@ export function updateBackgroundJobPayload(
   return getBackgroundJobById(id, db);
 }
 
-export function listPendingBackgroundJobs(limit = 25, db: DatabaseSync = getMigratedDb()) {
-  const rows = db
+export async function listPendingBackgroundJobs(limit = 25, db: MissionDeskDb = getMigratedDb()) {
+  const rows = await db
     .prepare(`
       SELECT *
       FROM background_jobs
@@ -1113,9 +1113,9 @@ export function listPendingBackgroundJobs(limit = 25, db: DatabaseSync = getMigr
   return rows.map(mapBackgroundJob);
 }
 
-export function listBackgroundJobs(
+export async function listBackgroundJobs(
   filters: BackgroundJobFilters = {},
-  db: DatabaseSync = getMigratedDb(),
+  db: MissionDeskDb = getMigratedDb(),
 ) {
   const where: string[] = [];
   const params: DbValue[] = [];
@@ -1130,7 +1130,7 @@ export function listBackgroundJobs(
     params.push(filters.status);
   }
 
-  const rows = db
+  const rows = await db
     .prepare(`
       SELECT *
       FROM background_jobs
@@ -1143,9 +1143,9 @@ export function listBackgroundJobs(
   return rows.map(mapBackgroundJob);
 }
 
-export function claimBackgroundJobs(
+export async function claimBackgroundJobs(
   input: { type?: string; limit?: number; workerId?: string } = {},
-  db: DatabaseSync = getMigratedDb(),
+  db: MissionDeskDb = getMigratedDb(),
 ) {
   const workerId = input.workerId ?? `missiondesk-worker-${randomUUID()}`;
   const where = ["status = 'pending'", "datetime(run_after) <= datetime(?)"];
@@ -1156,7 +1156,7 @@ export function claimBackgroundJobs(
     params.push(input.type);
   }
 
-  const rows = db
+  const rows = await db
     .prepare(`
       SELECT *
       FROM background_jobs
@@ -1167,7 +1167,7 @@ export function claimBackgroundJobs(
     .all(...params, limitValue(input.limit, 10)) as unknown as BackgroundJobRow[];
 
   for (const row of rows) {
-    db.prepare(`
+    await db.prepare(`
       UPDATE background_jobs
       SET
         status = 'running',
@@ -1180,13 +1180,13 @@ export function claimBackgroundJobs(
     `).run(workerId, row.id);
   }
 
-  return rows
-    .map((row) => getBackgroundJobById(row.id, db))
+  const claimed = await Promise.all(rows.map((row) => getBackgroundJobById(row.id, db)));
+  return claimed
     .filter((job): job is BackgroundJob => Boolean(job));
 }
 
-export function completeBackgroundJob(id: string, db: DatabaseSync = getMigratedDb()) {
-  db.prepare(`
+export async function completeBackgroundJob(id: string, db: MissionDeskDb = getMigratedDb()) {
+  await db.prepare(`
     UPDATE background_jobs
     SET
       status = 'completed',
@@ -1200,16 +1200,16 @@ export function completeBackgroundJob(id: string, db: DatabaseSync = getMigrated
   return getBackgroundJobById(id, db);
 }
 
-export function failBackgroundJob(
+export async function failBackgroundJob(
   id: string,
   errorMessage: string,
-  db: DatabaseSync = getMigratedDb(),
+  db: MissionDeskDb = getMigratedDb(),
 ) {
-  const current = getBackgroundJobById(id, db);
+  const current = await getBackgroundJobById(id, db);
   const shouldRetry = current ? current.attempts < current.max_attempts : false;
   const status = shouldRetry ? "pending" : "failed";
 
-  db.prepare(`
+  await db.prepare(`
     UPDATE background_jobs
     SET
       status = ?,

@@ -56,8 +56,7 @@ src/lib/
   types.ts
   ai/pipeline.ts
   config/embassies/sweden-mexico.ts
-  db/sqlite.ts
-  db/migrations/
+  db/postgres.ts
   ingestion/live-intelligence.ts
   ingestion/registry.ts
   ingestion/rss.ts
@@ -83,13 +82,38 @@ Ambassad- och landsspecifik logik ligger i `src/lib/config/embassies/sweden-mexi
 
 För en ny ambassad skapas en ny `EmbassyConfig` med motsvarande geografimodell, källor och prioriteringar. App-logiken behöver inte känna till om landet använder delstater, provinser, departement, regioner eller kommuner.
 
-## Data och AI
+## Data, Postgres och AI
+
+MissionDesk använder Postgres/Neon via `DATABASE_URL` för all persistent data: källor, råa källposter, rankade kandidater, processade signaler, briefings och bakgrundsjobb. Lokal SQLite och `/tmp` används inte längre som produktionslagring.
+
+Lokal setup:
+
+```bash
+DATABASE_URL="postgresql://USER:PASSWORD@HOST/neondb?sslmode=require"
+OPENAI_API_KEY="..."
+```
+
+Lägg värdena i `.env.local`. Kör sedan:
+
+```bash
+npm run db:migrate
+npm run smoke:postgres
+npm run dev
+```
+
+Vercel Production:
+
+1. Lägg `DATABASE_URL` i Project Settings → Environment Variables → Production.
+2. Lägg `OPENAI_API_KEY` i samma Production-miljö.
+3. Redeploya produktionen så serverless-funktionerna får de nya variablerna.
+
+Migrationer körs också lazy när repository-lagret används, men `npm run db:migrate` är det tydliga sättet att verifiera att Neon-schemat finns innan ingestion startas.
+
+Källor hanteras via `/sources` och sparas i Postgres-tabellen `source_definitions`. Standardlistan innehåller nationella mexikanska källor, mexikanska delstats-/regionala källor, svenska källor och internationella källor.
+
+Backendlagret för bredare källintelligens ligger i `src/lib/intelligence/` och `src/lib/db/`. Det modellerar råa källobjekt, processade briefingposter, cacheade briefings och bakgrundsjobb.
 
 Appen hämtar även riktiga artiklar via `GET /api/intelligence/live`. Första liveversionen använder öppna RSS-flöden från El Universal, El Financiero, La Jornada, Expansión och BBC Latin America. Artiklarna klassificeras lokalt efter kategori och geografi. När `OPENAI_API_KEY` är satt förbättras de med AI-genererad svensk översättning, sammanfattning, scoring och diplomatisk briefing.
-
-Källor hanteras via `/sources` och sparas i `data/sources.json` för lokal MVP-användning. Standardlistan innehåller nationella mexikanska källor, mexikanska delstats-/regionala källor, svenska källor och internationella källor.
-
-Det nya backendlagret för bredare källintelligens ligger i `src/lib/intelligence/` och `src/lib/db/`. Det modellerar råa källobjekt, processade briefingposter, cacheade briefings och framtida bakgrundsjobb. SQLite-migrationer körs lazy via repository-lagret och använder som standard `data/missiondesk.sqlite`, eller sökvägen i `MISSIONDESK_DB_PATH`.
 
 Lättviktsurvalet för AI-kandidater ligger i `src/lib/intelligence/ranking.ts`. Det rankar råa källobjekt utan AI med URL-/titeldeduplicering, freshness, källprioritet, trovärdighet, nyckelordsrelevans, diplomatisk relevans, Sverigerelevans, geografi, novelty och cross-source-signaler. Kandidater sparas i `ranked_processing_candidates`; dedupe-kluster sparas i `item_duplicate_clusters`, med hook-fält för framtida embeddingbaserad klustring. Backend-endpoints finns på `GET /api/intelligence/candidates` och `POST /api/intelligence/candidates/rank`.
 
@@ -111,7 +135,7 @@ Liveflöden går via:
 ## Roadmap
 
 1. Real crawlers: implementera RSS-adapter, API-adapter för Banxico/INEGI/SCB/Riksbanken, kalenderparser och säker HTML-extraktion.
-2. Lagring: lägg till SQLite med tabeller för källor, råa dokument, normaliserade dokument, intelligence items, events, embeddings och användarpreferenser.
+2. Lagring: vidareutveckla Postgres-schemat med normaliserade dokument, events, embeddings och användarpreferenser.
 3. AI-sammanfattning: koppla LLM-pipeline för svensk översättning, relevansklassificering, scoring, event-detektion, topic extraction och talking point generation.
 4. Verifiering: inför källdeduplicering, citations, confidence score, manuella analyst notes och audit trail för AI-genererade slutsatser.
 5. Produktion: deploya på Vercel eller motsvarande, schemalägg ingestion, lägg till observationsloggar, rate limits och robust felhantering.

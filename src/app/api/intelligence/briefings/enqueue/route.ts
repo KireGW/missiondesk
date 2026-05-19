@@ -22,12 +22,12 @@ export async function POST(request: Request) {
   };
 
   const jobs = body.defaults || !body.type
-    ? enqueueDefaultBriefingJobs({
+    ? await enqueueDefaultBriefingJobs({
         force: body.force,
         cacheHours: body.cacheHours,
       })
     : [
-        enqueueBriefingGenerationJob({
+        await enqueueBriefingGenerationJob({
           type: body.type,
           profile: body.profile,
           geographicScope: body.geographicScope,

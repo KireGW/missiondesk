@@ -19,7 +19,7 @@ import {
 } from "@/lib/intelligence/repository";
 import { rankAndStoreCandidates } from "@/lib/intelligence/ranking";
 import { ingestRawSourceItems } from "@/lib/ingestion/raw-source-ingestion";
-import { getSourcesSync } from "@/lib/sources/store";
+import { getSources } from "@/lib/sources/store";
 import type { BackgroundJob } from "@/lib/intelligence/models";
 
 export const dynamic = "force-dynamic";
@@ -36,14 +36,14 @@ const refreshSteps = [
 
 let manualRefreshInFlight: Promise<unknown> | null = null;
 
-function activeManualRefreshJob() {
-  return listBackgroundJobs({ type: manualRefreshJobType, limit: 10 }).find((job) =>
+async function activeManualRefreshJob() {
+  return (await listBackgroundJobs({ type: manualRefreshJobType, limit: 10 })).find((job) =>
     ["pending", "running"].includes(job.status),
   );
 }
 
-function latestManualRefreshJob() {
-  return listBackgroundJobs({ type: manualRefreshJobType, limit: 1 })[0];
+async function latestManualRefreshJob() {
+  return (await listBackgroundJobs({ type: manualRefreshJobType, limit: 1 }))[0];
 }
 
 function payloadNumber(job: BackgroundJob | null | undefined, key: string, fallback = 0) {
@@ -66,7 +66,7 @@ function payloadLogs(job: BackgroundJob | null | undefined) {
   return Array.isArray(value) ? value.slice(-20) : [];
 }
 
-function statusFromRefreshJob(job: BackgroundJob | undefined) {
+async function statusFromRefreshJob(job: BackgroundJob | undefined) {
   const active = Boolean(job && ["pending", "running"].includes(job.status));
   const progressPercent =
     job?.status === "completed" ? 100 : payloadNumber(job, "progressPercent", active ? 8 : 0);
@@ -90,7 +90,7 @@ function statusFromRefreshJob(job: BackgroundJob | undefined) {
   };
 }
 
-function updateManualRefreshPhase(
+async function updateManualRefreshPhase(
   jobId: string,
   phase: string,
   progressPercent: number,
@@ -106,10 +106,10 @@ function updateManualRefreshPhase(
   });
 }
 
-function logManualRefresh(jobId: string, message: string, data?: Record<string, unknown>) {
-  const current = getBackgroundJobById(jobId);
+async function logManualRefresh(jobId: string, message: string, data?: Record<string, unknown>) {
+  const current = await getBackgroundJobById(jobId);
   const logs = payloadLogs(current);
-  updateBackgroundJobPayload(jobId, {
+  await updateBackgroundJobPayload(jobId, {
     logs: [
       ...logs,
       {
@@ -128,8 +128,8 @@ async function runManualFullRescan(options: {
   cacheHours?: number;
   limitPerSource?: number;
 }) {
-  logManualRefresh(options.jobId, "manual source rescan started");
-  updateManualRefreshPhase(options.jobId, "ingesting_sources", 12, 0);
+  await logManualRefresh(options.jobId, "manual source rescan started");
+  await updateManualRefreshPhase(options.jobId, "ingesting_sources", 12, 0);
 
   const ingestion = await ingestRawSourceItems({
     limitPerSource: options.limitPerSource ?? 12,
@@ -137,14 +137,14 @@ async function runManualFullRescan(options: {
     preserveRawContent: true,
   });
 
-  logManualRefresh(options.jobId, "source rescan finished", {
+  await logManualRefresh(options.jobId, "source rescan finished", {
     sourceCount: ingestion.sourceCount,
     fetchedCount: ingestion.fetchedCount,
     storedCount: ingestion.storedCount,
     skippedCount: ingestion.skippedCount,
     errorCount: ingestion.errors.length,
   });
-  updateManualRefreshPhase(options.jobId, "ingesting_sources", 34, 0, {
+  await updateManualRefreshPhase(options.jobId, "ingesting_sources", 34, 0, {
     sourceCount: ingestion.sourceCount,
     fetchedCount: ingestion.fetchedCount,
     rawInsertedCount: ingestion.storedCount,
@@ -152,7 +152,7 @@ async function runManualFullRescan(options: {
     ingestionErrorCount: ingestion.errors.length,
   });
 
-  updateManualRefreshPhase(options.jobId, "ranking_candidates", 46, 1);
+  await updateManualRefreshPhase(options.jobId, "ranking_candidates", 46, 1);
   const ranking = await rankAndStoreCandidates({
     scanLimit: 500,
     targetMin: 25,
@@ -165,28 +165,28 @@ async function runManualFullRescan(options: {
     enqueueAiJobs: false,
   });
 
-  logManualRefresh(options.jobId, "ranking finished", {
+  await logManualRefresh(options.jobId, "ranking finished", {
     scannedCount: ranking.scannedCount,
     selectedCount: ranking.selectedCount,
     candidateCount: ranking.candidateCount,
     regionalHoldCount: ranking.regionalHoldCount,
   });
-  updateManualRefreshPhase(options.jobId, "ranking_candidates", 58, 1, {
+  await updateManualRefreshPhase(options.jobId, "ranking_candidates", 58, 1, {
     scannedCount: ranking.scannedCount,
     selectedCount: ranking.selectedCount,
     candidateCount: ranking.candidateCount,
     regionalHoldCount: ranking.regionalHoldCount,
   });
 
-  const processingJobs = enqueueSelectedNationalProcessingJobs({
+  const processingJobs = await enqueueSelectedNationalProcessingJobs({
     limit: options.limit,
     force: false,
     reprocessStale: false,
   });
-  logManualRefresh(options.jobId, "national processing jobs queued", {
+  await logManualRefresh(options.jobId, "national processing jobs queued", {
     count: processingJobs.length,
   });
-  updateManualRefreshPhase(options.jobId, "processing_items", 68, 2, {
+  await updateManualRefreshPhase(options.jobId, "processing_items", 68, 2, {
     processingJobs: processingJobs.length,
   });
 
@@ -201,14 +201,14 @@ async function runManualFullRescan(options: {
     processedCount += result.processedCount;
     processingFailedCount += result.failedCount;
     processingErrors.push(...result.errors.map((error) => error.message));
-    logManualRefresh(options.jobId, "national processing batch finished", {
+    await logManualRefresh(options.jobId, "national processing batch finished", {
       batch: batch + 1,
       claimedCount: result.claimedCount,
       processedCount: result.processedCount,
       skippedCount: result.skippedCount,
       failedCount: result.failedCount,
     });
-    updateManualRefreshPhase(options.jobId, "processing_items", 78, 2, {
+    await updateManualRefreshPhase(options.jobId, "processing_items", 78, 2, {
       processedCount,
       processingFailedCount,
     });
@@ -223,23 +223,23 @@ async function runManualFullRescan(options: {
   }
 
   if (processedCount === 0) {
-    logManualRefresh(options.jobId, "no new processed items; briefing regeneration skipped");
-    updateManualRefreshPhase(options.jobId, "completed", 100, 3, {
+    await logManualRefresh(options.jobId, "no new processed items; briefing regeneration skipped");
+    await updateManualRefreshPhase(options.jobId, "completed", 100, 3, {
       processedCount,
       completedAt: new Date().toISOString(),
     });
-    logManualRefresh(options.jobId, "manual source rescan completed");
+    await logManualRefresh(options.jobId, "manual source rescan completed");
     return;
   }
 
-  updateManualRefreshPhase(options.jobId, "generating_briefings", 84, 3, {
+  await updateManualRefreshPhase(options.jobId, "generating_briefings", 84, 3, {
     processedCount,
   });
-  const briefingJobs = enqueueDefaultBriefingJobs({
+  const briefingJobs = await enqueueDefaultBriefingJobs({
     force: true,
     cacheHours: options.cacheHours,
   });
-  logManualRefresh(options.jobId, "briefing jobs queued", {
+  await logManualRefresh(options.jobId, "briefing jobs queued", {
     count: briefingJobs.length,
   });
 
@@ -247,7 +247,7 @@ async function runManualFullRescan(options: {
   for (let batch = 0; batch < 10; batch += 1) {
     const result = await runBriefingGenerationWorker({ limit: 5 });
     generatedCount += result.generatedCount;
-    logManualRefresh(options.jobId, "briefing batch finished", {
+    await logManualRefresh(options.jobId, "briefing batch finished", {
       batch: batch + 1,
       claimedCount: result.claimedCount,
       generatedCount: result.generatedCount,
@@ -257,19 +257,19 @@ async function runManualFullRescan(options: {
     if (result.claimedCount === 0) break;
   }
 
-  updateManualRefreshPhase(options.jobId, "completed", 100, 3, {
+  await updateManualRefreshPhase(options.jobId, "completed", 100, 3, {
     processedCount,
     briefingGeneratedCount: generatedCount,
     completedAt: new Date().toISOString(),
   });
-  logManualRefresh(options.jobId, "manual source rescan completed", {
+  await logManualRefresh(options.jobId, "manual source rescan completed", {
     processedCount,
     generatedCount,
   });
 }
 
 async function runManualRefreshWorker(limit = 1) {
-  const jobs = claimBackgroundJobs({ type: manualRefreshJobType, limit });
+  const jobs = await claimBackgroundJobs({ type: manualRefreshJobType, limit });
 
   for (const job of jobs) {
     try {
@@ -279,11 +279,11 @@ async function runManualRefreshWorker(limit = 1) {
         cacheHours: payloadOptionalNumber(job, "cacheHours"),
         limitPerSource: payloadNumber(job, "limitPerSource", 12),
       });
-      completeBackgroundJob(job.id);
+      await completeBackgroundJob(job.id);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Okänt uppdateringsfel";
-      logManualRefresh(job.id, "manual source rescan failed", { error: message });
-      failBackgroundJob(job.id, message);
+      await logManualRefresh(job.id, "manual source rescan failed", { error: message });
+      await failBackgroundJob(job.id, message);
     }
   }
 
@@ -305,7 +305,7 @@ function startManualRefreshWorkerInBackground() {
 }
 
 export async function GET() {
-  return NextResponse.json(statusFromRefreshJob(latestManualRefreshJob()));
+  return NextResponse.json(await statusFromRefreshJob(await latestManualRefreshJob()));
 }
 
 export async function POST(request: Request) {
@@ -326,7 +326,7 @@ export async function POST(request: Request) {
   const rescanSources = body.rescanSources ?? false;
 
   if (rescanSources) {
-    const activeSourceCount = getSourcesSync().filter((source) => source.enabled).length;
+    const activeSourceCount = (await getSources()).filter((source) => source.enabled).length;
     if (activeSourceCount === 0) {
       return NextResponse.json(
         { error: "Inga källor är konfigurerade ännu." },
@@ -341,17 +341,17 @@ export async function POST(request: Request) {
       );
     }
 
-    const activeJob = activeManualRefreshJob();
+    const activeJob = await activeManualRefreshJob();
     if (activeJob) {
       startManualRefreshWorkerInBackground();
       return NextResponse.json({
-        ...statusFromRefreshJob(activeJob),
+        ...(await statusFromRefreshJob(activeJob)),
         started: false,
         alreadyRunning: true,
       });
     }
 
-    const job = enqueueBackgroundJob({
+    const job = await enqueueBackgroundJob({
       type: manualRefreshJobType,
       priority: 95,
       max_attempts: 1,
@@ -371,7 +371,7 @@ export async function POST(request: Request) {
     const started = startManualRefreshWorkerInBackground();
 
     return NextResponse.json({
-      ...statusFromRefreshJob(job),
+      ...(await statusFromRefreshJob(job)),
       started,
       alreadyRunning: false,
     });
@@ -379,7 +379,7 @@ export async function POST(request: Request) {
 
   const nationalJobs =
     scope === "national" || scope === "all"
-      ? enqueueSelectedNationalProcessingJobs({
+      ? await enqueueSelectedNationalProcessingJobs({
           limit,
           force,
           reprocessStale: body.reprocessStale ?? false,
@@ -387,7 +387,7 @@ export async function POST(request: Request) {
       : [];
   const briefingJobs =
     scope === "briefings" || scope === "all"
-      ? enqueueDefaultBriefingJobs({ force, cacheHours: body.cacheHours })
+      ? await enqueueDefaultBriefingJobs({ force, cacheHours: body.cacheHours })
       : [];
 
   return NextResponse.json({

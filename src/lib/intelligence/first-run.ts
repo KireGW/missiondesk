@@ -20,7 +20,7 @@ import {
   updateBackgroundJobPayload,
 } from "@/lib/intelligence/repository";
 import { ingestRawSourceItems } from "@/lib/ingestion/raw-source-ingestion";
-import { getSourcesSync } from "@/lib/sources/store";
+import { getSources } from "@/lib/sources/store";
 import type { BackgroundJob } from "@/lib/intelligence/models";
 
 export const firstRunJobType = "first_run_ingestion";
@@ -57,25 +57,25 @@ const firstRunEstimatedDurationLabel = "Första körningen tar oftast 3-10 minut
 
 let firstRunWorkerInFlight: Promise<unknown> | null = null;
 
-function freshCacheExists() {
+async function freshCacheExists() {
   return (
-    listBriefings({ onlyFresh: true, limit: 1 }).length > 0 ||
-    listProcessedItems({ onlyFresh: true, limit: 1 }).length > 0
+    (await listBriefings({ onlyFresh: true, limit: 1 })).length > 0 ||
+    (await listProcessedItems({ onlyFresh: true, limit: 1 })).length > 0
   );
 }
 
-function enabledSources() {
-  return getSourcesSync().filter((source) => source.enabled);
+async function enabledSources() {
+  return (await getSources()).filter((source) => source.enabled);
 }
 
-function activeFirstRunJob() {
-  return listBackgroundJobs({ type: firstRunJobType, limit: 5 }).find((job) =>
+async function activeFirstRunJob() {
+  return (await listBackgroundJobs({ type: firstRunJobType, limit: 5 })).find((job) =>
     ["pending", "running"].includes(job.status),
   );
 }
 
-function latestFirstRunJob() {
-  return listBackgroundJobs({ type: firstRunJobType, limit: 1 })[0];
+async function latestFirstRunJob() {
+  return (await listBackgroundJobs({ type: firstRunJobType, limit: 1 }))[0];
 }
 
 function payloadString(job: BackgroundJob | null | undefined, key: string) {
@@ -129,10 +129,10 @@ function isLongRunning(job: BackgroundJob | undefined) {
   return Date.now() - updatedAt > 10 * 60 * 1000;
 }
 
-function failStaleRunningFirstRunJobs() {
+async function failStaleRunningFirstRunJobs() {
   const staleThresholdMs = 30 * 60 * 1000;
   const now = Date.now();
-  const stale = listBackgroundJobs({ type: firstRunJobType, status: "running", limit: 5 }).filter(
+  const stale = (await listBackgroundJobs({ type: firstRunJobType, status: "running", limit: 5 })).filter(
     (job) => {
       const updatedAt = new Date(job.updated_at).getTime();
       return Number.isFinite(updatedAt) && now - updatedAt > staleThresholdMs;
@@ -140,10 +140,10 @@ function failStaleRunningFirstRunJobs() {
   );
 
   for (const job of stale) {
-    logFirstRun(job.id, "job failed", {
+    await logFirstRun(job.id, "job failed", {
       reason: "status endpoint marked stale running job as failed",
     });
-    failBackgroundJob(
+    await failBackgroundJob(
       job.id,
       "Första insamlingen verkar ha fastnat. Starta om körningen eller kontrollera källor, nätverk och API-nyckel.",
     );
@@ -159,12 +159,12 @@ function jobMessage(job: BackgroundJob | undefined, cacheExists: boolean) {
   return "Första insamlingen har startats automatiskt.";
 }
 
-function statusFromJob(job: BackgroundJob | undefined, cacheExists: boolean): FirstRunStatus {
+async function statusFromJob(job: BackgroundJob | undefined, cacheExists: boolean): Promise<FirstRunStatus> {
   return {
     cacheExists,
     job,
     active: Boolean(job && ["pending", "running"].includes(job.status)),
-    missingSources: enabledSources().length === 0,
+    missingSources: (await enabledSources()).length === 0,
     missingApiKey: !isNationalProcessingConfigured(),
     message: jobMessage(job, cacheExists),
     steps: firstRunSteps,
@@ -176,8 +176,8 @@ function statusFromJob(job: BackgroundJob | undefined, cacheExists: boolean): Fi
   };
 }
 
-function logFirstRun(jobId: string, message: string, data: Record<string, unknown> = {}) {
-  const current = getBackgroundJobById(jobId);
+async function logFirstRun(jobId: string, message: string, data: Record<string, unknown> = {}) {
+  const current = await getBackgroundJobById(jobId);
   const logs = payloadLogs(current);
   const entry = {
     at: new Date().toISOString(),
@@ -186,19 +186,19 @@ function logFirstRun(jobId: string, message: string, data: Record<string, unknow
   };
 
   console.info(`[MissionDesk first-run] ${message} ${JSON.stringify({ jobId, ...data })}`);
-  updateBackgroundJobPayload(jobId, {
+  await updateBackgroundJobPayload(jobId, {
     logs: [...logs, entry].slice(-30),
   });
 }
 
-function updateFirstRunPhase(
+async function updateFirstRunPhase(
   jobId: string,
   phase: string,
   progressPercent: number,
   activeStepIndex: number,
   data: Record<string, unknown> = {},
 ) {
-  updateBackgroundJobPayload(jobId, {
+  await updateBackgroundJobPayload(jobId, {
     phase,
     progressPercent,
     activeStepIndex,
@@ -206,7 +206,7 @@ function updateFirstRunPhase(
   });
 }
 
-function enqueueFailedValidationJob(message: string) {
+async function enqueueFailedValidationJob(message: string) {
   return enqueueBackgroundJob({
     type: firstRunJobType,
     status: "failed",
@@ -222,27 +222,27 @@ function enqueueFailedValidationJob(message: string) {
   });
 }
 
-export function getFirstRunStatus(): FirstRunStatus {
-  failStaleRunningFirstRunJobs();
-  return statusFromJob(latestFirstRunJob(), freshCacheExists());
+export async function getFirstRunStatus(): Promise<FirstRunStatus> {
+  await failStaleRunningFirstRunJobs();
+  return statusFromJob(await latestFirstRunJob(), await freshCacheExists());
 }
 
-export function ensureFirstRunIngestionJob(options: { force?: boolean } = {}) {
-  const cacheExists = freshCacheExists();
-  if (cacheExists) return statusFromJob(latestFirstRunJob(), true);
+export async function ensureFirstRunIngestionJob(options: { force?: boolean } = {}) {
+  const cacheExists = await freshCacheExists();
+  if (cacheExists) return statusFromJob(await latestFirstRunJob(), true);
 
-  const existingActive = activeFirstRunJob();
+  const existingActive = await activeFirstRunJob();
   if (existingActive) return statusFromJob(existingActive, false);
 
-  const latest = latestFirstRunJob();
+  const latest = await latestFirstRunJob();
 
-  const sources = enabledSources();
+  const sources = await enabledSources();
   if (sources.length === 0) {
     const message = "Inga källor är konfigurerade ännu.";
     if (!options.force && latest?.status === "failed" && latest.error_message === message) {
       return statusFromJob(latest, false);
     }
-    const failed = enqueueFailedValidationJob(message);
+    const failed = await enqueueFailedValidationJob(message);
     return statusFromJob(failed, false);
   }
 
@@ -251,7 +251,7 @@ export function ensureFirstRunIngestionJob(options: { force?: boolean } = {}) {
     if (!options.force && latest?.status === "failed" && latest.error_message === message) {
       return statusFromJob(latest, false);
     }
-    const failed = enqueueFailedValidationJob(message);
+    const failed = await enqueueFailedValidationJob(message);
     return statusFromJob(failed, false);
   }
 
@@ -263,7 +263,7 @@ export function ensureFirstRunIngestionJob(options: { force?: boolean } = {}) {
     return statusFromJob(latest, false);
   }
 
-  const job = enqueueBackgroundJob({
+  const job = await enqueueBackgroundJob({
     type: firstRunJobType,
     priority: 100,
     max_attempts: 1,
@@ -278,8 +278,8 @@ export function ensureFirstRunIngestionJob(options: { force?: boolean } = {}) {
   return statusFromJob(job, false);
 }
 
-function enqueueFirstRunBriefingJobs() {
-  return [
+async function enqueueFirstRunBriefingJobs() {
+  return Promise.all([
     enqueueBriefingGenerationJob({
       type: "morning_brief",
       minItems: 1,
@@ -310,7 +310,7 @@ function enqueueFirstRunBriefingJobs() {
       maxItems: 6,
       force: true,
     }),
-  ];
+  ]);
 }
 
 async function runNationalProcessingUntilIdle(jobId: string, limit = 10) {
@@ -328,7 +328,7 @@ async function runNationalProcessingUntilIdle(jobId: string, limit = 10) {
     failedCount += result.failedCount;
     errors.push(...result.errors);
 
-    logFirstRun(jobId, "processed_items batch finished", {
+    await logFirstRun(jobId, "processed_items batch finished", {
       batch: batch + 1,
       claimedCount: result.claimedCount,
       processedCount: result.processedCount,
@@ -336,7 +336,7 @@ async function runNationalProcessingUntilIdle(jobId: string, limit = 10) {
       failedCount: result.failedCount,
     });
 
-    updateFirstRunPhase(jobId, "processing_items", 72, 2, {
+    await updateFirstRunPhase(jobId, "processing_items", 72, 2, {
       processedCount,
       processingFailedCount: failedCount,
     });
@@ -362,7 +362,7 @@ async function runBriefingGenerationUntilIdle(jobId: string, limit = 5) {
     failedCount += result.failedCount;
     errors.push(...result.errors);
 
-    logFirstRun(jobId, "briefing batch finished", {
+    await logFirstRun(jobId, "briefing batch finished", {
       batch: batch + 1,
       claimedCount: result.claimedCount,
       generatedCount: result.generatedCount,
@@ -370,7 +370,7 @@ async function runBriefingGenerationUntilIdle(jobId: string, limit = 5) {
       failedCount: result.failedCount,
     });
 
-    updateFirstRunPhase(jobId, "generating_briefings", 88, 3, {
+    await updateFirstRunPhase(jobId, "generating_briefings", 88, 3, {
       briefingGeneratedCount: generatedCount,
       briefingFailedCount: failedCount,
     });
@@ -396,7 +396,7 @@ export function startFirstRunWorkerInBackground() {
 }
 
 export async function runFirstRunIngestionWorker(limit = 1) {
-  const jobs = claimBackgroundJobs({ type: firstRunJobType, limit });
+  const jobs = await claimBackgroundJobs({ type: firstRunJobType, limit });
   const results: Array<{
     jobId: string;
     ingestedCount?: number;
@@ -408,15 +408,15 @@ export async function runFirstRunIngestionWorker(limit = 1) {
 
   for (const job of jobs) {
     try {
-      logFirstRun(job.id, "first-run job started", {
-        sourceCount: enabledSources().length,
+      await logFirstRun(job.id, "first-run job started", {
+        sourceCount: (await enabledSources()).length,
       });
 
       if (!isNationalProcessingConfigured()) {
         throw new Error("Kan inte bearbeta källor: OPENAI_API_KEY saknas.");
       }
 
-      updateFirstRunPhase(job.id, "ingesting_sources", 28, 0);
+      await updateFirstRunPhase(job.id, "ingesting_sources", 28, 0);
       const ingestion = await ingestRawSourceItems({
         limitPerSource: 12,
         concurrency: 4,
@@ -427,16 +427,16 @@ export async function runFirstRunIngestionWorker(limit = 1) {
         throw new Error("Inga källor är konfigurerade ännu.");
       }
 
-      logFirstRun(job.id, "source count fetched", {
+      await logFirstRun(job.id, "source count fetched", {
         sourceCount: ingestion.sourceCount,
         fetchedCount: ingestion.fetchedCount,
         errors: ingestion.errors.length,
       });
-      logFirstRun(job.id, "raw_source_items inserted", {
+      await logFirstRun(job.id, "raw_source_items inserted", {
         storedCount: ingestion.storedCount,
         skippedCount: ingestion.skippedCount,
       });
-      updateFirstRunPhase(job.id, "ingesting_sources", 42, 0, {
+      await updateFirstRunPhase(job.id, "ingesting_sources", 42, 0, {
         sourceCount: ingestion.sourceCount,
         fetchedCount: ingestion.fetchedCount,
         rawInsertedCount: ingestion.storedCount,
@@ -447,7 +447,7 @@ export async function runFirstRunIngestionWorker(limit = 1) {
         throw new Error("Inga relevanta källposter hittades vid senaste körningen.");
       }
 
-      updateFirstRunPhase(job.id, "ranking_candidates", 50, 1);
+      await updateFirstRunPhase(job.id, "ranking_candidates", 50, 1);
       const ranking = await rankAndStoreCandidates({
         scanLimit: 500,
         targetMin: 25,
@@ -460,16 +460,16 @@ export async function runFirstRunIngestionWorker(limit = 1) {
         enqueueAiJobs: false,
       });
 
-      logFirstRun(job.id, "dedupe result count", {
+      await logFirstRun(job.id, "dedupe result count", {
         scannedCount: ranking.scannedCount,
         clusterCount: ranking.clusterCount,
       });
-      logFirstRun(job.id, "ranked candidate count", {
+      await logFirstRun(job.id, "ranked candidate count", {
         selectedCount: ranking.selectedCount,
         candidateCount: ranking.candidateCount,
         regionalHoldCount: ranking.regionalHoldCount,
       });
-      updateFirstRunPhase(job.id, "ranking_candidates", 60, 1, {
+      await updateFirstRunPhase(job.id, "ranking_candidates", 60, 1, {
         scannedCount: ranking.scannedCount,
         dedupeClusterCount: ranking.clusterCount,
         rankedCandidateCount: ranking.candidates.length,
@@ -480,56 +480,56 @@ export async function runFirstRunIngestionWorker(limit = 1) {
         throw new Error("Inga relevanta källposter hittades vid senaste körningen.");
       }
 
-      const processingJobs = enqueueSelectedNationalProcessingJobs({ limit: 100 });
-      logFirstRun(job.id, "processing jobs queued", {
+      const processingJobs = await enqueueSelectedNationalProcessingJobs({ limit: 100 });
+      await logFirstRun(job.id, "processing jobs queued", {
         processingJobs: processingJobs.length,
       });
-      updateFirstRunPhase(job.id, "processing_items", 68, 2, {
+      await updateFirstRunPhase(job.id, "processing_items", 68, 2, {
         processingJobs: processingJobs.length,
       });
 
       const processing = await runNationalProcessingUntilIdle(job.id, 12);
-      logFirstRun(job.id, "processed_items created", {
+      await logFirstRun(job.id, "processed_items created", {
         processedCount: processing.processedCount,
         skippedCount: processing.skippedCount,
         failedCount: processing.failedCount,
       });
 
-      if (processing.processedCount === 0 && listProcessedItems({ onlyFresh: true, limit: 1 }).length === 0) {
+      if (processing.processedCount === 0 && (await listProcessedItems({ onlyFresh: true, limit: 1 })).length === 0) {
         throw new Error(
           processing.errors[0]?.message ??
             "Inga bearbetade källposter kunde skapas vid senaste körningen.",
         );
       }
 
-      updateFirstRunPhase(job.id, "generating_briefings", 82, 3);
-      const briefingJobs = enqueueFirstRunBriefingJobs();
-      logFirstRun(job.id, "briefing jobs queued", {
+      await updateFirstRunPhase(job.id, "generating_briefings", 82, 3);
+      const briefingJobs = await enqueueFirstRunBriefingJobs();
+      await logFirstRun(job.id, "briefing jobs queued", {
         briefingJobs: briefingJobs.length,
       });
 
       const briefings = await runBriefingGenerationUntilIdle(job.id, 5);
-      logFirstRun(job.id, "briefing generated", {
+      await logFirstRun(job.id, "briefing generated", {
         generatedCount: briefings.generatedCount,
         skippedCount: briefings.skippedCount,
         failedCount: briefings.failedCount,
       });
 
-      if (briefings.generatedCount === 0 && listBriefings({ onlyFresh: true, limit: 1 }).length === 0) {
+      if (briefings.generatedCount === 0 && (await listBriefings({ onlyFresh: true, limit: 1 })).length === 0) {
         throw new Error(
           briefings.errors[0]?.message ??
             "Briefing kunde inte genereras från de bearbetade källposterna.",
         );
       }
 
-      updateFirstRunPhase(job.id, "completed", 100, 3, {
+      await updateFirstRunPhase(job.id, "completed", 100, 3, {
         completedAt: new Date().toISOString(),
       });
-      logFirstRun(job.id, "job completed", {
+      await logFirstRun(job.id, "job completed", {
         processedCount: processing.processedCount,
         briefingGeneratedCount: briefings.generatedCount,
       });
-      completeBackgroundJob(job.id);
+      await completeBackgroundJob(job.id);
       results.push({
         jobId: job.id,
         ingestedCount: ingestion.storedCount,
@@ -539,8 +539,8 @@ export async function runFirstRunIngestionWorker(limit = 1) {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Okänt first-run-fel";
-      logFirstRun(job.id, "job failed", { error: message });
-      failBackgroundJob(job.id, message);
+      await logFirstRun(job.id, "job failed", { error: message });
+      await failBackgroundJob(job.id, message);
       results.push({ jobId: job.id, error: message });
     }
   }

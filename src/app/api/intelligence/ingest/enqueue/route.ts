@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     since?: string;
   };
 
-  const jobs = enqueueRawIngestionJobs({
+  const jobs = await enqueueRawIngestionJobs({
     sourceIds: body.sourceIds,
     sourceTypes: body.sourceTypes,
     limitPerSource: body.limitPerSource,

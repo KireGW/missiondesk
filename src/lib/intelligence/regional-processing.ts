@@ -116,26 +116,26 @@ function resolveRegion(config: EmbassyConfig, regionId: string) {
   };
 }
 
-function listFreshRegionalItems(divisionIds: string[], limit: number) {
-  return sortRecords(
-    uniqueRecords(
-      divisionIds.flatMap((divisionId) =>
-        listProcessedItems({
-          geographicTag: divisionId,
-          onlyFresh: true,
-          limit,
-        }),
-      ),
+async function listFreshRegionalItems(divisionIds: string[], limit: number) {
+  const records = await Promise.all(
+    divisionIds.map((divisionId) =>
+      listProcessedItems({
+        geographicTag: divisionId,
+        onlyFresh: true,
+        limit,
+      }),
     ),
+  );
+  return sortRecords(
+    uniqueRecords(records.flat()),
   ).slice(0, limit);
 }
 
-function listRegionalRawItems(divisionIds: string[], options: RegionalProcessingOptions) {
+async function listRegionalRawItems(divisionIds: string[], options: RegionalProcessingOptions) {
   const perDivisionLimit = options.scanLimitPerDivision ?? 90;
   const since = new Date(Date.now() - 14 * 24 * 36e5).toISOString();
-
-  return uniqueById(
-    divisionIds.flatMap((divisionId) =>
+  const records = await Promise.all(
+    divisionIds.map((divisionId) =>
       listRawSourceItems({
         detectedRegion: divisionId,
         since,
@@ -144,9 +144,11 @@ function listRegionalRawItems(divisionIds: string[], options: RegionalProcessing
       }),
     ),
   );
+
+  return uniqueById(records.flat());
 }
 
-function highPriorityNewItemExists(
+async function highPriorityNewItemExists(
   divisionIds: string[],
   freshnessTimestamp: string | undefined,
 ) {
@@ -154,8 +156,8 @@ function highPriorityNewItemExists(
   const since = new Date(freshnessTimestamp).getTime();
   if (!Number.isFinite(since)) return false;
 
-  const rawItems = uniqueById(
-    divisionIds.flatMap((divisionId) =>
+  const records = await Promise.all(
+    divisionIds.map((divisionId) =>
       listRawSourceItems({
         detectedRegion: divisionId,
         since: freshnessTimestamp,
@@ -164,6 +166,7 @@ function highPriorityNewItemExists(
       }),
     ),
   );
+  const rawItems = uniqueById(records.flat());
 
   return rawItems.some((item) => {
     const itemTime = new Date(item.published_at ?? item.created_at).getTime();
@@ -237,7 +240,7 @@ export async function processRegionalIntelligenceOnDemand(
     "Identifierar relevanta signaler...",
   ];
 
-  const cachedItems = listFreshRegionalItems(divisionIds, limit);
+  const cachedItems = await listFreshRegionalItems(divisionIds, limit);
   const freshnessTimestamp = latestTimestamp(
     cachedItems.map((record) => record.processed.processed_at),
   );
@@ -248,7 +251,7 @@ export async function processRegionalIntelligenceOnDemand(
   if (
     cachedItems.length > 0 &&
     !options.force &&
-    !highPriorityNewItemExists(divisionIds, freshnessTimestamp)
+    !(await highPriorityNewItemExists(divisionIds, freshnessTimestamp))
   ) {
     return {
       status: "ready",
@@ -281,7 +284,7 @@ export async function processRegionalIntelligenceOnDemand(
     };
   }
 
-  const rawItems = listRegionalRawItems(divisionIds, options);
+  const rawItems = await listRegionalRawItems(divisionIds, options);
   const selected = selectedRegionalCandidates(rawItems, cachedItems, { ...options, limit });
 
   if (selected.length === 0) {
@@ -323,7 +326,7 @@ export async function processRegionalIntelligenceOnDemand(
         : "regional";
     const itemExpiresAt = cacheExpiresAtFor(cacheScope, ttlHours, processedAt);
 
-    upsertProcessedItem({
+    await upsertProcessedItem({
       raw_source_item_id: raw.id,
       title_sv: analysis.title_sv,
       summary_sv: analysis.summary_sv,
@@ -344,7 +347,7 @@ export async function processRegionalIntelligenceOnDemand(
     });
   }
 
-  const items = listFreshRegionalItems(divisionIds, limit);
+  const items = await listFreshRegionalItems(divisionIds, limit);
 
   return {
     status: items.length > 0 ? "ready" : "empty",

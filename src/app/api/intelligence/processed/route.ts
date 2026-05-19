@@ -41,7 +41,7 @@ export async function GET(request: Request) {
   const onlyFresh = url.searchParams.get("fresh") !== "0";
   const recentDays = Number(url.searchParams.get("recentDays") ?? undefined);
 
-  const items = listProcessedItems({
+  const items = await listProcessedItems({
     category: categories.includes(categoryParam as IntelligenceCategory)
       ? (categoryParam as IntelligenceCategory)
       : undefined,

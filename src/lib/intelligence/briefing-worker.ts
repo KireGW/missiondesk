@@ -112,21 +112,21 @@ function thresholdFor(type: BriefingType) {
   return 48;
 }
 
-export function selectBriefingItems(
+export async function selectBriefingItems(
   options: BriefingSelectionOptions,
-): ProcessedIntelligenceRecord[] {
+): Promise<ProcessedIntelligenceRecord[]> {
   const profile = options.profile ?? defaultProfiles[options.type];
   const maxItems = Math.max(4, Math.min(9, options.maxItems ?? 7));
   const minItems = Math.max(1, options.minItems ?? 5);
   const threshold = options.minItems && options.minItems <= 1
     ? Math.max(50, thresholdFor(options.type) - 14)
     : thresholdFor(options.type);
-  const profileRecords = listProcessedItems({
+  const profileRecords = await listProcessedItems({
     profile,
     onlyFresh: true,
     limit: 120,
   });
-  const fallbackRecords = listProcessedItems({
+  const fallbackRecords = await listProcessedItems({
     onlyFresh: true,
     limit: 120,
   });
@@ -179,7 +179,7 @@ export function briefingIdFor(options: Required<Pick<BriefingSelectionOptions, "
   ].join(":");
 }
 
-export function enqueueBriefingGenerationJob(options: BriefingSelectionOptions) {
+export async function enqueueBriefingGenerationJob(options: BriefingSelectionOptions) {
   const profile = options.profile ?? defaultProfiles[options.type];
   const geographicScope = options.geographicScope ?? "national";
 
@@ -204,8 +204,8 @@ export function enqueueBriefingGenerationJob(options: BriefingSelectionOptions) 
   });
 }
 
-export function enqueueDefaultBriefingJobs(options: { force?: boolean; cacheHours?: number } = {}) {
-  return [
+export async function enqueueDefaultBriefingJobs(options: { force?: boolean; cacheHours?: number } = {}) {
+  return Promise.all([
     enqueueBriefingGenerationJob({
       type: "morning_brief",
       minItems: 4,
@@ -241,7 +241,7 @@ export function enqueueDefaultBriefingJobs(options: { force?: boolean; cacheHour
       force: options.force,
       cacheHours: options.cacheHours,
     }),
-  ];
+  ]);
 }
 
 async function generateBriefingFromJob(
@@ -263,7 +263,7 @@ async function generateBriefingFromJob(
   const cacheHours = payloadNumber(job, "cacheHours") ?? options.cacheHours;
 
   if (!force) {
-    const fresh = getFreshBriefing({
+    const fresh = await getFreshBriefing({
       type,
       profile,
       geographic_scope: geographicScope,
@@ -274,7 +274,7 @@ async function generateBriefingFromJob(
     }
   }
 
-  const items = selectBriefingItems({
+  const items = await selectBriefingItems({
     type,
     profile,
     geographicScope,
@@ -321,7 +321,7 @@ async function generateBriefingFromJob(
     cache_expires_at: cacheExpiresAtFor(cacheScope, cacheHours),
   };
 
-  upsertBriefing(briefing);
+  await upsertBriefing(briefing);
   return { skipped: false };
 }
 
@@ -332,7 +332,7 @@ export async function runBriefingGenerationWorker(
     throw new Error("OPENAI_API_KEY is required for briefing generation");
   }
 
-  const jobs = claimBackgroundJobs({
+  const jobs = await claimBackgroundJobs({
     type: briefingJobType,
     limit: options.limit ?? 5,
     workerId: options.workerId,
@@ -356,12 +356,12 @@ export async function runBriefingGenerationWorker(
         generatedCount += 1;
       }
 
-      completeBackgroundJob(job.id);
+      await completeBackgroundJob(job.id);
     } catch (error) {
       failedCount += 1;
       const message = error instanceof Error ? error.message : "Unknown briefing error";
       errors.push({ jobId: job.id, message });
-      failBackgroundJob(job.id, message);
+      await failBackgroundJob(job.id, message);
     }
   }
 

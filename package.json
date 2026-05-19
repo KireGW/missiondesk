@@ -9,7 +9,9 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "db:migrate": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/migrate-postgres.ts",
+    "smoke:postgres": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-postgres.ts"
   },
   "dependencies": {
     "@tailwindcss/postcss": "latest",
@@ -17,12 +19,14 @@
     "fast-xml-parser": "^5.8.0",
     "lucide-react": "latest",
     "next": "latest",
+    "pg": "^8.21.0",
     "react": "latest",
     "react-dom": "latest",
     "tailwindcss": "latest"
   },
   "devDependencies": {
     "@types/node": "latest",
+    "@types/pg": "^8.20.0",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "eslint": "latest",

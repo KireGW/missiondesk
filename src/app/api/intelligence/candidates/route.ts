@@ -21,7 +21,7 @@ export async function GET(request: Request) {
     : undefined;
 
   return NextResponse.json({
-    candidates: listRankedCandidates({
+    candidates: await listRankedCandidates({
       status,
       since: url.searchParams.get("since") ?? undefined,
       limit: Number.isFinite(limitParam) ? limitParam : 100,

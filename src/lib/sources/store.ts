@@ -1,11 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import path from "node:path";
+import { getMigratedDb } from "@/lib/db/postgres";
 import { defaultSources } from "@/lib/sources/default-sources";
-import { missiondeskDataDir } from "@/lib/runtime/paths";
 import type { SourceDefinition } from "@/lib/types";
 
-const dataDir = missiondeskDataDir();
-const sourceFile = path.join(dataDir, "sources.json");
 const legacySeedIds = new Set([
   "el-universal",
   "el-financiero",
@@ -23,6 +19,12 @@ const legacySeedIds = new Set([
   "bbc-latin-america",
 ]);
 
+interface SourceDefinitionRow {
+  id: string;
+  data: SourceDefinition | string;
+  sort_order: number;
+}
+
 function normalize(value: string) {
   return value
     .toLowerCase()
@@ -36,19 +38,42 @@ function sourceKey(source: Pick<SourceDefinition, "name" | "url">) {
   return `${normalize(source.name)}|${normalize(source.url)}`;
 }
 
-function readStoredSources(): SourceDefinition[] | null {
-  if (!existsSync(sourceFile)) return null;
-  try {
-    const raw = readFileSync(sourceFile, "utf8");
-    return JSON.parse(raw) as SourceDefinition[];
-  } catch {
-    return null;
-  }
+function mapSourceRow(row: SourceDefinitionRow): SourceDefinition {
+  const data =
+    typeof row.data === "string"
+      ? (JSON.parse(row.data) as SourceDefinition)
+      : row.data;
+  return { ...data, id: row.id };
 }
 
-function writeSources(sources: SourceDefinition[]) {
-  mkdirSync(dataDir, { recursive: true });
-  writeFileSync(sourceFile, `${JSON.stringify(sources, null, 2)}\n`, "utf8");
+async function readStoredSources(): Promise<SourceDefinition[] | null> {
+  const rows = await getMigratedDb()
+    .prepare(`
+      SELECT id, data, sort_order
+      FROM source_definitions
+      ORDER BY sort_order ASC, id ASC
+    `)
+    .all<SourceDefinitionRow>();
+
+  return rows.length > 0 ? rows.map(mapSourceRow) : null;
+}
+
+async function writeSources(sources: SourceDefinition[]) {
+  const db = getMigratedDb();
+  await db.prepare("DELETE FROM source_definitions").run();
+
+  for (const [index, source] of sources.entries()) {
+    await db
+      .prepare(`
+        INSERT INTO source_definitions (id, data, sort_order)
+        VALUES (?, ?::jsonb, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          data = excluded.data,
+          sort_order = excluded.sort_order,
+          updated_at = datetime('now')
+      `)
+      .run(source.id, JSON.stringify(source), index);
+  }
 }
 
 function migrateLegacySeedSources(sources: SourceDefinition[]) {
@@ -62,7 +87,9 @@ function migrateLegacySeedSources(sources: SourceDefinition[]) {
     };
   });
 
-  const customSources = sources.filter((source) => !defaultSources.some((item) => sourceKey(item) === sourceKey(source)));
+  const customSources = sources.filter(
+    (source) => !defaultSources.some((item) => sourceKey(item) === sourceKey(source)),
+  );
   return [...migratedDefaults, ...customSources];
 }
 
@@ -83,10 +110,10 @@ function mergeDefaultSources(sources: SourceDefinition[]) {
   return [...mergedDefaults, ...customSources];
 }
 
-export function getSourcesSync(): SourceDefinition[] {
-  const stored = readStoredSources();
+export async function getSources(): Promise<SourceDefinition[]> {
+  const stored = await readStoredSources();
   if (!stored) {
-    writeSources(defaultSources);
+    await writeSources(defaultSources);
     return defaultSources;
   }
 
@@ -96,7 +123,7 @@ export function getSourcesSync(): SourceDefinition[] {
 
   if (isLegacySeed) {
     const migrated = migrateLegacySeedSources(stored);
-    writeSources(migrated);
+    await writeSources(migrated);
     return migrated;
   }
 
@@ -106,19 +133,15 @@ export function getSourcesSync(): SourceDefinition[] {
     merged.some((source, index) => sourceKey(source) !== sourceKey(stored[index] ?? source));
 
   if (needsRewrite) {
-    writeSources(merged);
+    await writeSources(merged);
     return merged;
   }
 
   return stored;
 }
 
-export async function getSources(): Promise<SourceDefinition[]> {
-  return getSourcesSync();
-}
-
 export async function saveSources(sources: SourceDefinition[]) {
-  writeSources(sources);
+  await writeSources(sources);
 }
 
 export function sourceIdFromName(name: string) {
@@ -132,6 +155,6 @@ export function sourceIdFromName(name: string) {
 }
 
 export async function resetSources() {
-  writeSources(defaultSources);
+  await writeSources(defaultSources);
   return defaultSources;
 }

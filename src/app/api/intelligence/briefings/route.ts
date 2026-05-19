@@ -32,7 +32,7 @@ export async function GET(request: Request) {
   const limit = Number(url.searchParams.get("limit") ?? 10);
   const onlyFresh = url.searchParams.get("fresh") !== "0";
 
-  const briefings = listBriefings({
+  const briefings = await listBriefings({
     type: url.searchParams.get("type") ?? undefined,
     profile: profiles.includes(profileParam as ProfileMode)
       ? (profileParam as ProfileMode)

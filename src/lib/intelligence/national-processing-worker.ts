@@ -58,8 +58,8 @@ function isNationalCandidate(record: RankedCandidateRecord) {
   return true;
 }
 
-function hasPendingProcessingJob(rawSourceItemId: string) {
-  return listPendingBackgroundJobs(250).some(
+async function hasPendingProcessingJob(rawSourceItemId: string) {
+  return (await listPendingBackgroundJobs(250)).some(
     (job) =>
       job.type === processingJobType &&
       typeof job.payload.rawSourceItemId === "string" &&
@@ -67,26 +67,30 @@ function hasPendingProcessingJob(rawSourceItemId: string) {
   );
 }
 
-export function enqueueSelectedNationalProcessingJobs(
+export async function enqueueSelectedNationalProcessingJobs(
   input: number | { limit?: number; force?: boolean; reprocessStale?: boolean } = 100,
 ) {
   const limit = typeof input === "number" ? input : input.limit ?? 100;
   const force = typeof input === "number" ? false : input.force ?? false;
   const reprocessStale =
     typeof input === "number" ? false : input.reprocessStale ?? false;
-  const selected = listRankedCandidates({ status: "selected", limit })
-    .filter(isNationalCandidate)
-    .filter((record) => {
-      if (force) return true;
+  const candidates = await listRankedCandidates({ status: "selected", limit });
+  const selected: RankedCandidateRecord[] = [];
 
-      const existing = getProcessedItemByRawId(record.raw.id);
-      if (!existing) return true;
+  for (const record of candidates.filter(isNationalCandidate)) {
+    if (!force) {
+      const existing = await getProcessedItemByRawId(record.raw.id);
+      if (existing) {
+        const shouldReprocess = reprocessStale && !isCacheFresh(existing.cache_expires_at);
+        if (!shouldReprocess) continue;
+      }
+    }
 
-      return reprocessStale && !isCacheFresh(existing.cache_expires_at);
-    })
-    .filter((record) => !hasPendingProcessingJob(record.raw.id));
+    if (await hasPendingProcessingJob(record.raw.id)) continue;
+    selected.push(record);
+  }
 
-  return selected.map((record) =>
+  return Promise.all(selected.map((record) =>
     enqueueBackgroundJob({
       type: processingJobType,
       priority: record.candidate.rank_score,
@@ -98,11 +102,11 @@ export function enqueueSelectedNationalProcessingJobs(
         reprocessStale,
       },
     }),
-  );
+  ));
 }
 
-function findCandidate(rawSourceItemId: string) {
-  return listRankedCandidates({ status: "selected", limit: 250 }).find(
+async function findCandidate(rawSourceItemId: string) {
+  return (await listRankedCandidates({ status: "selected", limit: 250 })).find(
     (record) => record.raw.id === rawSourceItemId,
   );
 }
@@ -121,7 +125,7 @@ async function processJob(
   const reprocessStale =
     payloadBoolean(job, "reprocessStale") ?? options.reprocessStale;
 
-  const record = findCandidate(rawSourceItemId);
+  const record = await findCandidate(rawSourceItemId);
   if (!record) {
     return { skipped: true, reason: "candidate not selected or no longer available" };
   }
@@ -130,7 +134,7 @@ async function processJob(
     return { skipped: true, reason: "candidate is duplicate or no longer selected" };
   }
 
-  const existing = getProcessedItemByRawId(rawSourceItemId);
+  const existing = await getProcessedItemByRawId(rawSourceItemId);
   if (existing && !force) {
     if (isCacheFresh(existing.cache_expires_at)) {
       return { skipped: true, reason: "fresh processed cache already exists" };
@@ -188,7 +192,7 @@ async function processJob(
     cache_expires_at: cacheExpiresAtFor(cacheScope, options.cacheHours),
   };
 
-  upsertProcessedItem(processed);
+  await upsertProcessedItem(processed);
   return { skipped: false };
 }
 
@@ -200,14 +204,14 @@ export async function runNationalProcessingWorker(
   }
 
   if (options.enqueueMissingJobs) {
-    enqueueSelectedNationalProcessingJobs({
+    await enqueueSelectedNationalProcessingJobs({
       limit: options.limit ?? 100,
       force: options.force ?? false,
       reprocessStale: options.reprocessStale ?? false,
     });
   }
 
-  const jobs = claimBackgroundJobs({
+  const jobs = await claimBackgroundJobs({
     type: processingJobType,
     limit: options.limit ?? 10,
     workerId: options.workerId,
@@ -231,12 +235,12 @@ export async function runNationalProcessingWorker(
         processedCount += 1;
       }
 
-      completeBackgroundJob(job.id);
+      await completeBackgroundJob(job.id);
     } catch (error) {
       failedCount += 1;
       const message = error instanceof Error ? error.message : "Unknown processing error";
       errors.push({ jobId: job.id, message });
-      failBackgroundJob(job.id, message);
+      await failBackgroundJob(job.id, message);
     }
   }
 

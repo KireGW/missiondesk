@@ -1,4 +1,4 @@
-import { getSourcesSync } from "@/lib/sources/store";
+import { getSources } from "@/lib/sources/store";
 import {
   claimBackgroundJobs,
   completeBackgroundJob,
@@ -56,12 +56,12 @@ function payloadNumber(job: BackgroundJob, key: string) {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function payloadSource(job: BackgroundJob): IngestibleSourceDefinition | null {
+async function payloadSource(job: BackgroundJob): Promise<IngestibleSourceDefinition | null> {
   const sourceId = payloadString(job, "sourceId");
   if (!sourceId) return null;
 
   return (
-    (getSourcesSync() as IngestibleSourceDefinition[]).find((source) => source.id === sourceId) ??
+    ((await getSources()) as IngestibleSourceDefinition[]).find((source) => source.id === sourceId) ??
     null
   );
 }
@@ -78,7 +78,7 @@ async function processJob(
   | { skipped: true; reason: string }
   | { skipped: false; result: Awaited<ReturnType<typeof ingestRawSourceItems>> }
 > {
-  const source = payloadSource(job);
+  const source = await payloadSource(job);
   if (!source) {
     return { skipped: true, reason: "source missing or deleted" };
   }
@@ -106,7 +106,7 @@ export async function runRawIngestionWorker(
   options: RawIngestionWorkerOptions = {},
 ): Promise<RawIngestionWorkerResult> {
   if (options.enqueueMissingJobs) {
-    enqueueRawIngestionJobs({
+    await enqueueRawIngestionJobs({
       sourceIds: options.sourceIds,
       sourceTypes: options.sourceTypes,
       limitPerSource: options.limitPerSource,
@@ -115,7 +115,7 @@ export async function runRawIngestionWorker(
     });
   }
 
-  const jobs = claimBackgroundJobs({
+  const jobs = await claimBackgroundJobs({
     type: rawIngestionJobType,
     limit: options.limit ?? 10,
     workerId: options.workerId,
@@ -150,12 +150,12 @@ export async function runRawIngestionWorker(
         result.items.push(...processed.result.results.flatMap((entry) => entry.items));
       }
 
-      completeBackgroundJob(job.id);
+      await completeBackgroundJob(job.id);
     } catch (error) {
       result.failedCount += 1;
       const message = error instanceof Error ? error.message : "Unknown ingestion error";
       result.errors.push({ jobId: job.id, message });
-      failBackgroundJob(job.id, message);
+      await failBackgroundJob(job.id, message);
     }
   }
 

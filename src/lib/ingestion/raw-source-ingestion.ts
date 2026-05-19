@@ -1,7 +1,7 @@
 import { swedenMexicoEmbassyConfig } from "@/lib/config/embassies/sweden-mexico";
 import { detectGeography } from "@/lib/ingestion/geography";
 import { ingestionAdapters } from "@/lib/ingestion/registry";
-import { getSourcesSync } from "@/lib/sources/store";
+import { getSources } from "@/lib/sources/store";
 import type {
   IngestibleSourceDefinition,
   RawSourceDocument,
@@ -238,7 +238,7 @@ async function ingestSource(
         continue;
       }
 
-      storedItems.push(upsertRawSourceItem(rawItem));
+      storedItems.push(await upsertRawSourceItem(rawItem));
     }
 
     return {
@@ -299,7 +299,7 @@ export async function ingestRawSourceItems(
   const startedAt = new Date().toISOString();
   const config = options.config ?? swedenMexicoEmbassyConfig;
   const sourceIds = new Set(options.sourceIds ?? []);
-  const sources = (options.sources ?? (getSourcesSync() as IngestibleSourceDefinition[])).filter(
+  const sources = (options.sources ?? ((await getSources()) as IngestibleSourceDefinition[])).filter(
     (source) => source.enabled && (sourceIds.size === 0 || sourceIds.has(source.id)),
   );
   const results = await mapWithConcurrency(
@@ -325,7 +325,7 @@ export async function ingestRawSourceItems(
   };
 }
 
-export function enqueueRawIngestionJobs(
+export async function enqueueRawIngestionJobs(
   options: {
     sources?: IngestibleSourceDefinition[];
     sourceIds?: string[];
@@ -338,12 +338,12 @@ export function enqueueRawIngestionJobs(
   const sourceIds = new Set(options.sourceIds ?? []);
   const sourceTypes = new Set(options.sourceTypes ?? []);
   const pendingSourceIds = new Set(
-    listBackgroundJobs({ type: "ingest_raw_source", limit: 500 })
+    (await listBackgroundJobs({ type: "ingest_raw_source", limit: 500 }))
       .filter((job) => job.status === "pending" || job.status === "running")
       .map((job) => job.payload.sourceId)
       .filter((value): value is string => typeof value === "string"),
   );
-  const sources = (options.sources ?? (getSourcesSync() as IngestibleSourceDefinition[])).filter(
+  const sources = (options.sources ?? ((await getSources()) as IngestibleSourceDefinition[])).filter(
     (source) =>
       source.enabled &&
       (sourceIds.size === 0 || sourceIds.has(source.id)) &&
@@ -351,8 +351,8 @@ export function enqueueRawIngestionJobs(
       !pendingSourceIds.has(source.id),
   );
 
-  return sources
-    .map((source) =>
+  return Promise.all(
+    sources.map((source) =>
       enqueueBackgroundJob({
         type: "ingest_raw_source",
         priority: sourcePriority(source),
@@ -365,5 +365,6 @@ export function enqueueRawIngestionJobs(
           since: options.since,
         },
       }),
-    );
+    ),
+  );
 }
