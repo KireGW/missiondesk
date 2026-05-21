@@ -321,6 +321,37 @@ const earliestIso = (values: Array<string | undefined>) => {
   return new Date(Math.min(...timestamps)).toISOString();
 };
 
+const decodeHtmlEntities = (value?: string) => {
+  if (!value) return value ?? "";
+  const named: Record<string, string> = {
+    amp: "&",
+    lt: "<",
+    gt: ">",
+    quot: '"',
+    apos: "'",
+    nbsp: " ",
+    Aring: "Å",
+    aring: "å",
+    Auml: "Ä",
+    auml: "ä",
+    Ouml: "Ö",
+    ouml: "ö",
+  };
+
+  return value
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, hex) => {
+      const code = Number.parseInt(hex, 16);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : _;
+    })
+    .replace(/&#([0-9]+);/g, (_, dec) => {
+      const code = Number.parseInt(dec, 10);
+      return Number.isFinite(code) ? String.fromCodePoint(code) : _;
+    })
+    .replace(/&([a-zA-Z]+);/g, (match, key) => named[key] ?? match)
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
 const getCompositeScore = (
   item: IntelligenceItem,
   config: EmbassyConfig,
@@ -2225,21 +2256,21 @@ function SignalTrackingPanel({
                         rel="noreferrer"
                         className="text-base font-semibold leading-6 text-[var(--app-fg)] transition hover:text-[var(--app-accent)]"
                       >
-                        {item.title_sv}
+                        {decodeHtmlEntities(item.title_sv)}
                       </a>
-                      {item.title_sv !== item.title_original && (
+                      {decodeHtmlEntities(item.title_sv) !== decodeHtmlEntities(item.title_original) && (
                         <p className="mt-1 text-xs leading-5 text-[var(--app-muted)]">
-                          {item.title_original}
+                          {decodeHtmlEntities(item.title_original)}
                         </p>
                       )}
                       {(item.snippet_sv ?? item.snippet_original) && (
                         <p className="mt-2 max-w-4xl text-sm leading-6 text-[var(--app-soft)]">
-                          {item.snippet_sv ?? item.snippet_original}
+                          {decodeHtmlEntities(item.snippet_sv ?? item.snippet_original)}
                         </p>
                       )}
                     </div>
                     <div className="shrink-0 text-xs leading-5 text-[var(--app-muted)] lg:text-right">
-                      <p className="font-medium text-[var(--app-soft)]">{item.source_name}</p>
+                      <p className="font-medium text-[var(--app-soft)]">{decodeHtmlEntities(item.source_name)}</p>
                       <p>
                         {countryNameSv(item.source_country) ?? item.source_country} ·{" "}
                         {item.source_language.toUpperCase()}
