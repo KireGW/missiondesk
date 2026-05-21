@@ -19,7 +19,6 @@ import type { EmbassyConfig, IntelligenceCategory, RetrievalMethod, SourceDefini
 import type { SourceIntelligenceType } from "@/lib/intelligence/models";
 
 const MAX_QUERY_VARIANTS = 5;
-const MAX_SOURCES_PER_DEEP_SEARCH = 24;
 const MAX_RSS_ITEMS_PER_SOURCE = 20;
 const MAX_WEBSITE_ITEMS_PER_SOURCE = 12;
 const MAX_SOCIAL_POSTS_PER_ACCOUNT = 3;
@@ -727,7 +726,15 @@ async function deepSearchCandidates(
       .filter((term) => term.length >= 4),
   );
   const activeSources = (await getSources()).filter((source) => source.enabled);
-  const boundedSources = activeSources.slice(0, MAX_SOURCES_PER_DEEP_SEARCH);
+  const socialXSources = options.includeSocialX
+    ? activeSources.filter(
+        (source) => retrievalPrimary(source) === "social_api" && isSocialXSource(source),
+      )
+    : [];
+  const nonSocialSources = activeSources.filter(
+    (source) => !(retrievalPrimary(source) === "social_api" && isSocialXSource(source)),
+  );
+  const boundedSources = [...nonSocialSources, ...socialXSources];
   const stats: DeepSearchStats = {
     sourcesScanned: 0,
     rssHits: 0,
