@@ -28,6 +28,16 @@ function databaseUrl() {
       "DATABASE_URL saknas. Lägg till Neon Postgres DATABASE_URL i .env.local och i Vercel Production.",
     );
   }
+  try {
+    const parsed = new URL(url);
+    if (parsed.searchParams.get("sslmode") === "require") {
+      parsed.searchParams.set("sslmode", "verify-full");
+      return parsed.toString();
+    }
+  } catch {
+    return url;
+  }
+
   return url;
 }
 
@@ -433,6 +443,27 @@ CREATE TABLE IF NOT EXISTS source_definitions (
 
 CREATE INDEX IF NOT EXISTS source_definitions_sort_idx
   ON source_definitions(sort_order ASC, id ASC);
+`,
+  },
+  {
+    id: "0005_ingestion_update_state_postgres.sql",
+    sql: `
+CREATE TABLE IF NOT EXISTS ingestion_update_state (
+  id TEXT PRIMARY KEY,
+  status TEXT NOT NULL DEFAULT 'idle' CHECK (
+    status IN ('idle', 'pending', 'running', 'completed', 'failed')
+  ),
+  started_at TEXT,
+  completed_at TEXT,
+  error_message TEXT,
+  last_ingested_at TEXT,
+  created_at TEXT NOT NULL DEFAULT ${nowTextSql},
+  updated_at TEXT NOT NULL DEFAULT ${nowTextSql}
+);
+
+INSERT INTO ingestion_update_state (id, status)
+VALUES ('feed', 'idle')
+ON CONFLICT (id) DO NOTHING;
 `,
   },
 ];

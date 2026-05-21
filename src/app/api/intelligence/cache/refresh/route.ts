@@ -14,7 +14,9 @@ import {
   enqueueBackgroundJob,
   failBackgroundJob,
   getBackgroundJobById,
+  getIngestionUpdateState,
   listBackgroundJobs,
+  updateIngestionUpdateState,
   updateBackgroundJobPayload,
 } from "@/lib/intelligence/repository";
 import { rankAndStoreCandidates } from "@/lib/intelligence/ranking";
@@ -67,6 +69,7 @@ function payloadLogs(job: BackgroundJob | null | undefined) {
 }
 
 async function statusFromRefreshJob(job: BackgroundJob | undefined) {
+  const state = await getIngestionUpdateState();
   const active = Boolean(job && ["pending", "running"].includes(job.status));
   const progressPercent =
     job?.status === "completed" ? 100 : payloadNumber(job, "progressPercent", active ? 8 : 0);
@@ -87,6 +90,11 @@ async function statusFromRefreshJob(job: BackgroundJob | undefined) {
     activeStepIndex: payloadNumber(job, "activeStepIndex", 0),
     steps: refreshSteps,
     logs: payloadLogs(job),
+    lastIngestedAt: state?.last_ingested_at,
+    updateStartedAt: state?.started_at,
+    updateCompletedAt: state?.completed_at,
+    updateErrorMessage: state?.error_message,
+    updateStatus: state?.status ?? "idle",
   };
 }
 
@@ -128,6 +136,13 @@ async function runManualFullRescan(options: {
   cacheHours?: number;
   limitPerSource?: number;
 }) {
+  const startedAt = new Date().toISOString();
+  await updateIngestionUpdateState({
+    status: "running",
+    started_at: startedAt,
+    completed_at: null,
+    error_message: null,
+  });
   await logManualRefresh(options.jobId, "manual source rescan started");
   await updateManualRefreshPhase(options.jobId, "ingesting_sources", 12, 0);
 
@@ -152,8 +167,35 @@ async function runManualFullRescan(options: {
     ingestionErrorCount: ingestion.errors.length,
   });
 
+  const newRawSourceItemIds = ingestion.results.flatMap((result) =>
+    result.items.map((item) => item.id),
+  );
+
+  if (newRawSourceItemIds.length === 0) {
+    const completedAt = new Date().toISOString();
+    await logManualRefresh(options.jobId, "no newly discovered source items; ranking and AI skipped");
+    await updateManualRefreshPhase(options.jobId, "completed", 100, 3, {
+      processedCount: 0,
+      completedAt,
+      lastIngestedAt: completedAt,
+    });
+    await updateIngestionUpdateState({
+      status: "completed",
+      started_at: startedAt,
+      completed_at: completedAt,
+      error_message: null,
+      last_ingested_at: completedAt,
+    });
+    await logManualRefresh(options.jobId, "manual source rescan completed", {
+      processedCount: 0,
+      newRawSourceItemCount: 0,
+    });
+    return;
+  }
+
   await updateManualRefreshPhase(options.jobId, "ranking_candidates", 46, 1);
   const ranking = await rankAndStoreCandidates({
+    rawSourceItemIds: newRawSourceItemIds,
     scanLimit: 500,
     targetMin: 25,
     targetMax: 60,
@@ -182,6 +224,7 @@ async function runManualFullRescan(options: {
     limit: options.limit,
     force: false,
     reprocessStale: false,
+    rawSourceItemIds: newRawSourceItemIds,
   });
   await logManualRefresh(options.jobId, "national processing jobs queued", {
     count: processingJobs.length,
@@ -223,10 +266,19 @@ async function runManualFullRescan(options: {
   }
 
   if (processedCount === 0) {
+    const completedAt = new Date().toISOString();
     await logManualRefresh(options.jobId, "no new processed items; briefing regeneration skipped");
     await updateManualRefreshPhase(options.jobId, "completed", 100, 3, {
       processedCount,
-      completedAt: new Date().toISOString(),
+      completedAt,
+      lastIngestedAt: completedAt,
+    });
+    await updateIngestionUpdateState({
+      status: "completed",
+      started_at: startedAt,
+      completed_at: completedAt,
+      error_message: null,
+      last_ingested_at: completedAt,
     });
     await logManualRefresh(options.jobId, "manual source rescan completed");
     return;
@@ -257,10 +309,19 @@ async function runManualFullRescan(options: {
     if (result.claimedCount === 0) break;
   }
 
+  const completedAt = new Date().toISOString();
   await updateManualRefreshPhase(options.jobId, "completed", 100, 3, {
     processedCount,
     briefingGeneratedCount: generatedCount,
-    completedAt: new Date().toISOString(),
+    completedAt,
+    lastIngestedAt: completedAt,
+  });
+  await updateIngestionUpdateState({
+    status: "completed",
+    started_at: startedAt,
+    completed_at: completedAt,
+    error_message: null,
+    last_ingested_at: completedAt,
   });
   await logManualRefresh(options.jobId, "manual source rescan completed", {
     processedCount,
@@ -283,6 +344,13 @@ async function runManualRefreshWorker(limit = 1) {
     } catch (error) {
       const message = error instanceof Error ? error.message : "Okänt uppdateringsfel";
       await logManualRefresh(job.id, "manual source rescan failed", { error: message });
+      const startedAt = payloadString(job, "startedAt", undefined);
+      await updateIngestionUpdateState({
+        status: "failed",
+        started_at: startedAt ?? job.created_at,
+        completed_at: new Date().toISOString(),
+        error_message: message,
+      });
       await failBackgroundJob(job.id, message);
     }
   }
@@ -328,6 +396,12 @@ export async function POST(request: Request) {
   if (rescanSources) {
     const activeSourceCount = (await getSources()).filter((source) => source.enabled).length;
     if (activeSourceCount === 0) {
+      await updateIngestionUpdateState({
+        status: "failed",
+        started_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        error_message: "Inga källor är konfigurerade ännu.",
+      });
       return NextResponse.json(
         { error: "Inga källor är konfigurerade ännu." },
         { status: 400 },
@@ -335,6 +409,12 @@ export async function POST(request: Request) {
     }
 
     if (!isNationalProcessingConfigured()) {
+      await updateIngestionUpdateState({
+        status: "failed",
+        started_at: new Date().toISOString(),
+        completed_at: new Date().toISOString(),
+        error_message: "Kan inte bearbeta källor: OPENAI_API_KEY saknas.",
+      });
       return NextResponse.json(
         { error: "Kan inte bearbeta källor: OPENAI_API_KEY saknas." },
         { status: 400 },
@@ -351,6 +431,14 @@ export async function POST(request: Request) {
       });
     }
 
+    const startedAt = new Date().toISOString();
+    await updateIngestionUpdateState({
+      status: "pending",
+      started_at: startedAt,
+      completed_at: null,
+      error_message: null,
+    });
+
     const job = await enqueueBackgroundJob({
       type: manualRefreshJobType,
       priority: 95,
@@ -364,6 +452,7 @@ export async function POST(request: Request) {
         cacheHours: body.cacheHours,
         limitPerSource: body.limitPerSource ?? 12,
         sourceCount: activeSourceCount,
+        startedAt,
         logs: [],
       },
     });

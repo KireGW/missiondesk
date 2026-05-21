@@ -1,5 +1,6 @@
 import { getMigratedDb } from "@/lib/db/postgres";
 import { defaultSources } from "@/lib/sources/default-sources";
+import { auditSource, sourceWithAuditMetadata } from "@/lib/sources/audit";
 import type { SourceDefinition } from "@/lib/types";
 
 const legacySeedIds = new Set([
@@ -38,6 +39,45 @@ function sourceKey(source: Pick<SourceDefinition, "name" | "url">) {
   return `${normalize(source.name)}|${normalize(source.url)}`;
 }
 
+function preserveSourceUserState(
+  source: SourceDefinition,
+  existing: SourceDefinition | undefined,
+): SourceDefinition {
+  if (!existing) return source;
+
+  return {
+    ...source,
+    enabled: existing.enabled,
+    notes: existing.notes ?? source.notes,
+    sourceCategory: existing.sourceCategory ?? source.sourceCategory,
+    retrieval: existing.retrieval ?? source.retrieval,
+    retrievalMethod: existing.retrievalMethod ?? source.retrievalMethod,
+    platform: existing.platform ?? source.platform,
+    rssUrl: existing.rssUrl ?? source.rssUrl,
+    websiteUrl: existing.websiteUrl ?? source.websiteUrl,
+    rssHealthStatus: existing.rssHealthStatus ?? source.rssHealthStatus,
+    rssHealthCheckedAt: existing.rssHealthCheckedAt ?? source.rssHealthCheckedAt,
+    rssHealthConfidence: existing.rssHealthConfidence ?? source.rssHealthConfidence,
+    rssHealthItemCount: existing.rssHealthItemCount ?? source.rssHealthItemCount,
+    rssHealthRecentItemCount:
+      existing.rssHealthRecentItemCount ?? source.rssHealthRecentItemCount,
+    rssHealthLatestPublishedAt:
+      existing.rssHealthLatestPublishedAt ?? source.rssHealthLatestPublishedAt,
+    rssHealthMetadataScore:
+      existing.rssHealthMetadataScore ?? source.rssHealthMetadataScore,
+    rssHealthIssues: existing.rssHealthIssues ?? source.rssHealthIssues,
+    rssHealthWarnings: existing.rssHealthWarnings ?? source.rssHealthWarnings,
+    rssHealthSuggestedAction:
+      existing.rssHealthSuggestedAction ?? source.rssHealthSuggestedAction,
+    auditReviewState: existing.auditReviewState,
+    auditReviewedAt: existing.auditReviewedAt,
+    auditConfirmedRecommendedType: existing.auditConfirmedRecommendedType,
+    auditConfirmedCategory: existing.auditConfirmedCategory,
+    auditConfirmedRetrievalMethod: existing.auditConfirmedRetrievalMethod,
+    auditConfirmedPlatform: existing.auditConfirmedPlatform,
+  };
+}
+
 function mapSourceRow(row: SourceDefinitionRow): SourceDefinition {
   const data =
     typeof row.data === "string"
@@ -60,9 +100,12 @@ async function readStoredSources(): Promise<SourceDefinition[] | null> {
 
 async function writeSources(sources: SourceDefinition[]) {
   const db = getMigratedDb();
+  const auditedAt = new Date().toISOString();
+  const auditedSources = sources.map((source) => sourceWithAuditMetadata(source, auditedAt));
+
   await db.prepare("DELETE FROM source_definitions").run();
 
-  for (const [index, source] of sources.entries()) {
+  for (const [index, source] of auditedSources.entries()) {
     await db
       .prepare(`
         INSERT INTO source_definitions (id, data, sort_order)
@@ -74,17 +117,44 @@ async function writeSources(sources: SourceDefinition[]) {
       `)
       .run(source.id, JSON.stringify(source), index);
   }
+
+  return auditedSources;
+}
+
+function sourceNeedsAuditMetadataRefresh(source: SourceDefinition) {
+  const audit = auditSource(source);
+  const auditedSource = sourceWithAuditMetadata(source);
+  return (
+    source.auditDetectedType !== audit.detectedType ||
+    source.sourceCategory !== auditedSource.sourceCategory ||
+    source.retrieval?.primary !== auditedSource.retrieval?.primary ||
+    source.retrieval?.fallback !== auditedSource.retrieval?.fallback ||
+    source.retrievalMethod !== auditedSource.retrievalMethod ||
+    source.rssUrl !== auditedSource.rssUrl ||
+    source.websiteUrl !== auditedSource.websiteUrl ||
+    source.platform !== auditedSource.platform ||
+    source.recommendedSourceType !== audit.recommendedType ||
+    source.auditRecommendedType !== audit.recommendedType ||
+    source.auditRecommendedClass !== audit.recommendedClass ||
+    source.auditRecommendedCategory !== audit.recommendedCategory ||
+    source.auditRecommendedRetrievalMethod !== audit.recommendedRetrievalMethod ||
+    source.auditRecommendedPlatform !== audit.recommendedPlatform ||
+    source.auditConfidence !== audit.confidence ||
+    JSON.stringify(source.auditIssues ?? []) !== JSON.stringify(audit.issues) ||
+    JSON.stringify(source.auditWarnings ?? []) !== JSON.stringify(audit.warnings) ||
+    source.auditSuggestedAction !== audit.suggestedAction ||
+    source.auditReviewState !== auditedSource.auditReviewState ||
+    source.auditConfirmedCategory !== auditedSource.auditConfirmedCategory ||
+    source.auditConfirmedRetrievalMethod !== auditedSource.auditConfirmedRetrievalMethod ||
+    source.auditConfirmedPlatform !== auditedSource.auditConfirmedPlatform
+  );
 }
 
 function migrateLegacySeedSources(sources: SourceDefinition[]) {
   const existingByKey = new Map(sources.map((source) => [sourceKey(source), source]));
   const migratedDefaults = defaultSources.map((source) => {
     const existing = existingByKey.get(sourceKey(source));
-    return {
-      ...source,
-      enabled: existing?.enabled ?? source.enabled,
-      notes: existing?.notes ?? source.notes,
-    };
+    return preserveSourceUserState(source, existing);
   });
 
   const customSources = sources.filter(
@@ -97,11 +167,7 @@ function mergeDefaultSources(sources: SourceDefinition[]) {
   const existingByKey = new Map(sources.map((source) => [sourceKey(source), source]));
   const mergedDefaults = defaultSources.map((source) => {
     const existing = existingByKey.get(sourceKey(source));
-    return {
-      ...source,
-      enabled: existing?.enabled ?? source.enabled,
-      notes: existing?.notes ?? source.notes,
-    };
+    return preserveSourceUserState(source, existing);
   });
 
   const customSources = sources.filter(
@@ -113,8 +179,7 @@ function mergeDefaultSources(sources: SourceDefinition[]) {
 export async function getSources(): Promise<SourceDefinition[]> {
   const stored = await readStoredSources();
   if (!stored) {
-    await writeSources(defaultSources);
-    return defaultSources;
+    return writeSources(defaultSources);
   }
 
   const isLegacySeed =
@@ -123,25 +188,24 @@ export async function getSources(): Promise<SourceDefinition[]> {
 
   if (isLegacySeed) {
     const migrated = migrateLegacySeedSources(stored);
-    await writeSources(migrated);
-    return migrated;
+    return writeSources(migrated);
   }
 
   const merged = mergeDefaultSources(stored);
   const needsRewrite =
     merged.length !== stored.length ||
-    merged.some((source, index) => sourceKey(source) !== sourceKey(stored[index] ?? source));
+    merged.some((source, index) => sourceKey(source) !== sourceKey(stored[index] ?? source)) ||
+    merged.some(sourceNeedsAuditMetadataRefresh);
 
   if (needsRewrite) {
-    await writeSources(merged);
-    return merged;
+    return writeSources(merged);
   }
 
   return stored;
 }
 
 export async function saveSources(sources: SourceDefinition[]) {
-  await writeSources(sources);
+  return writeSources(sources);
 }
 
 export function sourceIdFromName(name: string) {
@@ -155,6 +219,5 @@ export function sourceIdFromName(name: string) {
 }
 
 export async function resetSources() {
-  await writeSources(defaultSources);
-  return defaultSources;
+  return writeSources(defaultSources);
 }

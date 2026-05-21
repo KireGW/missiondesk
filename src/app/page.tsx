@@ -7,6 +7,7 @@ import {
 } from "@/lib/intelligence/dashboard-view";
 import {
   listBriefings,
+  getIngestionUpdateState,
   listProcessedItems,
 } from "@/lib/intelligence/repository";
 import { signalDisplaySince } from "@/lib/intelligence/cache-policy";
@@ -23,6 +24,7 @@ export default async function Home() {
   });
   const initialItems = processedRecordsToIntelligenceItems(primaryRecords);
   const activeSourceCount = (await getSources()).filter((source) => source.enabled).length;
+  const ingestionState = await getIngestionUpdateState();
 
   return (
     <MissionDashboard
@@ -32,6 +34,7 @@ export default async function Home() {
       initialCacheTimestamp={latestCacheTimestamp(primaryBriefings, primaryRecords)}
       initialCacheExpiresAt={earliestCacheExpiry(primaryBriefings, primaryRecords)}
       activeSourceCount={activeSourceCount}
+      lastIngestedAt={ingestionState?.last_ingested_at}
     />
   );
 }

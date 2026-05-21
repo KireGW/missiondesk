@@ -1,6 +1,8 @@
 import { SourceManager } from "@/components/sources/SourceManager";
+import { auditSources } from "@/lib/sources/audit";
 import { getSources } from "@/lib/sources/store";
 
 export default async function SourcesPage() {
-  return <SourceManager initialSources={await getSources()} />;
+  const sources = await getSources();
+  return <SourceManager initialSources={sources} initialAudit={auditSources(sources)} />;
 }

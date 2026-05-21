@@ -82,7 +82,8 @@ export async function fetchRssSource(
   source: SourceDefinition,
   options: { limit?: number; signal?: AbortSignal; preserveRawContent?: boolean } = {},
 ): Promise<RawSourceDocument[]> {
-  const response = await fetch(source.url, {
+  const feedUrl = source.rssUrl ?? source.url;
+  const response = await fetch(feedUrl, {
     headers: {
       Accept: "application/rss+xml, application/xml, text/xml;q=0.9, */*;q=0.7",
       "User-Agent": "MissionDesk/0.1 diplomatic briefing prototype",
@@ -108,7 +109,7 @@ export async function fetchRssSource(
 
   return entries.slice(0, options.limit ?? 12).map((item, index) => {
     const title = firstText(item.title);
-    const url = normalizedLink(firstLink(item), source.url);
+    const url = normalizedLink(firstLink(item), feedUrl);
     const publishedAt = parseDate(
       item.pubDate,
       item.published,
@@ -123,7 +124,7 @@ export async function fetchRssSource(
       id: `${source.id}:${publishedAt ?? now}:${index}:${title.slice(0, 32)}`,
       sourceId: source.id,
       title,
-      url: url || source.url,
+      url: url || source.websiteUrl || source.url,
       language: source.language,
       country: source.country,
       publishedAt,

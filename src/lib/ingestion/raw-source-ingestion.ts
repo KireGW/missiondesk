@@ -1,6 +1,8 @@
 import { swedenMexicoEmbassyConfig } from "@/lib/config/embassies/sweden-mexico";
 import { detectGeography } from "@/lib/ingestion/geography";
+import { fetchMarketSource } from "@/lib/ingestion/market";
 import { ingestionAdapters } from "@/lib/ingestion/registry";
+import { fetchWebsiteSource, type WebsiteFetchStats } from "@/lib/ingestion/website";
 import { getSources } from "@/lib/sources/store";
 import type {
   IngestibleSourceDefinition,
@@ -8,6 +10,10 @@ import type {
 } from "@/lib/ingestion/types";
 import {
   enqueueBackgroundJob,
+  createRawSourceItemId,
+  getRawSourceItemById,
+  getRawSourceItemByUrl,
+  listRawSourceItems,
   listBackgroundJobs,
   upsertRawSourceItem,
 } from "@/lib/intelligence/repository";
@@ -31,20 +37,36 @@ export interface RawIngestionOptions {
 export interface SourceIngestionResult {
   sourceId: string;
   sourceName: string;
+  retrievalMethod: string;
   fetchedCount: number;
   storedCount: number;
   skippedCount: number;
   items: RawSourceItem[];
   errors: Array<{ message: string; url?: string }>;
+  websiteStats?: WebsiteFetchStats;
+}
+
+export interface SkippedIngestionSource {
+  sourceId: string;
+  sourceName: string;
+  retrievalMethod?: string;
+  reason: string;
 }
 
 export interface RawIngestionRunResult {
   startedAt: string;
   completedAt: string;
+  totalSourceCount: number;
+  rssActiveSourceCount: number;
+  websiteActiveSourceCount: number;
+  socialActiveSourceCount: number;
+  skippedSourceCount: number;
+  skippedSources: SkippedIngestionSource[];
   sourceCount: number;
   fetchedCount: number;
   storedCount: number;
   skippedCount: number;
+  websiteStats: WebsiteFetchStats;
   errors: Array<{ source: string; message: string; url?: string }>;
   results: SourceIngestionResult[];
 }
@@ -92,6 +114,53 @@ const socialHosts = new Set([
   "www.t.me",
 ]);
 
+function looksLikeRssUrl(value: string) {
+  try {
+    const url = new URL(value);
+    const text = `${url.pathname} ${url.search}`.toLowerCase();
+    return (
+      /\brss\b/.test(text) ||
+      /\batom\b/.test(text) ||
+      /\bfeed\b/.test(text) ||
+      /outboundfeeds/.test(text) ||
+      /format=rss/.test(text) ||
+      /\/xml\b/.test(text) ||
+      /\.xml($|\?)/.test(`${url.pathname}${url.search}`)
+    );
+  } catch {
+    return /\b(rss|atom|feed)\b|\.xml($|\?)/i.test(value);
+  }
+}
+
+function retrievalMethodForIngestion(source: IngestibleSourceDefinition) {
+  if (source.retrieval?.primary) return source.retrieval.primary;
+  if (source.retrievalMethod) return source.retrievalMethod;
+  if (source.type === "rss" || looksLikeRssUrl(source.url)) return "rss";
+  if (source.type === "api" || source.type === "calendar") return "api";
+  if (source.type === "social" || isSocialSource(source)) return "social_api";
+  return "website";
+}
+
+function ingestionEligibility(source: IngestibleSourceDefinition): {
+  eligible: boolean;
+  retrievalMethod: string;
+  reason?: string;
+} {
+  const retrievalMethod = retrievalMethodForIngestion(source);
+  if (retrievalMethod === "rss" || retrievalMethod === "website" || retrievalMethod === "social_api") {
+    return { eligible: true, retrievalMethod };
+  }
+
+  return {
+    eligible: false,
+    retrievalMethod,
+    reason:
+      retrievalMethod === "api"
+        ? "metadata klar – API-hämtning ej implementerad"
+        : "metadata klar – hämtning ej implementerad",
+  };
+}
+
 const scoreFromTrustTier = (trustTier: IngestibleSourceDefinition["trustTier"]) => {
   if (trustTier === 1) return 92;
   if (trustTier === 2) return 76;
@@ -130,6 +199,10 @@ function resolvedSourceType(source: IngestibleSourceDefinition) {
     return "government";
   }
   return "other";
+}
+
+function isMarketSource(source: IngestibleSourceDefinition) {
+  return source.sourceCategory === "market";
 }
 
 function isDocumentAfterSince(document: RawSourceDocument, since?: string) {
@@ -179,6 +252,7 @@ function toRawSourceItem(
   });
 
   return {
+    id: document.id,
     source_type: resolvedSourceType(source),
     title_original: title,
     url,
@@ -202,26 +276,91 @@ async function ingestSource(
   config: EmbassyConfig,
   options: RawIngestionOptions,
 ): Promise<SourceIngestionResult> {
-  const adapter = ingestionAdapters.find((candidate) => candidate.canHandle(source));
-
-  if (!adapter) {
-    return {
-      sourceId: source.id,
-      sourceName: source.name,
-      fetchedCount: 0,
-      storedCount: 0,
-      skippedCount: 0,
-      items: [],
-      errors: [{ message: `No ingestion adapter registered for ${source.type}` }],
-    };
-  }
+  const retrievalMethod = isMarketSource(source) ? "market" : retrievalMethodForIngestion(source);
 
   try {
-    const documents = await adapter.fetch(source, {
-      embassy: config,
-      limit: source.maxItemsPerRun ?? options.limitPerSource ?? 25,
-      preserveRawContent: options.preserveRawContent ?? source.preserveRawContent,
-    });
+    const limit = source.maxItemsPerRun ?? options.limitPerSource ?? 25;
+    const preserveRawContent = options.preserveRawContent ?? source.preserveRawContent;
+    let documents: RawSourceDocument[] = [];
+    let sourceErrors: Array<{ message: string; url?: string }> = [];
+    let websiteStats: WebsiteFetchStats | undefined;
+
+    if (retrievalMethod === "rss") {
+      const adapter = ingestionAdapters.find((candidate) => candidate.type === "rss");
+
+      if (!adapter) {
+        return {
+          sourceId: source.id,
+          sourceName: source.name,
+          retrievalMethod,
+          fetchedCount: 0,
+          storedCount: 0,
+          skippedCount: 0,
+          items: [],
+          errors: [{ message: "No RSS ingestion adapter registered" }],
+        };
+      }
+
+      documents = await adapter.fetch(source, {
+        embassy: config,
+        limit,
+        preserveRawContent,
+      });
+    } else if (retrievalMethod === "market") {
+      const recentItems = await listRawSourceItems({
+        sourceName: source.name,
+        limit: 10,
+      });
+      const result = await fetchMarketSource(source, {
+        preserveRawContent,
+        recentItems,
+      });
+      documents = result.documents;
+      sourceErrors = result.errors;
+    } else if (retrievalMethod === "website") {
+      const result = await fetchWebsiteSource(source, {
+        limit,
+        preserveRawContent,
+        isKnownUrl: async (url) => Boolean(await getRawSourceItemByUrl(canonicalUrl(url))),
+      });
+      documents = result.documents;
+      sourceErrors = result.errors;
+      websiteStats = result.stats;
+    } else if (retrievalMethod === "social_api") {
+      const adapter = ingestionAdapters.find((candidate) => candidate.type === "social");
+
+      if (!adapter) {
+        return {
+          sourceId: source.id,
+          sourceName: source.name,
+          retrievalMethod,
+          fetchedCount: 0,
+          storedCount: 0,
+          skippedCount: 0,
+          items: [],
+          errors: [{ message: "No social ingestion adapter registered" }],
+        };
+      }
+
+      documents = await adapter.fetch(source, {
+        embassy: config,
+        limit,
+        preserveRawContent,
+        since: options.since,
+      });
+    } else {
+      return {
+        sourceId: source.id,
+        sourceName: source.name,
+        retrievalMethod,
+        fetchedCount: 0,
+        storedCount: 0,
+        skippedCount: 0,
+        items: [],
+        errors: [{ message: `No ${retrievalMethod} ingestion adapter registered` }],
+      };
+    }
+
     const uniqueDocuments = dedupeDocuments(source, documents);
     const storedItems: RawSourceItem[] = [];
     let skippedCount = 0;
@@ -238,22 +377,34 @@ async function ingestSource(
         continue;
       }
 
+      const rawItemId = createRawSourceItemId(rawItem);
+      const existing = isMarketSource(source)
+        ? await getRawSourceItemById(rawItemId)
+        : (await getRawSourceItemById(rawItemId)) ?? (await getRawSourceItemByUrl(rawItem.url));
+      if (existing) {
+        skippedCount += 1;
+        continue;
+      }
+
       storedItems.push(await upsertRawSourceItem(rawItem));
     }
 
     return {
       sourceId: source.id,
       sourceName: source.name,
+      retrievalMethod,
       fetchedCount: uniqueDocuments.length,
       storedCount: storedItems.length,
       skippedCount,
       items: storedItems,
-      errors: [],
+      errors: sourceErrors,
+      websiteStats,
     };
   } catch (error) {
     return {
       sourceId: source.id,
       sourceName: source.name,
+      retrievalMethod,
       fetchedCount: 0,
       storedCount: 0,
       skippedCount: 0,
@@ -266,6 +417,32 @@ async function ingestSource(
       ],
     };
   }
+}
+
+function emptyWebsiteStats(): WebsiteFetchStats {
+  return {
+    websiteSourcesScanned: 0,
+    pagesFetched: 0,
+    newUrlsFound: 0,
+    duplicatesSkipped: 0,
+    extractionFailures: 0,
+    candidatesSentToAnalysis: 0,
+    robotsSkipped: 0,
+  };
+}
+
+function combineWebsiteStats(results: SourceIngestionResult[]) {
+  return results.reduce((stats, result) => {
+    if (!result.websiteStats) return stats;
+    stats.websiteSourcesScanned += result.websiteStats.websiteSourcesScanned;
+    stats.pagesFetched += result.websiteStats.pagesFetched;
+    stats.newUrlsFound += result.websiteStats.newUrlsFound;
+    stats.duplicatesSkipped += result.websiteStats.duplicatesSkipped;
+    stats.extractionFailures += result.websiteStats.extractionFailures;
+    stats.candidatesSentToAnalysis += result.websiteStats.candidatesSentToAnalysis;
+    stats.robotsSkipped += result.websiteStats.robotsSkipped;
+    return stats;
+  }, emptyWebsiteStats());
 }
 
 async function mapWithConcurrency<T, R>(
@@ -299,22 +476,67 @@ export async function ingestRawSourceItems(
   const startedAt = new Date().toISOString();
   const config = options.config ?? swedenMexicoEmbassyConfig;
   const sourceIds = new Set(options.sourceIds ?? []);
-  const sources = (options.sources ?? ((await getSources()) as IngestibleSourceDefinition[])).filter(
+  const candidateSources = (options.sources ?? ((await getSources()) as IngestibleSourceDefinition[])).filter(
     (source) => source.enabled && (sourceIds.size === 0 || sourceIds.has(source.id)),
   );
+  const sourceEligibility = candidateSources.map((source) => ({
+    source,
+    eligibility: ingestionEligibility(source),
+  }));
+  const sources = sourceEligibility
+    .filter((item) => item.eligibility.eligible)
+    .map((item) => item.source);
+  const rssActiveSourceCount = sourceEligibility.filter(
+    (item) => item.eligibility.eligible && item.eligibility.retrievalMethod === "rss",
+  ).length;
+  const websiteActiveSourceCount = sourceEligibility.filter(
+    (item) => item.eligibility.eligible && item.eligibility.retrievalMethod === "website",
+  ).length;
+  const socialActiveSourceCount = sourceEligibility.filter(
+    (item) => item.eligibility.eligible && item.eligibility.retrievalMethod === "social_api",
+  ).length;
+  const skippedSources = sourceEligibility
+    .filter((item) => !item.eligibility.eligible)
+    .map((item): SkippedIngestionSource => ({
+      sourceId: item.source.id,
+      sourceName: item.source.name,
+      retrievalMethod: item.eligibility.retrievalMethod,
+      reason: item.eligibility.reason ?? "not eligible for ingestion",
+    }));
+
+  console.info("[MissionDesk ingestion] source selection", {
+    totalSources: candidateSources.length,
+    rssActiveSources: rssActiveSourceCount,
+    websiteActiveSources: websiteActiveSourceCount,
+    socialActiveSources: socialActiveSourceCount,
+    skippedSourcesCount: skippedSources.length,
+    skippedSources,
+  });
+
   const results = await mapWithConcurrency(
     sources,
     options.concurrency ?? 6,
     (source) => ingestSource(source, config, options),
   );
 
+  const websiteStats = combineWebsiteStats(results);
+
+  console.info("[MissionDesk ingestion] website retrieval summary", websiteStats);
+
   return {
     startedAt,
     completedAt: new Date().toISOString(),
+    totalSourceCount: candidateSources.length,
+    rssActiveSourceCount,
+    websiteActiveSourceCount,
+    socialActiveSourceCount,
+    skippedSourceCount: skippedSources.length,
+    skippedSources,
     sourceCount: sources.length,
     fetchedCount: results.reduce((total, result) => total + result.fetchedCount, 0),
     storedCount: results.reduce((total, result) => total + result.storedCount, 0),
     skippedCount: results.reduce((total, result) => total + result.skippedCount, 0),
+    websiteStats,
     errors: results.flatMap((result) =>
       result.errors.map((error) => ({
         source: result.sourceName,
@@ -343,13 +565,42 @@ export async function enqueueRawIngestionJobs(
       .map((job) => job.payload.sourceId)
       .filter((value): value is string => typeof value === "string"),
   );
-  const sources = (options.sources ?? ((await getSources()) as IngestibleSourceDefinition[])).filter(
+  const candidateSources = (options.sources ?? ((await getSources()) as IngestibleSourceDefinition[])).filter(
     (source) =>
       source.enabled &&
       (sourceIds.size === 0 || sourceIds.has(source.id)) &&
-      (sourceTypes.size === 0 || sourceTypes.has(resolvedSourceType(source))) &&
-      !pendingSourceIds.has(source.id),
+      (sourceTypes.size === 0 || sourceTypes.has(resolvedSourceType(source))),
   );
+  const sourceEligibility = candidateSources.map((source) => ({
+    source,
+    eligibility: ingestionEligibility(source),
+  }));
+  const skippedSources = sourceEligibility
+    .filter((item) => !item.eligibility.eligible)
+    .map((item) => ({
+      sourceId: item.source.id,
+      sourceName: item.source.name,
+      retrievalMethod: item.eligibility.retrievalMethod,
+      reason: item.eligibility.reason ?? "not eligible for ingestion job",
+    }));
+  const sources = sourceEligibility
+    .filter((item) => item.eligibility.eligible && !pendingSourceIds.has(item.source.id))
+    .map((item) => item.source);
+
+  console.info("[MissionDesk ingestion] job enqueue selection", {
+    totalSources: candidateSources.length,
+    rssActiveSources: sourceEligibility.filter(
+      (item) => item.eligibility.eligible && item.eligibility.retrievalMethod === "rss",
+    ).length,
+    websiteActiveSources: sourceEligibility.filter(
+      (item) => item.eligibility.eligible && item.eligibility.retrievalMethod === "website",
+    ).length,
+    socialActiveSources: sourceEligibility.filter(
+      (item) => item.eligibility.eligible && item.eligibility.retrievalMethod === "social_api",
+    ).length,
+    skippedSourcesCount: skippedSources.length,
+    skippedSources,
+  });
 
   return Promise.all(
     sources.map((source) =>

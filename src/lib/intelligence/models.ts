@@ -101,6 +101,19 @@ export interface BackgroundJob {
   updated_at: string;
 }
 
+export type IngestionUpdateStatus = "idle" | "pending" | "running" | "completed" | "failed";
+
+export interface IngestionUpdateState {
+  id: string;
+  status: IngestionUpdateStatus;
+  started_at?: string;
+  completed_at?: string;
+  error_message?: string;
+  last_ingested_at?: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface RawIngestionJobPayload {
   sourceId?: string;
   sourceIds?: string[];
@@ -220,6 +233,7 @@ export interface RawSourceItemFilters {
   since?: string;
   excludeProcessed?: boolean;
   excludeFreshProcessed?: boolean;
+  ids?: string[];
   limit?: number;
 }
 
@@ -235,6 +249,7 @@ export interface ProcessedItemFilters {
 export interface RankedCandidateFilters {
   status?: CandidateSelectionStatus;
   since?: string;
+  rawSourceItemIds?: string[];
   limit?: number;
 }
 

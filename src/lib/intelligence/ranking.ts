@@ -29,6 +29,7 @@ export interface CandidateRankingOptions {
   enqueueAiJobs?: boolean;
   minSelectedScore?: number;
   minCandidateScore?: number;
+  rawSourceItemIds?: string[];
 }
 
 export interface CandidateRankingRunResult {
@@ -593,6 +594,7 @@ export async function rankAndStoreCandidates(
   options: CandidateRankingOptions = {},
 ): Promise<CandidateRankingRunResult> {
   const rawItems = await listRawSourceItems({
+    ids: options.rawSourceItemIds,
     since: options.since,
     excludeFreshProcessed: true,
     limit: options.scanLimit ?? 500,

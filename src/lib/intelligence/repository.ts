@@ -7,6 +7,8 @@ import type {
   BackgroundJobFilters,
   Briefing,
   BriefingFilters,
+  IngestionUpdateState,
+  IngestionUpdateStatus,
   ItemDuplicateCluster,
   NewBackgroundJob,
   NewBriefing,
@@ -101,6 +103,16 @@ type RankedProcessingCandidateRow = Omit<
   embedding_similarity_hook: string | null;
 };
 
+type IngestionUpdateStateRow = Omit<
+  IngestionUpdateState,
+  "started_at" | "completed_at" | "error_message" | "last_ingested_at"
+> & {
+  started_at: string | null;
+  completed_at: string | null;
+  error_message: string | null;
+  last_ingested_at: string | null;
+};
+
 interface JoinedRankedCandidateRow extends RankedProcessingCandidateRow {
   raw_id: string;
   raw_source_type: RawSourceItem["source_type"];
@@ -187,6 +199,10 @@ function limitValue(value: number | undefined, fallback: number) {
   return Math.max(1, Math.min(250, Math.round(value)));
 }
 
+function placeholders(values: readonly unknown[]) {
+  return values.map(() => "?").join(", ");
+}
+
 export function createRawSourceItemId(input: Pick<NewRawSourceItem, "url" | "title_original" | "source_name">) {
   const stableKey = input.url || `${input.source_name}:${input.title_original}`;
   return createHash("sha256").update(stableKey).digest("hex").slice(0, 32);
@@ -246,6 +262,16 @@ function mapRankedCandidate(row: RankedProcessingCandidateRow): RankedProcessing
     duplicate_cluster_id: optional(row.duplicate_cluster_id),
     duplicate_of_raw_source_item_id: optional(row.duplicate_of_raw_source_item_id),
     embedding_similarity_hook: optional(row.embedding_similarity_hook),
+  };
+}
+
+function mapIngestionUpdateState(row: IngestionUpdateStateRow): IngestionUpdateState {
+  return {
+    ...row,
+    started_at: optional(row.started_at),
+    completed_at: optional(row.completed_at),
+    error_message: optional(row.error_message),
+    last_ingested_at: optional(row.last_ingested_at),
   };
 }
 
@@ -412,6 +438,11 @@ export async function listRawSourceItems(filters: RawSourceItemFilters = {}, db:
   if (filters.detectedRegion) {
     where.push("detected_region = ?");
     params.push(filters.detectedRegion);
+  }
+
+  if (filters.ids && filters.ids.length > 0) {
+    where.push(`id IN (${placeholders(filters.ids)})`);
+    params.push(...filters.ids);
   }
 
   if (filters.since) {
@@ -601,6 +632,11 @@ export async function listRankedCandidates(
   if (filters.since) {
     where.push("datetime(ranked_processing_candidates.ranked_at) >= datetime(?)");
     params.push(filters.since);
+  }
+
+  if (filters.rawSourceItemIds && filters.rawSourceItemIds.length > 0) {
+    where.push(`ranked_processing_candidates.raw_source_item_id IN (${placeholders(filters.rawSourceItemIds)})`);
+    params.push(...filters.rawSourceItemIds);
   }
 
   const rows = await db
@@ -1222,4 +1258,68 @@ export async function failBackgroundJob(
   `).run(status, errorMessage.slice(0, 1200), id);
 
   return getBackgroundJobById(id, db);
+}
+
+export async function getIngestionUpdateState(
+  id = "feed",
+  db: MissionDeskDb = getMigratedDb(),
+) {
+  const row = await db
+    .prepare("SELECT * FROM ingestion_update_state WHERE id = ?")
+    .get(id) as IngestionUpdateStateRow | undefined;
+
+  if (row) return mapIngestionUpdateState(row);
+
+  await db.prepare(`
+    INSERT INTO ingestion_update_state (id, status)
+    VALUES (?, 'idle')
+    ON CONFLICT(id) DO NOTHING
+  `).run(id);
+
+  const created = await db
+    .prepare("SELECT * FROM ingestion_update_state WHERE id = ?")
+    .get(id) as IngestionUpdateStateRow | undefined;
+
+  return created ? mapIngestionUpdateState(created) : null;
+}
+
+export async function updateIngestionUpdateState(
+  input: {
+    id?: string;
+    status: IngestionUpdateStatus;
+    started_at?: string | null;
+    completed_at?: string | null;
+    error_message?: string | null;
+    last_ingested_at?: string | null;
+  },
+  db: MissionDeskDb = getMigratedDb(),
+) {
+  const id = input.id ?? "feed";
+  await db.prepare(`
+    INSERT INTO ingestion_update_state (
+      id,
+      status,
+      started_at,
+      completed_at,
+      error_message,
+      last_ingested_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      status = excluded.status,
+      started_at = excluded.started_at,
+      completed_at = excluded.completed_at,
+      error_message = excluded.error_message,
+      last_ingested_at = COALESCE(excluded.last_ingested_at, ingestion_update_state.last_ingested_at),
+      updated_at = datetime('now')
+  `).run(
+    id,
+    input.status,
+    nullable(input.started_at ?? undefined),
+    nullable(input.completed_at ?? undefined),
+    nullable(input.error_message ?? undefined),
+    nullable(input.last_ingested_at ?? undefined),
+  );
+
+  return getIngestionUpdateState(id, db);
 }

@@ -11,7 +11,12 @@
     "start": "next start",
     "lint": "eslint .",
     "db:migrate": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/migrate-postgres.ts",
-    "smoke:postgres": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-postgres.ts"
+    "smoke:postgres": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-postgres.ts",
+    "smoke:sources": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-source-audit.ts",
+    "smoke:website": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-website-ingestion.ts",
+    "smoke:social": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-social-ingestion.ts",
+    "smoke:markets": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-market-ingestion.ts",
+    "audit:rss": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/audit-rss-quality.ts"
   },
   "dependencies": {
     "@tailwindcss/postcss": "latest",

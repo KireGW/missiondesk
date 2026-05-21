@@ -68,13 +68,23 @@ async function hasPendingProcessingJob(rawSourceItemId: string) {
 }
 
 export async function enqueueSelectedNationalProcessingJobs(
-  input: number | { limit?: number; force?: boolean; reprocessStale?: boolean } = 100,
+  input: number | {
+    limit?: number;
+    force?: boolean;
+    reprocessStale?: boolean;
+    rawSourceItemIds?: string[];
+  } = 100,
 ) {
   const limit = typeof input === "number" ? input : input.limit ?? 100;
   const force = typeof input === "number" ? false : input.force ?? false;
   const reprocessStale =
     typeof input === "number" ? false : input.reprocessStale ?? false;
-  const candidates = await listRankedCandidates({ status: "selected", limit });
+  const rawSourceItemIds = typeof input === "number" ? undefined : input.rawSourceItemIds;
+  const candidates = await listRankedCandidates({
+    status: "selected",
+    rawSourceItemIds,
+    limit,
+  });
   const selected: RankedCandidateRecord[] = [];
 
   for (const record of candidates.filter(isNationalCandidate)) {

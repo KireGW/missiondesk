@@ -14,6 +14,25 @@ export type SourceType =
   | "api"
   | "calendar";
 
+export type SourceCategory = "government" | "media" | "market" | "website";
+
+export type RetrievalMethod = "rss" | "website" | "api" | "social_api";
+
+export type RssHealthStatus =
+  | "verified"
+  | "recommended"
+  | "unusable"
+  | "low_quality"
+  | "inactive"
+  | "missing"
+  | "rejected"
+  | "unknown";
+
+export interface SourceRetrievalStrategy {
+  primary: RetrievalMethod;
+  fallback?: RetrievalMethod;
+}
+
 export type IntelligenceCategory =
   | "economy"
   | "trade"
@@ -107,6 +126,22 @@ export interface SourceDefinition {
   categories: IntelligenceCategory[];
   enabled: boolean;
   notes?: string;
+  sourceCategory?: SourceCategory;
+  retrieval?: SourceRetrievalStrategy;
+  retrievalMethod?: RetrievalMethod;
+  platform?: string;
+  rssUrl?: string;
+  websiteUrl?: string;
+  rssHealthStatus?: RssHealthStatus;
+  rssHealthCheckedAt?: string;
+  rssHealthConfidence?: number;
+  rssHealthItemCount?: number;
+  rssHealthRecentItemCount?: number;
+  rssHealthLatestPublishedAt?: string;
+  rssHealthMetadataScore?: number;
+  rssHealthIssues?: string[];
+  rssHealthWarnings?: string[];
+  rssHealthSuggestedAction?: string;
   sourceType?: "news" | "government" | "institution" | "social" | "report" | "advisory" | "event" | "other";
   sourcePriority?: number;
   credibilityScore?: number;
@@ -116,6 +151,24 @@ export interface SourceDefinition {
   regionalScope?: string[];
   preserveRawContent?: boolean;
   maxItemsPerRun?: number;
+  auditDetectedType?: "rss_feed" | "website" | "government_page" | "official_social_account" | "market_reference_page";
+  recommendedSourceType?: string;
+  auditRecommendedType?: string;
+  auditRecommendedClass?: string;
+  auditRecommendedCategory?: SourceCategory;
+  auditRecommendedRetrievalMethod?: RetrievalMethod;
+  auditRecommendedPlatform?: string;
+  auditConfidence?: number;
+  auditIssues?: string[];
+  auditWarnings?: string[];
+  auditSuggestedAction?: string;
+  auditUpdatedAt?: string;
+  auditReviewState?: "suggested" | "confirmed" | "ignored";
+  auditReviewedAt?: string;
+  auditConfirmedRecommendedType?: string;
+  auditConfirmedCategory?: SourceCategory;
+  auditConfirmedRetrievalMethod?: RetrievalMethod;
+  auditConfirmedPlatform?: string;
 }
 
 export interface EmbassyConfig {

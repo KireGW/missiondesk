@@ -43,7 +43,8 @@ export async function POST(request: Request) {
   };
 
   const nextSources = [source, ...sources];
-  await saveSources(nextSources);
+  const savedSources = await saveSources(nextSources);
+  const savedSource = savedSources.find((item) => item.id === source.id) ?? source;
 
-  return NextResponse.json({ source, sources: nextSources }, { status: 201 });
+  return NextResponse.json({ source: savedSource, sources: savedSources }, { status: 201 });
 }

@@ -19,6 +19,7 @@ import {
   Flag,
   Gauge,
   Globe2,
+  Info,
   Landmark,
   Languages,
   LineChart,
@@ -30,6 +31,7 @@ import {
   Newspaper,
   PanelRightOpen,
   Printer,
+  Radar,
   RefreshCw,
   Search,
   Shield,
@@ -38,10 +40,12 @@ import {
   Target,
   TrendingUp,
   Users,
+  X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
+import type { SignalTrackingResult, SignalTrackingSearchResult } from "@/lib/intelligence/signal-tracking";
 import { processedRecordToIntelligenceItem } from "@/lib/intelligence/dashboard-view";
 import { countryNameSv } from "@/lib/i18n/countries";
 import type {
@@ -64,6 +68,7 @@ interface MissionDashboardProps {
   initialCacheTimestamp?: string;
   initialCacheExpiresAt?: string;
   activeSourceCount: number;
+  lastIngestedAt?: string;
 }
 
 type GeographySelection =
@@ -118,6 +123,11 @@ interface CacheRefreshStatusPayload {
     message: string;
     data?: Record<string, unknown>;
   }>;
+  lastIngestedAt?: string;
+  updateStartedAt?: string;
+  updateCompletedAt?: string;
+  updateErrorMessage?: string;
+  updateStatus?: "idle" | "pending" | "running" | "completed" | "failed";
 }
 
 const scoreMeta: Array<{ key: ScoreKey; label: string; compact: string }> = [
@@ -193,6 +203,30 @@ const themeFilterOrder: IntelligenceCategory[] = [
   "culture_soft_power",
 ];
 
+const SIGNAL_TRACKING_DEFAULT_QUICK_SEARCHES = [
+  "Volvo",
+  "Kina",
+  "migration",
+  "energi",
+  "fentanyl",
+] as const;
+
+const LEGACY_SIGNAL_TRACKING_DEFAULT_QUICK_SEARCHES = [
+  "Volvo",
+  "Kina",
+  "Migration",
+  "Energi",
+  "Fentanyl",
+] as const;
+
+const DEFAULT_QUICK_SEARCH_CANONICAL_CASE: Record<string, string> = {
+  volvo: "Volvo",
+  kina: "Kina",
+  migration: "migration",
+  energi: "energi",
+  fentanyl: "fentanyl",
+};
+
 const profileIcon: Record<ProfileMode, LucideIcon> = {
   daily_overview: Gauge,
   ambassador_briefing: Landmark,
@@ -216,6 +250,27 @@ const priorityLabel = (score: number) => {
   if (score >= 45) return "Måttlig relevans";
   return "Bakgrund";
 };
+
+const refreshProgressCaps = [34, 58, 84, 96];
+
+function displayedRefreshProgress(status?: CacheRefreshStatusPayload) {
+  if (!status) return 0;
+  if (!status.active) return Math.round(status.progressPercent);
+
+  const backendProgress = Math.max(0, Math.min(99, status.progressPercent));
+  const stepIndex = Math.max(0, Math.min(refreshProgressCaps.length - 1, status.activeStepIndex));
+  const cap = refreshProgressCaps[stepIndex] ?? 96;
+  const startedAt =
+    status.updateStartedAt ?? (typeof status.job?.payload.startedAt === "string" ? status.job.payload.startedAt : undefined);
+  const startedAtMs = startedAt ? new Date(startedAt).getTime() : 0;
+  const elapsedSeconds =
+    Number.isFinite(startedAtMs) && startedAtMs > 0
+      ? Math.max(0, (Date.now() - startedAtMs) / 1000)
+      : 0;
+  const drift = Math.min(cap - backendProgress, Math.floor(elapsedSeconds / 8));
+
+  return Math.round(Math.min(cap, backendProgress + Math.max(0, drift)));
+}
 
 const urgencyLabel = (score: number) => {
   if (score >= 82) return "Kräver uppmärksamhet";
@@ -320,6 +375,14 @@ const getGeographyLabel = (item: IntelligenceItem, config: EmbassyConfig) => {
   return division?.displayName ?? item.region;
 };
 
+const getTrackingGeographyLabel = (item: SignalTrackingResult, config: EmbassyConfig) => {
+  if (!item.detected_region) return config.geography.nationalLabel;
+  const division = config.geography.administrativeDivisions.find(
+    (candidate) => candidate.id === item.detected_region,
+  );
+  return division?.displayName ?? item.detected_region;
+};
+
 const getOrderedThemeCategories = (config: EmbassyConfig) => {
   const byId = new Map(config.themeCategories.map((category) => [category.id, category]));
   const orderedIds = new Set(themeFilterOrder);
@@ -364,6 +427,7 @@ export function MissionDashboard({
   initialCacheTimestamp,
   initialCacheExpiresAt,
   activeSourceCount,
+  lastIngestedAt: initialLastIngestedAt,
 }: MissionDashboardProps) {
   const [items, setItems] = useState<IntelligenceItem[]>(initialItems);
   const [briefings, setBriefings] = useState<Briefing[]>(initialBriefings);
@@ -375,6 +439,7 @@ export function MissionDashboard({
   const [profile, setProfile] = useState<ProfileMode>("daily_overview");
   const [showBriefingPanel, setShowBriefingPanel] = useState(false);
   const [showPrintPanel, setShowPrintPanel] = useState(false);
+  const [showSignalTrackingPanel, setShowSignalTrackingPanel] = useState(false);
   const [manualPriorityIds, setManualPriorityIds] = useState<string[]>([]);
   const [suppressedPriorityIds, setSuppressedPriorityIds] = useState<string[]>([]);
   const [printItemIds, setPrintItemIds] = useState<string[]>([]);
@@ -388,6 +453,20 @@ export function MissionDashboard({
   const [expandedId, setExpandedId] = useState(initialItems[0]?.id ?? "");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [sourceQuery, setSourceQuery] = useState("");
+  const [trackingQuery, setTrackingQuery] = useState("");
+  const [trackingStatus, setTrackingStatus] = useState<"idle" | "loading" | "ready" | "error">(
+    "idle",
+  );
+  const [trackingLoadingMode, setTrackingLoadingMode] = useState<"local" | "deep">("local");
+  const [trackingProgress, setTrackingProgress] = useState(0);
+  const [trackingStepIndex, setTrackingStepIndex] = useState(0);
+  const [trackingPayload, setTrackingPayload] = useState<SignalTrackingSearchResult | null>(null);
+  const [trackingError, setTrackingError] = useState("");
+  const [trackingAiEnabled, setTrackingAiEnabled] = useState(false);
+  const [trackingIncludeWebRss, setTrackingIncludeWebRss] = useState(true);
+  const [trackingQuickSearches, setTrackingQuickSearches] = useState<string[]>([
+    ...SIGNAL_TRACKING_DEFAULT_QUICK_SEARCHES,
+  ]);
   const [regionalStatus, setRegionalStatus] = useState<RegionalStatus>("idle");
   const [regionalFreshness, setRegionalFreshness] = useState<string | undefined>();
   const [regionalCacheExpiresAt, setRegionalCacheExpiresAt] = useState<string | undefined>();
@@ -401,14 +480,70 @@ export function MissionDashboard({
   const [cacheRefreshJobStatus, setCacheRefreshJobStatus] = useState<
     CacheRefreshStatusPayload | undefined
   >();
+  const [displayRefreshProgress, setDisplayRefreshProgress] = useState(0);
+  const [lastIngestedAt, setLastIngestedAt] = useState(initialLastIngestedAt);
+  const [pendingFeedUpdateConfirmation, setPendingFeedUpdateConfirmation] = useState(false);
+  const [showUpdateInfo, setShowUpdateInfo] = useState(false);
   const [firstRunStatus, setFirstRunStatus] = useState<FirstRunStatusPayload | undefined>();
   const [firstRunRequestStatus, setFirstRunRequestStatus] = useState<
     "idle" | "starting" | "ready" | "error"
   >("idle");
   const regionalRequestCounter = useRef(0);
+  const updateInfoRef = useRef<HTMLDivElement | null>(null);
+  const trackingProgressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const initiallyNeedsFirstRun = initialItems.length === 0 && initialBriefings.length === 0;
   const hasCachedIntelligence = items.length > 0 || briefings.length > 0;
   const showFirstRunPanel = initiallyNeedsFirstRun && !hasCachedIntelligence;
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem("missiondesk.signalTracking.quickSearches");
+    if (!stored) return;
+    try {
+      const parsed = JSON.parse(stored) as unknown;
+      if (Array.isArray(parsed)) {
+        const values = parsed.filter((item): item is string => typeof item === "string");
+        if (values.length > 0) {
+          const normalizedDefaults = values.map((value) => {
+            const mapped = DEFAULT_QUICK_SEARCH_CANONICAL_CASE[value.trim().toLowerCase()];
+            return mapped ?? value;
+          });
+
+          const legacyDefaultsMatch =
+            values.length === LEGACY_SIGNAL_TRACKING_DEFAULT_QUICK_SEARCHES.length &&
+            values.every(
+              (value, index) =>
+                value.toLowerCase() ===
+                LEGACY_SIGNAL_TRACKING_DEFAULT_QUICK_SEARCHES[index].toLowerCase(),
+            );
+
+          const hydrated = legacyDefaultsMatch
+            ? [...SIGNAL_TRACKING_DEFAULT_QUICK_SEARCHES]
+            : normalizedDefaults;
+
+          const changed =
+            hydrated.length === values.length &&
+            hydrated.some((value, index) => value !== values[index]);
+
+          if (legacyDefaultsMatch || changed) {
+            window.localStorage.setItem(
+              "missiondesk.signalTracking.quickSearches",
+              JSON.stringify(hydrated),
+            );
+          }
+          window.setTimeout(() => setTrackingQuickSearches(hydrated.slice(0, 8)), 0);
+        }
+      }
+    } catch {
+      // Ignore malformed local preference state.
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      "missiondesk.signalTracking.quickSearches",
+      JSON.stringify(trackingQuickSearches.slice(0, 8)),
+    );
+  }, [trackingQuickSearches]);
 
   const regionalRequestIds = useMemo(() => {
     if (geographySelection.type === "national") return [];
@@ -499,13 +634,7 @@ export function MissionDashboard({
       briefings: Briefing[];
     };
 
-    setItems((current) => {
-      const existingIds = new Set(current.map((item) => item.id));
-      const processedItems = processedPayload.items
-        .map(processedRecordToIntelligenceItem)
-        .filter((item) => !existingIds.has(item.id));
-      return [...current, ...processedItems];
-    });
+    setItems(processedPayload.items.map(processedRecordToIntelligenceItem));
     setBriefings(briefingPayload.briefings);
     setCacheTimestamp(
       briefingPayload.briefings[0]?.generated_at ??
@@ -523,6 +652,23 @@ export function MissionDashboard({
   useEffect(() => {
     let cancelled = false;
 
+    async function loadRefreshStatus() {
+      try {
+        const response = await fetch("/api/intelligence/cache/refresh", { cache: "no-store" });
+        if (!response.ok) return;
+        const payload = (await response.json()) as CacheRefreshStatusPayload;
+        if (cancelled) return;
+        setCacheRefreshJobStatus(payload);
+        setDisplayRefreshProgress(displayedRefreshProgress(payload));
+        if (payload.lastIngestedAt) setLastIngestedAt(payload.lastIngestedAt);
+        if (payload.active) {
+          setCacheRefreshStatus("queued");
+        }
+      } catch {
+        // Status polling is non-critical; cached dashboard data still renders.
+      }
+    }
+
     async function loadSecondaryData() {
       setSecondaryStatus("loading");
 
@@ -536,47 +682,13 @@ export function MissionDashboard({
       }
     }
 
+    void loadRefreshStatus();
     void loadSecondaryData();
 
     return () => {
       cancelled = true;
     };
   }, [loadCachedDashboardData]);
-
-  useEffect(() => {
-    if (!initiallyNeedsFirstRun) return;
-    let cancelled = false;
-
-    async function ensureFirstRun() {
-      setFirstRunRequestStatus("starting");
-
-      try {
-        const response = await fetch("/api/intelligence/first-run/ensure", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
-        });
-
-        if (!response.ok) {
-          throw new Error("Första insamlingen kunde inte startas.");
-        }
-
-        const payload = (await response.json()) as FirstRunStatusPayload;
-        if (cancelled) return;
-        setFirstRunStatus(payload);
-        setFirstRunRequestStatus("ready");
-      } catch {
-        if (cancelled) return;
-        setFirstRunRequestStatus("error");
-      }
-    }
-
-    void ensureFirstRun();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [initiallyNeedsFirstRun]);
 
   useEffect(() => {
     if (!initiallyNeedsFirstRun || !firstRunStatus?.active) return;
@@ -619,6 +731,8 @@ export function MissionDashboard({
         .then((payload) => {
           if (cancelled) return;
           setCacheRefreshJobStatus(payload);
+          setDisplayRefreshProgress(displayedRefreshProgress(payload));
+          if (payload.lastIngestedAt) setLastIngestedAt(payload.lastIngestedAt);
 
           if (payload.active) {
             setCacheRefreshStatus("queued");
@@ -645,6 +759,34 @@ export function MissionDashboard({
       window.clearInterval(timer);
     };
   }, [cacheRefreshStatus, loadCachedDashboardData]);
+
+  useEffect(() => {
+    if (!cacheRefreshJobStatus?.active) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setDisplayRefreshProgress(displayedRefreshProgress(cacheRefreshJobStatus));
+    }, 2000);
+
+    return () => window.clearInterval(timer);
+  }, [cacheRefreshJobStatus]);
+
+  useEffect(() => {
+    if (!showUpdateInfo) return;
+
+    function handlePointerDown(event: PointerEvent) {
+      if (
+        updateInfoRef.current &&
+        !updateInfoRef.current.contains(event.target as Node)
+      ) {
+        setShowUpdateInfo(false);
+      }
+    }
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => window.removeEventListener("pointerdown", handlePointerDown);
+  }, [showUpdateInfo]);
 
   useEffect(() => {
     if (regionalRequestIds.length === 0) {
@@ -702,9 +844,10 @@ export function MissionDashboard({
   const manualPriorityItems = manualPriorityIds
     .map((id) => filteredItems.find((item) => item.id === id))
     .filter((item): item is IntelligenceItem => Boolean(item));
-  const automaticPriorityItems = (highSignalItems.length > 0 ? highSignalItems : filteredItems)
+  const automaticPriorityItems = highSignalItems.length > 0 ? highSignalItems : filteredItems;
+  const automaticTopItems = automaticPriorityItems
+    .slice(0, 5)
     .filter((item) => !suppressedPriorityIds.includes(item.id));
-  const automaticTopItems = automaticPriorityItems.slice(0, 5);
   const priorityItems = [
     ...manualPriorityItems,
     ...automaticTopItems.filter((item) => !manualPriorityIds.includes(item.id)),
@@ -778,7 +921,7 @@ export function MissionDashboard({
   const regionalLoadingMessages = useMemo(() => {
     const label = regionalLabels[0] ?? activeGeoLabel;
     return [
-      `Hämtar regional cache för ${label}...`,
+      `Hämtar regional lägesbild för ${label}...`,
       "Rankar relevanta råposter...",
       "Komprimerar till regionala signaler...",
     ];
@@ -797,7 +940,7 @@ export function MissionDashboard({
     }
   }, [loadRegionalIntelligence, regionalRequestIds]);
 
-  const handleNationalCacheRefresh = useCallback(async () => {
+  const startNationalFeedUpdate = useCallback(async () => {
     setCacheRefreshStatus("loading");
     try {
       const response = await fetch("/api/intelligence/cache/refresh", {
@@ -818,11 +961,29 @@ export function MissionDashboard({
 
       const payload = (await response.json()) as CacheRefreshStatusPayload;
       setCacheRefreshJobStatus(payload);
+      setDisplayRefreshProgress(displayedRefreshProgress(payload));
+      if (payload.lastIngestedAt) setLastIngestedAt(payload.lastIngestedAt);
       setCacheRefreshStatus("queued");
     } catch {
       setCacheRefreshStatus("error");
     }
   }, []);
+
+  const handleNationalCacheRefresh = useCallback(async () => {
+    const freshnessSource = lastIngestedAt ?? cacheTimestamp;
+    const lastIngestedTime = freshnessSource ? new Date(freshnessSource).getTime() : 0;
+    const shouldConfirm =
+      Number.isFinite(lastIngestedTime) &&
+      lastIngestedTime > 0 &&
+      Date.now() - lastIngestedTime < 24 * 60 * 60 * 1000;
+
+    if (shouldConfirm) {
+      setPendingFeedUpdateConfirmation(true);
+      return;
+    }
+
+    await startNationalFeedUpdate();
+  }, [cacheTimestamp, lastIngestedAt, startNationalFeedUpdate]);
 
   const handleFirstRunRetry = useCallback(async () => {
     setFirstRunRequestStatus("starting");
@@ -856,7 +1017,119 @@ export function MissionDashboard({
     setProfile("daily_overview");
     setShowBriefingPanel(false);
     setShowPrintPanel(false);
+    setShowSignalTrackingPanel(false);
   };
+
+  const activateSignalTrackingView = () => {
+    setShowBriefingPanel(false);
+    setShowPrintPanel(false);
+    setShowSignalTrackingPanel(true);
+  };
+
+  const rememberTrackingSearch = useCallback((query: string) => {
+    const value = query.trim();
+    if (!value) return;
+    setTrackingQuickSearches((current) => [
+      value,
+      ...current.filter((item) => item.toLowerCase() !== value.toLowerCase()),
+    ].slice(0, 8));
+  }, []);
+
+  const runSignalTrackingSearch = useCallback(
+    async (queryOverride?: string, mode: "local" | "deep" = "local") => {
+      const query = (queryOverride ?? trackingQuery).trim();
+      if (query.length < 2) return;
+
+      setTrackingQuery(query);
+      setTrackingStatus("loading");
+      setTrackingLoadingMode(mode);
+      setTrackingProgress(mode === "deep" ? 8 : 15);
+      setTrackingStepIndex(0);
+      setTrackingError("");
+      rememberTrackingSearch(query);
+
+      if (trackingProgressTimerRef.current) {
+        clearInterval(trackingProgressTimerRef.current);
+        trackingProgressTimerRef.current = null;
+      }
+
+      if (mode === "deep") {
+        const caps = [26, 52, 76, 92];
+        const stepCutoffs = [10, 28, 52];
+        trackingProgressTimerRef.current = setInterval(() => {
+          setTrackingProgress((current) => {
+            const next = Math.min(92, current + (current < 55 ? 3 : 1));
+            const step = stepCutoffs.reduce(
+              (acc, cutoff, idx) => (next >= cutoff ? idx + 1 : acc),
+              0,
+            );
+            setTrackingStepIndex(Math.min(3, step));
+            const cap = caps[Math.min(3, step)];
+            return Math.min(cap, next);
+          });
+        }, 1200);
+      }
+
+      try {
+        const response = await fetch("/api/intelligence/signal-tracking", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            query,
+            limit: mode === "deep" ? 60 : 50,
+            mode,
+            aiEnabled: trackingAiEnabled,
+            deepSearchOptions: {
+              includeWebRss: trackingIncludeWebRss,
+              includeSocialX: true,
+            },
+          }),
+        });
+
+        const payload = (await response.json().catch(() => ({}))) as
+          | SignalTrackingSearchResult
+          | { error?: string };
+
+        if (!response.ok) {
+          throw new Error("error" in payload ? payload.error : undefined);
+        }
+
+        setTrackingPayload(payload as SignalTrackingSearchResult);
+        setTrackingProgress(100);
+        setTrackingStepIndex(mode === "deep" ? 3 : 1);
+        setTrackingStatus("ready");
+      } catch (error) {
+        setTrackingProgress(0);
+        setTrackingStepIndex(0);
+        setTrackingError(
+          error instanceof Error
+            ? error.message
+            : "Signalspårningen kunde inte genomföras.",
+        );
+        setTrackingStatus("error");
+      } finally {
+        if (trackingProgressTimerRef.current) {
+          clearInterval(trackingProgressTimerRef.current);
+          trackingProgressTimerRef.current = null;
+        }
+      }
+    },
+    [
+      rememberTrackingSearch,
+      trackingAiEnabled,
+      trackingIncludeWebRss,
+      trackingQuery,
+    ],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (trackingProgressTimerRef.current) {
+        clearInterval(trackingProgressTimerRef.current);
+        trackingProgressTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const toggleDivision = (id: string) => {
     activateSignalView();
@@ -899,6 +1172,11 @@ export function MissionDashboard({
   const ambassadorBriefing =
     briefings.find((briefing) => briefing.type === "ambassador_brief") ?? morningBriefing;
   const hasPrimaryData = Boolean(ambassadorBriefing || topFive.length > 0);
+  const statusTimestamp =
+    lastIngestedAt ?? cacheRefreshJobStatus?.updateCompletedAt ?? cacheTimestamp;
+  const primaryStatusLine = statusTimestamp
+    ? `Färsk lägesbild · uppdaterad ${formatDate(statusTimestamp, true)} Mexico City-tid`
+    : "Ingen lägesbild tillgänglig";
 
   return (
     <main className={clsx("missiondesk", theme === "light" && "light")}>
@@ -961,86 +1239,123 @@ export function MissionDashboard({
                 !hasPrimaryData && "bg-[var(--app-warning)]",
               )}
             />
-            <span>
-              {hasPrimaryData
-                ? `Färsk lägesbild${cacheTimestamp ? ` · uppdaterad ${formatDate(cacheTimestamp, true)}` : ""}.`
-                : "Ingen färsk lägesbild ännu. Avvaktar bakgrundsjobb."}
-            </span>
+            <span>{primaryStatusLine}</span>
           </div>
-          {secondaryStatus === "loading" && (
-            <span className="text-xs text-[var(--app-muted)]">
-              Hämtar underlag...
-            </span>
-          )}
-          {secondaryStatus === "error" && (
-            <span className="text-xs text-[var(--app-warning)]">
-              Källor och verifiering kunde inte uppdateras just nu.
-            </span>
-          )}
-          {cacheExpiresAt && (
-            <span className="text-xs text-[var(--app-muted)]">
-              Cache till {formatDate(cacheExpiresAt, true)}
-            </span>
-          )}
-          {geographySelection.type !== "national" && (
-            <span
-              className={clsx(
-                "text-xs",
-                regionalStatus === "error"
-                  ? "text-[var(--app-warning)]"
-                  : "text-[var(--app-muted)]",
+          <div className="flex flex-wrap items-center gap-3">
+            {cacheRefreshJobStatus && cacheRefreshStatus !== "idle" && (
+              <span
+                className={clsx(
+                  "text-xs",
+                  cacheRefreshStatus === "error"
+                    ? "text-[var(--app-warning)]"
+                    : "text-[var(--app-muted)]",
+                )}
+              >
+                {cacheRefreshJobStatus.message}
+                {cacheRefreshJobStatus.active ? ` · ${displayRefreshProgress}%` : ""}
+              </span>
+            )}
+            <div ref={updateInfoRef} className="relative flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void handleNationalCacheRefresh()}
+                disabled={cacheRefreshStatus === "loading" || cacheRefreshStatus === "queued"}
+                className="inline-flex items-center gap-2 rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-3 py-2 text-xs font-medium text-[var(--app-soft)] transition hover:border-[var(--app-accent)] hover:text-[var(--app-fg)] disabled:cursor-wait disabled:opacity-60"
+              >
+                <RefreshCw
+                  className={clsx(
+                    "h-3.5 w-3.5",
+                    (cacheRefreshStatus === "loading" || cacheRefreshStatus === "queued") &&
+                      "animate-spin",
+                  )}
+                />
+                {cacheRefreshStatus === "loading"
+                  ? "Startar..."
+                  : cacheRefreshStatus === "queued"
+                    ? "Uppdaterar lägesbild..."
+                    : cacheRefreshStatus === "ready"
+                      ? "Uppdatera flöde"
+                      : cacheRefreshStatus === "error"
+                        ? "Försök igen"
+                        : "Uppdatera flöde"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowUpdateInfo((value) => !value)}
+                aria-label="Om uppdateringar"
+                aria-expanded={showUpdateInfo}
+                className="inline-flex h-9 w-9 items-center justify-center text-[var(--app-muted)] transition hover:text-[var(--app-fg)]"
+              >
+                <Info className="h-5 w-5" />
+              </button>
+              {showUpdateInfo && (
+                <div className="absolute right-0 top-10 z-30 w-80 rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-strong)] p-4 text-xs leading-5 text-[var(--app-fg)] shadow-xl">
+                  <p className="font-medium text-[var(--app-fg)]">Om uppdateringar</p>
+                  <p className="mt-2">
+                    MissionDesk återanvänder redan bearbetade signaler och analyserar bara
+                    nytillkommet material när flödet uppdateras.
+                  </p>
+                  <p className="mt-2">
+                    En körning tar normalt 3-10 minuter beroende på antal nya källposter och
+                    hur mycket som behöver sammanfattas.
+                  </p>
+                  <p className="mt-4">
+                    Detta kan medföra ytterligare AI-kostnader.
+                  </p>
+                  <p className="mt-3">
+                    En daglig uppdatering rekommenderas normalt.
+                  </p>
+                </div>
               )}
-            >
-              {regionalStatus === "loading"
-                ? regionalLoadingMessages[regionalMessageIndex]
-                : regionalStatus === "ready"
-                  ? `Regional cache ${regionalFreshness ? `uppdaterad ${formatDate(regionalFreshness, true)}` : "redo"}`
-                  : regionalStatus === "empty"
-                    ? "Inga regionala signaler över tröskeln"
-                    : regionalStatus === "error"
-                      ? regionalError || "Regional signalbearbetning misslyckades"
-                      : null}
-            </span>
-          )}
-          {cacheRefreshJobStatus && cacheRefreshStatus !== "idle" && (
-            <span
-              className={clsx(
-                "text-xs",
-                cacheRefreshStatus === "error"
-                  ? "text-[var(--app-warning)]"
-                  : "text-[var(--app-muted)]",
-              )}
-            >
-              {cacheRefreshJobStatus.message}
-              {cacheRefreshJobStatus.active
-                ? ` ${Math.round(cacheRefreshJobStatus.progressPercent)}%`
-                : ""}
-            </span>
-          )}
-          <button
-            type="button"
-            onClick={() => void handleNationalCacheRefresh()}
-            disabled={cacheRefreshStatus === "loading" || cacheRefreshStatus === "queued"}
-            className="inline-flex items-center gap-2 rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-3 py-2 text-xs font-medium text-[var(--app-soft)] transition hover:border-[var(--app-accent)] hover:text-[var(--app-fg)] disabled:cursor-wait disabled:opacity-60"
-          >
-            <RefreshCw
-              className={clsx(
-                "h-3.5 w-3.5",
-                (cacheRefreshStatus === "loading" || cacheRefreshStatus === "queued") &&
-                  "animate-spin",
-              )}
-            />
-            {cacheRefreshStatus === "loading"
-              ? "Startar..."
-              : cacheRefreshStatus === "queued"
-                ? "Skannar..."
-                : cacheRefreshStatus === "ready"
-                  ? "Uppdatera igen"
-                  : cacheRefreshStatus === "error"
-                    ? "Försök igen"
-                    : "Uppdatera"}
-          </button>
+            </div>
+          </div>
         </section>
+
+        {pendingFeedUpdateConfirmation && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 px-4">
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="feed-update-confirm-title"
+              className="surface-strong w-full max-w-md rounded-xl p-5 shadow-2xl"
+            >
+              <h2
+                id="feed-update-confirm-title"
+                className="text-lg font-semibold text-[var(--app-fg)]"
+              >
+                Uppdatera lägesbild?
+              </h2>
+              <p className="mt-3 text-sm leading-6 text-[var(--app-soft)]">
+                Den aktuella lägesbilden är fortfarande färsk.
+                <br />
+                Fortsatt uppdatering analyserar nytillkomna signaler och kan medföra
+                ytterligare AI-kostnader.
+              </p>
+              <p className="mt-3 text-sm leading-6 text-[var(--app-soft)]">
+                En daglig uppdatering rekommenderas normalt.
+              </p>
+              <div className="mt-5 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPendingFeedUpdateConfirmation(false)}
+                  className="rounded-md border border-[var(--app-line)] px-3 py-2 text-xs font-medium text-[var(--app-soft)] transition hover:border-[var(--app-accent)] hover:text-[var(--app-fg)]"
+                >
+                  Avbryt
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingFeedUpdateConfirmation(false);
+                    void startNationalFeedUpdate();
+                  }}
+                  className="rounded-md border border-[var(--app-accent)] bg-[color-mix(in_srgb,var(--app-accent),transparent_84%)] px-3 py-2 text-xs font-medium text-[var(--app-fg)] transition hover:bg-[color-mix(in_srgb,var(--app-accent),transparent_76%)]"
+                >
+                  Uppdatera
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {showFirstRunPanel && (
           <FirstRunPanel
@@ -1071,6 +1386,7 @@ export function MissionDashboard({
                     onClick={() => {
                       setShowBriefingPanel(true);
                       setShowPrintPanel(false);
+                      setShowSignalTrackingPanel(false);
                     }}
                   />
                   {config.profileModes
@@ -1084,7 +1400,11 @@ export function MissionDashboard({
                     )
                     .map((mode) => {
                     const Icon = profileIcon[mode.id];
-                    const active = !showBriefingPanel && !showPrintPanel && mode.id === profile;
+                    const active =
+                      !showBriefingPanel &&
+                      !showPrintPanel &&
+                      !showSignalTrackingPanel &&
+                      mode.id === profile;
                     return (
                       <div key={mode.id} className="grid gap-2">
                         <button
@@ -1093,6 +1413,7 @@ export function MissionDashboard({
                             setProfile(mode.id);
                             setShowBriefingPanel(false);
                             setShowPrintPanel(false);
+                            setShowSignalTrackingPanel(false);
                           }}
                           className={clsx(
                             "flex items-center gap-3 rounded-lg border px-3 py-3 text-left transition",
@@ -1119,6 +1440,7 @@ export function MissionDashboard({
                     onClick={() => {
                       setShowBriefingPanel(false);
                       setShowPrintPanel(true);
+                      setShowSignalTrackingPanel(false);
                     }}
                     className={clsx(
                       "flex items-center gap-3 rounded-lg border px-3 py-3 text-left transition",
@@ -1130,10 +1452,30 @@ export function MissionDashboard({
                     <Printer className="h-4 w-4 shrink-0 text-[var(--app-accent)]" />
                     <span className="min-w-0">
                       <span className="block text-sm font-medium text-[var(--app-fg)]">
-                        Skapa mötesunderlag
+                        Mötesunderlag
                       </span>
                       <span className="mt-0.5 block text-xs leading-5 text-[var(--app-muted)]">
-                        Anpassad utskrift
+                        Valda signaler för briefing och utskrift
+                      </span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={activateSignalTrackingView}
+                    className={clsx(
+                      "flex items-center gap-3 rounded-lg border px-3 py-3 text-left transition",
+                      showSignalTrackingPanel
+                        ? "border-[var(--app-accent)] bg-[color-mix(in_srgb,var(--app-accent),transparent_86%)]"
+                        : "border-[var(--app-line)] bg-[var(--app-panel-muted)] hover:border-[var(--app-accent)]",
+                    )}
+                  >
+                    <Radar className="h-4 w-4 shrink-0 text-[var(--app-accent)]" />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-[var(--app-fg)]">
+                        Signalspårning
+                      </span>
+                      <span className="mt-0.5 block text-xs leading-5 text-[var(--app-muted)]">
+                        Riktad sökning i källor
                       </span>
                     </span>
                   </button>
@@ -1346,16 +1688,37 @@ export function MissionDashboard({
               />
             )}
 
+            {showSignalTrackingPanel && (
+              <SignalTrackingPanel
+                query={trackingQuery}
+                onQueryChange={setTrackingQuery}
+                status={trackingStatus}
+                payload={trackingPayload}
+                error={trackingError}
+                quickSearches={trackingQuickSearches}
+                aiEnabled={trackingAiEnabled}
+                onAiEnabledChange={setTrackingAiEnabled}
+                includeWebRss={trackingIncludeWebRss}
+                onIncludeWebRssChange={setTrackingIncludeWebRss}
+                onSearch={(query) => void runSignalTrackingSearch(query, "local")}
+                onDeepSearch={(query) => void runSignalTrackingSearch(query, "deep")}
+                config={config}
+                loadingMode={trackingLoadingMode}
+                loadingProgress={trackingProgress}
+                loadingStepIndex={trackingStepIndex}
+              />
+            )}
+
             {showPrintPanel && (
               <CustomPrintPanel
                 items={printItems}
                 config={config}
-                cacheTimestamp={cacheTimestamp}
                 onRemove={(id) => togglePrintItem(id, false)}
+                onOpenSignals={activateSignalView}
               />
             )}
 
-            {!showBriefingPanel && !showPrintPanel && (
+            {!showBriefingPanel && !showPrintPanel && !showSignalTrackingPanel && (
               <section className="surface-strong rounded-xl p-5">
                 <div className="flex flex-col gap-3 border-b border-[var(--app-line)] pb-5 lg:flex-row lg:items-end lg:justify-between">
                   <div className="min-w-0">
@@ -1403,7 +1766,7 @@ export function MissionDashboard({
                       <SkeletonStack
                         label={
                           geographySelection.type === "national"
-                            ? "Ingen färsk nationell signalcache"
+                            ? "Ingen aktuell nationell lägesbild"
                             : "Ingen regional signal över tröskeln"
                         }
                       />
@@ -1425,7 +1788,7 @@ export function MissionDashboard({
               </section>
             )}
 
-            {!showBriefingPanel && !showPrintPanel && (
+            {!showBriefingPanel && !showPrintPanel && !showSignalTrackingPanel && (
               <SourceFeed
                 rows={sourceRows}
                 query={sourceQuery}
@@ -1446,13 +1809,13 @@ export function MissionDashboard({
 function CustomPrintPanel({
   items,
   config,
-  cacheTimestamp,
   onRemove,
+  onOpenSignals,
 }: {
   items: IntelligenceItem[];
   config: EmbassyConfig;
-  cacheTimestamp?: string;
   onRemove: (id: string) => void;
+  onOpenSignals: () => void;
 }) {
   const [printGeneratedAt, setPrintGeneratedAt] = useState(() => new Date().toISOString());
 
@@ -1477,19 +1840,18 @@ function CustomPrintPanel({
           <div className="missiondesk-print-screen-header">
             <SectionKicker icon={Printer} label="Skapa mötesunderlag" />
             <h2 className="mt-3 text-2xl font-semibold tracking-normal">
-              Anpassad utskrift
+              Mötesunderlag
             </h2>
             <p className="mt-1 text-sm text-[var(--app-muted)]">
               MissionDesk · Sveriges ambassad · {config.city}
             </p>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--app-soft)]">
-              Valda signaler sammanställs med kort sammanfattning, betydelse och spårbar källa.
+              Valda signaler sammanställs för briefing och utskrift.
             </p>
           </div>
         </div>
         <div className="missiondesk-print-actions flex flex-wrap gap-2">
           <Pill tone="neutral">{items.length} valda signaler</Pill>
-          {cacheTimestamp && <Pill tone="accent">Uppdaterad {formatDate(cacheTimestamp, true)}</Pill>}
           <button
             type="button"
             onClick={handlePrint}
@@ -1581,9 +1943,315 @@ function CustomPrintPanel({
         </div>
       ) : (
         <div className="mt-5">
-          <EmptyState title="Inga signaler valda för anpassad utskrift" />
+          <EmptyState
+            title={
+              <span className="block">
+                <span className="block">Inga signaler har lagts till ännu.</span>
+                <span className="mt-3 block">
+                  <button
+                    type="button"
+                    onClick={onOpenSignals}
+                    className="font-medium text-[var(--app-accent)] underline-offset-4 hover:underline"
+                  >
+                    Öppna en prioriterad signal
+                  </button>{" "}
+                  och välj &quot;Ta med i mötesunderlag&quot; i fördjupningsvyn för att skapa
+                  ett eget underlag.
+                </span>
+              </span>
+            }
+          />
         </div>
       )}
+    </section>
+  );
+}
+
+function SignalTrackingPanel({
+  query,
+  onQueryChange,
+  status,
+  payload,
+  error,
+  quickSearches,
+  aiEnabled,
+  onAiEnabledChange,
+  includeWebRss,
+  onIncludeWebRssChange,
+  onSearch,
+  onDeepSearch,
+  config,
+  loadingMode,
+  loadingProgress,
+  loadingStepIndex,
+}: {
+  query: string;
+  onQueryChange: (value: string) => void;
+  status: "idle" | "loading" | "ready" | "error";
+  payload: SignalTrackingSearchResult | null;
+  error: string;
+  quickSearches: string[];
+  aiEnabled: boolean;
+  onAiEnabledChange: (value: boolean) => void;
+  includeWebRss: boolean;
+  onIncludeWebRssChange: (value: boolean) => void;
+  onSearch: (query?: string) => void;
+  onDeepSearch: (query?: string) => void;
+  config: EmbassyConfig;
+  loadingMode: "local" | "deep";
+  loadingProgress: number;
+  loadingStepIndex: number;
+}) {
+  const results = payload?.results ?? [];
+  const [showTrackingInfo, setShowTrackingInfo] = useState(false);
+  const trackingInfoRef = useRef<HTMLDivElement | null>(null);
+  const deepSearchSteps = [
+    "Läser lokala signaler och matchar sökord",
+    "Skannar aktiva RSS- och webbkällor",
+    "Hämtar senaste poster från aktiva X-konton",
+    "Deduplicerar och sammanställer träffar",
+  ];
+
+  useEffect(() => {
+    if (!showTrackingInfo) return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (!trackingInfoRef.current) return;
+      if (!trackingInfoRef.current.contains(event.target as Node)) {
+        setShowTrackingInfo(false);
+      }
+    };
+    document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [showTrackingInfo]);
+
+  return (
+    <section className="surface-strong rounded-xl p-5">
+      <div className="border-b border-[var(--app-line)] pb-5">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <SectionKicker icon={Radar} label="Signalspårning" />
+              <div ref={trackingInfoRef} className="relative">
+                <button
+                  type="button"
+                  onClick={() => setShowTrackingInfo((value) => !value)}
+                  aria-label="Om signalspårning"
+                  aria-expanded={showTrackingInfo}
+                  className="inline-flex h-9 w-9 items-center justify-center text-[var(--app-muted)] transition hover:text-[var(--app-fg)]"
+                >
+                  <Info className="h-5 w-5" />
+                </button>
+                {showTrackingInfo && (
+                  <div className="absolute left-0 top-9 z-30 w-[340px] max-w-[90vw] rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-strong)] p-3 text-xs leading-5 text-[var(--app-fg)] shadow-xl">
+                    <p className="font-medium text-[var(--app-fg)]">Om signalspårning</p>
+                    <p className="mt-2">
+                      <strong>Standardsökning</strong> söker i redan skannade och sparade signaler, inklusive tidigare hämtade <strong>X-poster</strong>.
+                    </p>
+                    <p className="mt-2">
+                      Aktivera <strong>utökad sökning</strong> för att skanna aktiva <strong>webb-/RSS-källor</strong> och hämta de senaste posterna från aktiva <strong>X-konton</strong>.
+                    </p>
+                    <p className="mt-2">
+                      <strong>AI-bearbetning</strong> visar träffar översatta och kort sammanfattade på svenska. När AI-bearbetning är av visas innehållet på <strong>originalspråk</strong>.
+                    </p>
+                    <p className="mt-2">
+                      <strong>Utökad sökning</strong> och <strong>AI-bearbetning</strong> kan medföra ytterligare <strong>API- och AI-kostnader</strong>.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+            <h2 className="mt-3 text-2xl font-semibold tracking-normal">
+              Riktad sökning i källor
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--app-soft)]">
+              Sök efter aktörer, teman eller händelser i MissionDesks källor.
+            </p>
+          </div>
+          {payload && (
+            <div className="flex flex-wrap gap-2">
+              <Pill tone="neutral">{payload.resultCount} träffar</Pill>
+              <Pill tone="neutral">{payload.sourceCount} källor</Pill>
+            </div>
+          )}
+        </div>
+
+        <form
+          className="mt-5 flex flex-col gap-3 md:flex-row"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (includeWebRss) {
+              onDeepSearch();
+            } else {
+              onSearch();
+            }
+          }}
+        >
+          <label className="flex min-h-11 flex-1 items-center gap-2 rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-3">
+            <Search className="h-4 w-4 text-[var(--app-muted)]" />
+            <input
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+              placeholder="Sök på aktör, tema, plats eller nyckelord"
+              className="w-full bg-transparent text-sm outline-none placeholder:text-[var(--app-muted)]"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={status === "loading" || query.trim().length < 2}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-[var(--app-accent)] bg-[color-mix(in_srgb,var(--app-accent),transparent_84%)] px-4 text-sm font-medium text-[var(--app-fg)] transition hover:bg-[color-mix(in_srgb,var(--app-accent),transparent_76%)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {status === "loading" && <Loader2 className="h-4 w-4 animate-spin" />}
+            Sök
+          </button>
+        </form>
+
+        <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-[var(--app-muted)]">
+          <label className="inline-flex items-center gap-2 rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-2.5 py-1.5">
+            <input
+              type="checkbox"
+              checked={aiEnabled}
+              onChange={(event) => onAiEnabledChange(event.target.checked)}
+              className="h-3.5 w-3.5 accent-[var(--app-accent)]"
+            />
+            AI-bearbetning
+          </label>
+          <label className="inline-flex items-center gap-2 rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-2.5 py-1.5">
+            <input
+              type="checkbox"
+              checked={includeWebRss}
+              onChange={(event) => onIncludeWebRssChange(event.target.checked)}
+              className="h-3.5 w-3.5 accent-[var(--app-accent)]"
+            />
+            Utökad sökning
+          </label>
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {quickSearches.map((item) => (
+            <button
+              key={item}
+              type="button"
+              onClick={() => {
+                onQueryChange(item);
+              }}
+              className="rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-3 py-1.5 text-xs font-medium text-[var(--app-soft)] transition hover:border-[var(--app-accent)] hover:text-[var(--app-fg)]"
+            >
+              {item}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="mt-4">
+        {status === "idle" && (
+          <EmptyState title="Sök efter aktörer, teman eller händelser i MissionDesks källor." />
+        )}
+
+        {status === "loading" && (
+          <div className="space-y-3 rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-4">
+            <p className="text-sm font-medium text-[var(--app-fg)]">
+              {loadingMode === "deep"
+                ? "Utökad sökning pågår..."
+                : "Lokal sökning pågår..."}
+            </p>
+            {loadingMode === "deep" ? (
+              <>
+                <div className="h-2 w-full overflow-hidden rounded bg-[color-mix(in_srgb,var(--app-muted),transparent_82%)]">
+                  <div
+                    className="h-full rounded bg-[var(--app-accent)] transition-all duration-500"
+                    style={{ width: `${Math.max(6, Math.min(100, loadingProgress))}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-xs text-[var(--app-muted)]">
+                  <span>{deepSearchSteps[Math.min(deepSearchSteps.length - 1, loadingStepIndex)]}</span>
+                  <span>{Math.round(Math.max(6, Math.min(100, loadingProgress)))}%</span>
+                </div>
+              </>
+            ) : (
+              <p className="text-xs text-[var(--app-muted)]">
+                Söker i redan sparade signaler och tidigare hämtade poster.
+              </p>
+            )}
+          </div>
+        )}
+
+        {status === "error" && (
+          <EmptyState title={error || "Signalspårningen kunde inte genomföras."} />
+        )}
+
+        {status === "ready" && results.length === 0 && (
+          <EmptyState title="Få eller inga träffar hittades." />
+        )}
+
+        {status === "ready" && results.length > 0 && (
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              <Pill tone={payload?.mode === "deep" ? "gold" : "neutral"}>
+                {payload?.mode === "deep" ? "Utökad sökning" : "Lokal sökning"}
+              </Pill>
+              {payload?.deepSearchUsed && <Pill tone="neutral">{payload.scannedSourceCount} skannade källor</Pill>}
+              {payload?.aiEnabled ? <Pill tone="neutral">AI på</Pill> : <Pill tone="neutral">AI av</Pill>}
+            </div>
+            {payload?.notes?.length ? (
+              <div className="rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-3 text-xs leading-5 text-[var(--app-muted)]">
+                {payload.notes.map((note) => (
+                  <p key={note}>{note}</p>
+                ))}
+              </div>
+            ) : null}
+            {results.map((item) => {
+              const Icon = categoryIcon[item.category];
+              const geographyLabel = getTrackingGeographyLabel(item, config);
+
+              return (
+                <article
+                  key={item.id}
+                  className="rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-4"
+                >
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="min-w-0">
+                      <div className="mb-2 flex flex-wrap items-center gap-2 text-xs text-[var(--app-muted)]">
+                        <span className="flex items-center gap-1.5">
+                          <Icon className={clsx("h-3.5 w-3.5", categoryIconTone[item.category])} />
+                          {getCategoryLabel(config, item.category)}
+                        </span>
+                        <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
+                        <span>{geographyLabel}</span>
+                        <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
+                        <span>{formatDate(item.published_at, true)}</span>
+                      </div>
+                      <a
+                        href={item.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-base font-semibold leading-6 text-[var(--app-fg)] transition hover:text-[var(--app-accent)]"
+                      >
+                        {item.title_sv}
+                      </a>
+                      {item.title_sv !== item.title_original && (
+                        <p className="mt-1 text-xs leading-5 text-[var(--app-muted)]">
+                          {item.title_original}
+                        </p>
+                      )}
+                      {(item.snippet_sv ?? item.snippet_original) && (
+                        <p className="mt-2 max-w-4xl text-sm leading-6 text-[var(--app-soft)]">
+                          {item.snippet_sv ?? item.snippet_original}
+                        </p>
+                      )}
+                    </div>
+                    <div className="shrink-0 text-xs leading-5 text-[var(--app-muted)] lg:text-right">
+                      <p className="font-medium text-[var(--app-soft)]">{item.source_name}</p>
+                      <p>
+                        {countryNameSv(item.source_country) ?? item.source_country} ·{" "}
+                        {item.source_language.toUpperCase()}
+                      </p>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </section>
   );
 }
@@ -1719,9 +2387,6 @@ function RegionalCachePanel({
         {freshnessTimestamp && (
           <Pill tone="neutral">Uppdaterad {formatDate(freshnessTimestamp, true)}</Pill>
         )}
-        {cacheExpiresAt && (
-          <Pill tone="neutral">Giltig till {formatDate(cacheExpiresAt, true)}</Pill>
-        )}
         <button
           type="button"
           onClick={onRefresh}
@@ -1768,27 +2433,27 @@ function FirstRunPanel({
       : failed
         ? (job?.error_message ?? "Första insamlingen kunde inte startas.")
         : completed
-          ? "Första insamlingen är klar. Cachead lägesbild laddas in."
-          : "Första insamlingen har startats automatiskt.";
+          ? "Första insamlingen är klar. Lägesbilden laddas in."
+          : "Ingen insamling startas automatiskt. Använd “Uppdatera flöde” när du vill skanna källorna.";
 
   return (
     <section className="surface-strong rounded-lg p-5">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="min-w-0">
           <SectionKicker icon={Database} label="Första insamling" />
-          <h2 className="mt-3 text-xl font-semibold">Ingen cachead briefing finns ännu.</h2>
+          <h2 className="mt-3 text-xl font-semibold">Ingen briefing finns ännu.</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--app-soft)]">
             {userMessage}
           </p>
           <p className="mt-1 text-xs leading-5 text-[var(--app-muted)]">
-            {status?.estimatedDurationLabel ?? "Första körningen tar oftast 3-10 minuter."} Detta
-            körs i bakgrunden; du kan lämna sidan öppen eller komma tillbaka.
+            {status?.estimatedDurationLabel ?? "Första körningen tar oftast 3-10 minuter."} När
+            du startar den körs arbetet i bakgrunden; du kan lämna sidan öppen eller komma tillbaka.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <Pill tone={failed ? "danger" : active ? "accent" : "neutral"}>
-            {job?.status ?? (requestStatus === "starting" ? "pending" : "queued")}
+            {job?.status ?? (requestStatus === "starting" ? "pending" : "väntar")}
           </Pill>
           {job?.updated_at && <Pill tone="neutral">Senast {formatDate(job.updated_at, true)}</Pill>}
           {failed && (
@@ -1899,8 +2564,8 @@ function FirstRunPanel({
       )}
 
       <p className="mt-4 text-xs leading-5 text-[var(--app-muted)]">
-        Dashboarden visar bara verifierade, cacheade signaler. Ingen nyhet fabriceras och ingen AI
-        körs i sidladdningen.
+        Dashboarden visar bara verifierade signaler. Ingen nyhet fabriceras och ingen AI körs i
+        sidladdningen.
       </p>
     </section>
   );
@@ -1951,7 +2616,7 @@ function PrimaryBriefingPanel({
             {briefing
               ? `Genererad ${formatDate(briefing.generated_at, true)}`
               : cacheTimestamp
-                ? `Cache ${formatDate(cacheTimestamp, true)}`
+                ? `Uppdaterad ${formatDate(cacheTimestamp, true)}`
                 : "Inväntar briefing"}
           </Pill>
           <Pill tone="neutral">Underlag {sourceCount}</Pill>
@@ -1984,7 +2649,7 @@ function PrimaryBriefingPanel({
           ))}
         </ol>
       ) : (
-        <SkeletonStack label="Ingen färsk morgonbrief i cache" />
+        <SkeletonStack label="Ingen aktuell morgonbrief" />
       )}
 
       {sourceItems.length > 0 && (
@@ -2110,7 +2775,7 @@ function IntelligenceCard({
       )}
     >
       <label
-        className="absolute right-3 top-3 z-10 flex h-7 w-7 cursor-pointer items-center justify-center rounded border border-[var(--app-line)] bg-[color-mix(in_srgb,var(--app-panel),transparent_8%)] text-[var(--app-muted)] transition hover:border-[var(--app-accent)] hover:text-[var(--app-accent-strong)]"
+        className="absolute right-3 top-3 z-10 flex h-7 w-7 cursor-pointer items-center justify-center"
         title="Ta bort från prioriterade signaler"
         aria-label="Ta bort från prioriterade signaler"
       >
@@ -2118,8 +2783,11 @@ function IntelligenceCard({
           type="checkbox"
           checked
           onChange={onUnprioritize}
-          className="h-3.5 w-3.5 cursor-pointer accent-[var(--app-accent)]"
+          className="peer sr-only"
         />
+        <span className="flex h-5 w-5 items-center justify-center rounded border border-[var(--app-line)] bg-[var(--app-panel)] text-[var(--app-muted)] transition hover:border-[var(--app-soft)] hover:text-[var(--app-fg)] peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-[var(--app-accent)]">
+          <X className="h-3 w-3" strokeWidth={1.8} />
+        </span>
       </label>
       <button
         type="button"
@@ -2263,7 +2931,7 @@ function DetailPanel({
           >
             <span className="flex items-center gap-2">
               <Printer className="h-4 w-4" />
-              Skicka till anpassad utskrift
+              Ta med i mötesunderlag
             </span>
             <input
               type="checkbox"
@@ -2277,6 +2945,13 @@ function DetailPanel({
     </div>
   );
 }
+
+type SourceFeedSortKey = "title" | "source" | "published" | "geography" | "relevance" | "priority";
+type SourceFeedSortDirection = "asc" | "desc";
+type SourceFeedSortState = {
+  key: SourceFeedSortKey;
+  direction: SourceFeedSortDirection;
+};
 
 function SourceFeed({
   rows,
@@ -2295,6 +2970,69 @@ function SourceFeed({
   prioritizedIds: string[];
   onTogglePriority: (id: string, checked: boolean) => void;
 }) {
+  const [sort, setSort] = useState<SourceFeedSortState | null>(null);
+
+  const sortedRows = useMemo(() => {
+    if (!sort) return rows;
+
+    const direction = sort.direction === "asc" ? 1 : -1;
+
+    return rows
+      .map((item, index) => ({ item, index }))
+      .sort((left, right) => {
+        let result = 0;
+
+        if (sort.key === "title") {
+          result = left.item.title_sv.localeCompare(right.item.title_sv, "sv");
+        }
+
+        if (sort.key === "source") {
+          result = left.item.source_name.localeCompare(right.item.source_name, "sv");
+        }
+
+        if (sort.key === "published") {
+          result =
+            new Date(left.item.published_at).getTime() -
+            new Date(right.item.published_at).getTime();
+        }
+
+        if (sort.key === "geography") {
+          result = getGeographyLabel(left.item, config).localeCompare(
+            getGeographyLabel(right.item, config),
+            "sv",
+          );
+        }
+
+        if (sort.key === "relevance") {
+          result =
+            getCompositeScore(left.item, config, profile) -
+            getCompositeScore(right.item, config, profile);
+        }
+
+        if (sort.key === "priority") {
+          result =
+            Number(prioritizedIds.includes(left.item.id)) -
+            Number(prioritizedIds.includes(right.item.id));
+        }
+
+        return result === 0 ? left.index - right.index : result * direction;
+      })
+      .map(({ item }) => item);
+  }, [config, prioritizedIds, profile, rows, sort]);
+
+  const toggleSort = (key: SourceFeedSortKey) => {
+    setSort((current) => {
+      if (current?.key === key) {
+        return { key, direction: current.direction === "asc" ? "desc" : "asc" };
+      }
+
+      return {
+        key,
+        direction: key === "title" || key === "source" || key === "geography" ? "asc" : "desc",
+      };
+    });
+  };
+
   return (
     <section className="surface rounded-lg">
       <div className="flex flex-col gap-4 border-b border-[var(--app-line)] p-5 lg:flex-row lg:items-center lg:justify-between">
@@ -2315,20 +3053,49 @@ function SourceFeed({
 
       {rows.length > 0 ? (
         <div className="thin-scrollbar overflow-x-auto">
-          <table className="w-full min-w-[1080px] border-collapse text-left text-sm">
+          <table className="w-full min-w-[980px] border-collapse text-left text-sm">
             <thead>
               <tr className="border-b border-[var(--app-line)] text-xs uppercase tracking-[0.12em] text-[var(--app-muted)]">
-                <th className="px-5 py-3 font-medium">Original / svensk titel</th>
-                <th className="px-5 py-3 font-medium">Källa</th>
-                <th className="px-5 py-3 font-medium">Datum</th>
-                <th className="px-5 py-3 font-medium">Geografi</th>
-                <th className="px-5 py-3 font-medium">Relevans</th>
-                <th className="px-5 py-3 font-medium">Prioritera</th>
-                <th className="px-5 py-3 font-medium">Länk</th>
+                <SourceFeedSortHeader
+                  label="Original / svensk titel"
+                  sortKey="title"
+                  activeSort={sort}
+                  onSort={toggleSort}
+                />
+                <SourceFeedSortHeader
+                  label="Källa"
+                  sortKey="source"
+                  activeSort={sort}
+                  onSort={toggleSort}
+                />
+                <SourceFeedSortHeader
+                  label="Publicerad"
+                  sortKey="published"
+                  activeSort={sort}
+                  onSort={toggleSort}
+                />
+                <SourceFeedSortHeader
+                  label="Geografi"
+                  sortKey="geography"
+                  activeSort={sort}
+                  onSort={toggleSort}
+                />
+                <SourceFeedSortHeader
+                  label="Relevans"
+                  sortKey="relevance"
+                  activeSort={sort}
+                  onSort={toggleSort}
+                />
+                <SourceFeedSortHeader
+                  label="Prioritera"
+                  sortKey="priority"
+                  activeSort={sort}
+                  onSort={toggleSort}
+                />
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--app-line)]">
-              {rows.map((item) => {
+              {sortedRows.map((item) => {
                 const isPrioritized = prioritizedIds.includes(item.id);
 
                 return (
@@ -2340,7 +3107,15 @@ function SourceFeed({
                       </p>
                     </td>
                     <td className="px-5 py-4">
-                      <p className="font-medium">{item.source_name}</p>
+                      <a
+                        href={item.source_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 font-medium text-[var(--app-fg)] transition hover:text-[var(--app-accent)]"
+                      >
+                        {item.source_name}
+                        <ArrowUpRight className="h-3.5 w-3.5 text-[var(--app-muted)]" />
+                      </a>
                       <p className="mt-1 flex items-center gap-2 text-xs text-[var(--app-muted)]">
                         <Languages className="h-3.5 w-3.5" />
                         {countryNameSv(item.source_country) ?? item.source_country} ·{" "}
@@ -2377,17 +3152,6 @@ function SourceFeed({
                         Prioritera
                       </label>
                     </td>
-                    <td className="px-5 py-4">
-                      <a
-                        href={item.source_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-2 rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-3 py-2 text-xs font-medium text-[var(--app-accent)] hover:border-[var(--app-accent)]"
-                      >
-                        Öppna
-                        <ArrowUpRight className="h-3.5 w-3.5" />
-                      </a>
-                    </td>
                   </tr>
                 );
               })}
@@ -2400,6 +3164,46 @@ function SourceFeed({
         </div>
       )}
     </section>
+  );
+}
+
+function SourceFeedSortHeader({
+  label,
+  sortKey,
+  activeSort,
+  onSort,
+}: {
+  label: string;
+  sortKey: SourceFeedSortKey;
+  activeSort: SourceFeedSortState | null;
+  onSort: (key: SourceFeedSortKey) => void;
+}) {
+  const active = activeSort?.key === sortKey;
+  const direction = activeSort?.direction ?? "desc";
+
+  return (
+    <th
+      className="px-5 py-3 font-medium"
+      aria-sort={active ? (direction === "asc" ? "ascending" : "descending") : "none"}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(sortKey)}
+        className={clsx(
+          "inline-flex items-center gap-1.5 text-left transition hover:text-[var(--app-fg)]",
+          active && "text-[var(--app-fg)]",
+        )}
+      >
+        <span>{label}</span>
+        <ChevronDown
+          className={clsx(
+            "h-3.5 w-3.5 transition",
+            active ? "opacity-100" : "opacity-35",
+            active && direction === "asc" && "rotate-180",
+          )}
+        />
+      </button>
+    </th>
   );
 }
 
@@ -2511,7 +3315,7 @@ function SkeletonStack({
   );
 }
 
-function EmptyState({ title }: { title: string }) {
+function EmptyState({ title }: { title: React.ReactNode }) {
   return (
     <div className="flex min-h-40 items-center justify-center rounded-md border border-dashed border-[var(--app-line)] p-6 text-center text-sm text-[var(--app-muted)]">
       {title}

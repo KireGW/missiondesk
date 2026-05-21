@@ -18,9 +18,10 @@ export async function PATCH(request: Request, context: RouteContext) {
 
   const nextSources = [...sources];
   nextSources[index] = { ...nextSources[index], ...patch, id };
-  await saveSources(nextSources);
+  const savedSources = await saveSources(nextSources);
+  const savedSource = savedSources.find((source) => source.id === id) ?? savedSources[index];
 
-  return NextResponse.json({ source: nextSources[index], sources: nextSources });
+  return NextResponse.json({ source: savedSource, sources: savedSources });
 }
 
 export async function DELETE(_request: Request, context: RouteContext) {
@@ -32,6 +33,6 @@ export async function DELETE(_request: Request, context: RouteContext) {
     return NextResponse.json({ error: "source not found" }, { status: 404 });
   }
 
-  await saveSources(nextSources);
-  return NextResponse.json({ sources: nextSources });
+  const savedSources = await saveSources(nextSources);
+  return NextResponse.json({ sources: savedSources });
 }

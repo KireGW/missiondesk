@@ -416,8 +416,29 @@ export async function fetchLiveIntelligence(
   managedSources?: SourceDefinition[],
   options: { enhanceWithAi?: boolean } = {},
 ) {
+  const isRssRetrievalSource = (source: SourceDefinition) => {
+    if (source.retrieval?.primary) return source.retrieval.primary === "rss";
+    if (source.retrievalMethod) return source.retrievalMethod === "rss";
+    if (source.type === "rss") return true;
+
+    try {
+      const url = new URL(source.url);
+      const text = `${url.pathname} ${url.search}`.toLowerCase();
+      return (
+        /\brss\b/.test(text) ||
+        /\batom\b/.test(text) ||
+        /\bfeed\b/.test(text) ||
+        /outboundfeeds/.test(text) ||
+        /format=rss/.test(text) ||
+        /\/xml\b/.test(text) ||
+        /\.xml($|\?)/.test(`${url.pathname}${url.search}`)
+      );
+    } catch {
+      return /\b(rss|atom|feed)\b|\.xml($|\?)/i.test(source.url);
+    }
+  };
   const liveSources = (managedSources ?? config.sources).filter(
-    (source) => source.enabled && source.type === "rss",
+    (source) => source.enabled && isRssRetrievalSource(source),
   );
 
   const results = await Promise.allSettled(
