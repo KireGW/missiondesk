@@ -638,7 +638,18 @@ export async function rankAndStoreCandidates(
     });
   }
 
-  const stored = await Promise.all(ranked.map((candidate) => upsertRankedCandidate(candidate)));
+ const stored: RankedCandidateRecord[] = [];
+
+for (const candidate of ranked.slice(0, options.hardCap ?? 100)) {
+  try {
+    stored.push(await upsertRankedCandidate(candidate));
+  } catch (error) {
+    console.error("[MissionDesk ranking] failed to store candidate", {
+      rawSourceItemId: candidate.raw_source_item_id,
+      error,
+    });
+  }
+}
 
   if (options.enqueueAiJobs) {
     await Promise.all(stored
