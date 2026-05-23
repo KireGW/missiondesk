@@ -278,8 +278,16 @@ export async function processNationalSourceItemWithOpenAI(
     throw new Error(payload.error.message);
   }
 
-  const text = extractResponseText(payload);
-  if (!text) return null;
+ const text = extractResponseText(payload);
 
-  return sanitizeAnalysis(JSON.parse(text) as NationalProcessingAnalysis);
+if (!text) {
+  console.error(
+    "[MissionDesk OpenAI] national processing returned empty output",
+    JSON.stringify(payload, null, 2).slice(0, 4000),
+  );
+
+  return null;
+}
+
+return sanitizeAnalysis(JSON.parse(text) as NationalProcessingAnalysis);
 }
