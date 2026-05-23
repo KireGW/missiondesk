@@ -638,7 +638,7 @@ export async function rankAndStoreCandidates(
     });
   }
 
- const stored: RankedCandidateRecord[] = [];
+ const stored: Awaited<ReturnType<typeof upsertRankedCandidate>>[] = [];
 
 for (const candidate of ranked.slice(0, options.hardCap ?? 100)) {
   try {
