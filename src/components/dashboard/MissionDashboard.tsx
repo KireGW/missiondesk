@@ -46,11 +46,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import type { SignalTrackingResult, SignalTrackingSearchResult } from "@/lib/intelligence/signal-tracking";
 import { processedRecordToIntelligenceItem } from "@/lib/intelligence/dashboard-view";
+import {
+  eventDateRange,
+  isUpcomingEventDate,
+  UPCOMING_EVENTS_HORIZON_DAYS,
+} from "@/lib/intelligence/event-dates";
 import { countryNameSv } from "@/lib/i18n/countries";
 import type {
   BackgroundJob,
   Briefing,
   ProcessedIntelligenceRecord,
+  TemporalSignalRecord,
 } from "@/lib/intelligence/models";
 import type {
   EmbassyConfig,
@@ -76,6 +82,11 @@ type GeographySelection =
   | { type: "division"; ids: string[] };
 
 type RegionalStatus = "idle" | "loading" | "ready" | "empty" | "error" | "not_configured";
+type ActiveViewState =
+  | { kind: "profile"; profile: ProfileMode }
+  | { kind: "briefing" }
+  | { kind: "print" }
+  | { kind: "tracking" };
 
 interface RegionalApiPayload {
   status: "ready" | "empty" | "not_configured";
@@ -127,6 +138,15 @@ interface CacheRefreshStatusPayload {
   updateCompletedAt?: string;
   updateErrorMessage?: string;
   updateStatus?: "idle" | "pending" | "running" | "completed" | "failed";
+}
+
+interface UpcomingSignalsApiPayload {
+  signals: TemporalSignalRecord[];
+  cache: {
+    itemCount: number;
+    generatedAt: string;
+    onlyUpcoming: boolean;
+  };
 }
 
 const scoreMeta: Array<{ key: ScoreKey; label: string; compact: string }> = [
@@ -299,6 +319,224 @@ const formatDate = (value?: string, includeTime = false) => {
     ...(includeTime ? { hour: "2-digit", minute: "2-digit" } : {}),
   }).format(date);
 };
+
+const formatDateRange = (start?: string, end?: string) => {
+  if (!start && !end) {
+    return "Tid ej fastställd";
+  }
+  if (start && end && start !== end) {
+    return `${formatDate(start)} – ${formatDate(end)}`;
+  }
+  return formatDate(start ?? end, true);
+};
+
+const temporalContextLabel: Record<TemporalSignalRecord["signal"]["temporal_context"], string> = {
+  upcoming_event: "Kommande händelse",
+  ongoing_process: "Pågående process",
+  future_risk: "Framtidsrisk",
+  scheduled_vote: "Planerad omröstning",
+  earnings: "Rapporttillfälle",
+  summit: "Toppmöte",
+  policy_deadline: "Policydeadline",
+  regulatory_change: "Regeländring",
+  security_window: "Säkerhetsfönster",
+  market_window: "Marknadsfönster",
+};
+
+type UpcomingSortMode = "priority" | "soonest" | "certainty";
+type UpcomingHorizonFilter = "all" | "ongoing" | "7d" | "30d" | "90d" | "later";
+type UpcomingTypeFilter =
+  | "all"
+  | "policy"
+  | "decision"
+  | "security"
+  | "diplomacy"
+  | "market";
+
+const upcomingSortOptions: Array<{ id: UpcomingSortMode; label: string }> = [
+  { id: "priority", label: "Viktigast" },
+  { id: "soonest", label: "Snart" },
+  { id: "certainty", label: "Säkrast fastställda" },
+];
+
+const upcomingHorizonOptions: Array<{ id: UpcomingHorizonFilter; label: string }> = [
+  { id: "all", label: "Alla" },
+  { id: "ongoing", label: "Pågår" },
+  { id: "7d", label: "7 dagar" },
+  { id: "30d", label: "30 dagar" },
+  { id: "90d", label: "90 dagar" },
+  { id: "later", label: "Senare" },
+];
+
+const upcomingTypeOptions: Array<{ id: UpcomingTypeFilter; label: string }> = [
+  { id: "all", label: "Alla typer" },
+  { id: "policy", label: "Policy / regler" },
+  { id: "decision", label: "Beslut / omröstning" },
+  { id: "security", label: "Säkerhet / risk" },
+  { id: "diplomacy", label: "Diplomati / möten" },
+  { id: "market", label: "Marknad / investering" },
+];
+
+const temporalSignalReferenceTs = (signal: TemporalSignalRecord["signal"], nowTs: number) => {
+  const startRange = eventDateRange(signal.date_start);
+  const endRange = eventDateRange(signal.date_end);
+  const startTs = startRange?.startTs ?? Number.NaN;
+  const endTs = endRange?.endTs ?? Number.NaN;
+
+  if (Number.isFinite(startTs) && startTs >= nowTs) return startTs;
+  if (Number.isFinite(endTs) && endTs >= nowTs) return endTs;
+  return startTs;
+};
+
+function temporalDateParts(value?: string) {
+  if (!value) {
+    return {
+      day: "—",
+      month: "TBD",
+      year: "",
+    };
+  }
+
+  const dateOnly = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const date = dateOnly
+    ? new Date(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3]))
+    : new Date(value);
+
+  if (!Number.isFinite(date.getTime())) {
+    return {
+      day: "—",
+      month: "TBD",
+      year: "",
+    };
+  }
+
+  return {
+    day: new Intl.DateTimeFormat("sv-SE", { day: "2-digit" }).format(date),
+    month: new Intl.DateTimeFormat("sv-SE", { month: "short" }).format(date).toUpperCase(),
+    year: new Intl.DateTimeFormat("sv-SE", { year: "numeric" }).format(date),
+  };
+}
+
+function temporalSignalDateCard(signal: TemporalSignalRecord["signal"], nowTs: number) {
+  const startRange = eventDateRange(signal.date_start);
+  const endRange = eventDateRange(signal.date_end);
+  const isOngoing =
+    Boolean(startRange && startRange.startTs < nowTs) &&
+    Boolean(endRange && endRange.endTs >= nowTs);
+  const primaryDate =
+    isOngoing && signal.date_end
+      ? signal.date_end
+      : signal.date_start ?? signal.date_end;
+  const undatedOngoing = !primaryDate && signal.temporal_context === "ongoing_process";
+  const referenceTs = temporalSignalReferenceTs(signal, nowTs);
+  const days = Number.isFinite(referenceTs)
+    ? Math.max(0, Math.floor((referenceTs - nowTs) / 86400000))
+    : null;
+
+  if (undatedOngoing) {
+    return {
+      day: "NU",
+      month: "PÅGÅR",
+      year: "",
+      eyebrow: "Pågående",
+      relativeLabel: "Pågår nu",
+      timelineLabel: "Bekräftat pågående",
+    };
+  }
+
+  return {
+    ...temporalDateParts(primaryDate),
+    eyebrow: !primaryDate
+      ? "Tidsfönster"
+      : isOngoing
+        ? "Pågår till"
+        : signal.date_start && signal.date_end && signal.date_start !== signal.date_end
+          ? "Start"
+          : "Datum",
+    relativeLabel: isOngoing ? "Pågår nu" : days === null ? "Tidsfönster" : days === 0 ? "I dag" : `Om ${days} dagar`,
+    timelineLabel: formatDateRange(signal.date_start, signal.date_end),
+  };
+}
+
+function temporalSignalTiming(
+  signal: TemporalSignalRecord["signal"],
+  nowTs: number,
+): { isOngoing: boolean; referenceTs: number; days: number | null } {
+  const startRange = eventDateRange(signal.date_start);
+  const endRange = eventDateRange(signal.date_end);
+  const isOngoing =
+    Boolean(startRange && startRange.startTs < nowTs) &&
+    Boolean(endRange && endRange.endTs >= nowTs);
+  const referenceTs = temporalSignalReferenceTs(signal, nowTs);
+  const days = Number.isFinite(referenceTs)
+    ? Math.max(0, Math.floor((referenceTs - nowTs) / 86400000))
+    : null;
+
+  return { isOngoing, referenceTs, days };
+}
+
+function temporalSignalTypeGroup(record: TemporalSignalRecord): UpcomingTypeFilter {
+  const context = record.signal.temporal_context;
+  const category = record.processed.category;
+
+  if (context === "policy_deadline" || context === "regulatory_change") return "policy";
+  if (context === "scheduled_vote") return "decision";
+  if (context === "future_risk" || context === "security_window") return "security";
+  if (context === "summit") return "diplomacy";
+  if (context === "earnings" || context === "market_window") return "market";
+
+  if (context === "upcoming_event") {
+    if (category === "foreign_policy" || category === "sweden_connection") return "diplomacy";
+    if (category === "domestic_politics") return "decision";
+    if (
+      category === "economy" ||
+      category === "trade" ||
+      category === "markets" ||
+      category === "investment_climate" ||
+      category === "technology" ||
+      category === "energy"
+    ) {
+      return "market";
+    }
+    return "policy";
+  }
+
+  if (context === "ongoing_process") {
+    if (category === "security") return "security";
+    if (category === "foreign_policy" || category === "sweden_connection") return "diplomacy";
+    if (category === "domestic_politics") return "decision";
+    if (
+      category === "economy" ||
+      category === "trade" ||
+      category === "markets" ||
+      category === "investment_climate" ||
+      category === "technology" ||
+      category === "energy"
+    ) {
+      return "market";
+    }
+    return "policy";
+  }
+
+  return "policy";
+}
+
+function temporalPriorityScore(record: TemporalSignalRecord, nowTs: number) {
+  const { isOngoing, days } = temporalSignalTiming(record.signal, nowTs);
+  const proximityScore =
+    days === null
+      ? 35
+      : isOngoing
+        ? 100
+        : Math.max(0, 100 - Math.min(days, UPCOMING_EVENTS_HORIZON_DAYS) * (100 / UPCOMING_EVENTS_HORIZON_DAYS));
+
+  return (
+    record.signal.strategic_importance_score * 0.46 +
+    record.signal.sweden_mexico_relevance_score * 0.22 +
+    record.signal.temporal_certainty_score * 0.16 +
+    proximityScore * 0.16
+  );
+}
 
 const latestIso = (values: Array<string | undefined>) => {
   const timestamps = values
@@ -605,6 +843,11 @@ export function MissionDashboard({
   );
   const [weeklyCustomFrom, setWeeklyCustomFrom] = useState("");
   const [weeklyCustomTo, setWeeklyCustomTo] = useState("");
+  const [upcomingSignals, setUpcomingSignals] = useState<TemporalSignalRecord[]>([]);
+  const [upcomingSignalsStatus, setUpcomingSignalsStatus] = useState<
+    "idle" | "loading" | "ready" | "error"
+  >("idle");
+  const [upcomingSignalsError, setUpcomingSignalsError] = useState("");
   const [regionalStatus, setRegionalStatus] = useState<RegionalStatus>("idle");
   const [regionalFreshness, setRegionalFreshness] = useState<string | undefined>();
   const [regionalCacheExpiresAt, setRegionalCacheExpiresAt] = useState<string | undefined>();
@@ -633,6 +876,44 @@ export function MissionDashboard({
   const initiallyNeedsFirstRun = initialItems.length === 0 && initialBriefings.length === 0;
   const hasCachedIntelligence = items.length > 0 || briefings.length > 0;
   const showFirstRunPanel = initiallyNeedsFirstRun && !hasCachedIntelligence;
+  const isUpcomingEventsProfile = profile === "upcoming_events";
+
+  useEffect(() => {
+    const stored = window.localStorage.getItem("missiondesk.activeView");
+    if (!stored) return;
+    try {
+      const parsed = JSON.parse(stored) as ActiveViewState;
+      if (parsed.kind === "briefing") {
+        setShowBriefingPanel(true);
+        setShowPrintPanel(false);
+        setShowSignalTrackingPanel(false);
+        return;
+      }
+      if (parsed.kind === "print") {
+        setShowBriefingPanel(false);
+        setShowPrintPanel(true);
+        setShowSignalTrackingPanel(false);
+        return;
+      }
+      if (parsed.kind === "tracking") {
+        setShowBriefingPanel(false);
+        setShowPrintPanel(false);
+        setShowSignalTrackingPanel(true);
+        return;
+      }
+      if (
+        parsed.kind === "profile" &&
+        config.profileModes.some((mode) => mode.id === parsed.profile)
+      ) {
+        setProfile(parsed.profile);
+        setShowBriefingPanel(false);
+        setShowPrintPanel(false);
+        setShowSignalTrackingPanel(false);
+      }
+    } catch {
+      // Ignore malformed local view state.
+    }
+  }, [config.profileModes]);
 
   useEffect(() => {
     const stored = window.localStorage.getItem("missiondesk.signalTracking.quickSearches");
@@ -683,6 +964,17 @@ export function MissionDashboard({
       JSON.stringify(trackingQuickSearches.slice(0, 8)),
     );
   }, [trackingQuickSearches]);
+
+  useEffect(() => {
+    const state: ActiveViewState = showSignalTrackingPanel
+      ? { kind: "tracking" }
+      : showPrintPanel
+        ? { kind: "print" }
+        : showBriefingPanel
+          ? { kind: "briefing" }
+          : { kind: "profile", profile };
+    window.localStorage.setItem("missiondesk.activeView", JSON.stringify(state));
+  }, [profile, showBriefingPanel, showPrintPanel, showSignalTrackingPanel]);
 
   const regionalRequestIds = useMemo(() => {
     if (geographySelection.type === "national") return [];
@@ -789,6 +1081,60 @@ export function MissionDashboard({
   }, [initialCacheExpiresAt, initialCacheTimestamp]);
 
   useEffect(() => {
+    if (!isUpcomingEventsProfile || showBriefingPanel || showPrintPanel || showSignalTrackingPanel) {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadUpcomingSignals() {
+      setUpcomingSignalsStatus("loading");
+      setUpcomingSignalsError("");
+
+      try {
+        const params = new URLSearchParams({
+          limit: "120",
+          minTemporalCertainty: "45",
+          minStrategicImportance: "65",
+          minSwedenMexicoRelevance: "0",
+        });
+        const response = await fetch(`/api/intelligence/upcoming?${params.toString()}`, {
+          cache: "no-store",
+        });
+
+        if (!response.ok) {
+          const payload = (await response.json().catch(() => ({}))) as { error?: string };
+          throw new Error(payload.error ?? "Kommande signaler kunde inte hämtas.");
+        }
+
+        const payload = (await response.json()) as UpcomingSignalsApiPayload;
+        if (cancelled) return;
+        setUpcomingSignals(payload.signals);
+        setUpcomingSignalsStatus("ready");
+      } catch (error) {
+        if (cancelled) return;
+        setUpcomingSignalsStatus("error");
+        setUpcomingSignalsError(
+          error instanceof Error ? error.message : "Kommande signaler kunde inte hämtas.",
+        );
+      }
+    }
+
+    void loadUpcomingSignals();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    cacheTimestamp,
+    isUpcomingEventsProfile,
+    lastIngestedAt,
+    showBriefingPanel,
+    showPrintPanel,
+    showSignalTrackingPanel,
+  ]);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function loadRefreshStatus() {
@@ -858,7 +1204,7 @@ export function MissionDashboard({
   }, [firstRunStatus?.active, initiallyNeedsFirstRun, loadCachedDashboardData]);
 
   useEffect(() => {
-    if (cacheRefreshStatus !== "queued" && cacheRefreshStatus !== "loading") return;
+    if (cacheRefreshStatus !== "queued") return;
     let cancelled = false;
 
     const timer = window.setInterval(() => {
@@ -1053,6 +1399,18 @@ export function MissionDashboard({
       .includes(q);
   });
 
+  const sourceRowsCurrentSignals = sourceRows
+    .filter((item) => {
+      const publishedTs = new Date(item.published_at).getTime();
+      if (!Number.isFinite(publishedTs)) return false;
+      return publishedTs >= Date.now() - 4 * 24 * 60 * 60 * 1000;
+    })
+    .sort(
+      (left, right) =>
+        new Date(right.published_at).getTime() - new Date(left.published_at).getTime(),
+    )
+    .slice(0, 200);
+
   const activeGeoLabel = useMemo(() => {
     if (geographySelection.type === "national") return config.geography.nationalLabel;
     if (geographySelection.type === "region") {
@@ -1098,6 +1456,8 @@ export function MissionDashboard({
 
   const startNationalFeedUpdate = useCallback(async () => {
     setCacheRefreshStatus("loading");
+    setCacheRefreshJobStatus(undefined);
+    setDisplayRefreshProgress(0);
     try {
       const response = await fetch("/api/intelligence/cache/refresh", {
         method: "POST",
@@ -1324,16 +1684,13 @@ export function MissionDashboard({
   const swedenRelevantCount = filteredItems.filter(
     (item) => item.sweden_relevance_score >= 75,
   ).length;
-  const isUpcomingEventsProfile = profile === "upcoming_events";
   const isWeeklySummaryProfile = profile === "weekly_summary";
   const upcomingEventItems = useMemo(() => {
     const unique = new Set<string>();
 
     return filteredItems
       .filter((item) => {
-        if (!item.event_date) return false;
-        const eventAt = new Date(item.event_date).getTime();
-        return Number.isFinite(eventAt) && eventAt >= viewNowTs;
+        return isUpcomingEventDate(item.event_date, viewNowTs);
       })
       .filter((item) => {
         const key = `${item.event_date}|${item.title_sv.toLowerCase()}|${item.source_url}`;
@@ -1342,8 +1699,8 @@ export function MissionDashboard({
         return true;
       })
       .sort((left, right) => {
-        const leftTime = new Date(left.event_date ?? left.published_at).getTime();
-        const rightTime = new Date(right.event_date ?? right.published_at).getTime();
+        const leftTime = eventDateRange(left.event_date)?.startTs ?? Number.POSITIVE_INFINITY;
+        const rightTime = eventDateRange(right.event_date)?.startTs ?? Number.POSITIVE_INFINITY;
         if (leftTime !== rightTime) return leftTime - rightTime;
         return getCompositeScore(right, config, profile) - getCompositeScore(left, config, profile);
       })
@@ -1367,7 +1724,7 @@ export function MissionDashboard({
       const ts = new Date(item.published_at).getTime();
       if (!Number.isFinite(ts) || ts < windowStart || ts > windowEnd) return false;
 
-      const eventTs = item.event_date ? new Date(item.event_date).getTime() : Number.NaN;
+      const eventTs = eventDateRange(item.event_date)?.startTs ?? Number.NaN;
       if (Number.isFinite(eventTs) && eventTs > now) return false;
       if (Number.isFinite(eventTs) && eventTs < windowStart) return false;
 
@@ -1421,6 +1778,15 @@ export function MissionDashboard({
   const primaryStatusLine = statusTimestamp
     ? `Färsk lägesbild · uppdaterad ${formatDate(statusTimestamp, true)} Mexico City-tid`
     : "Ingen lägesbild tillgänglig";
+  const shouldShowRefreshMessage = Boolean(
+    cacheRefreshJobStatus &&
+      (
+        ((cacheRefreshStatus === "loading" || cacheRefreshStatus === "queued") &&
+          cacheRefreshJobStatus.active) ||
+        cacheRefreshStatus === "ready" ||
+        cacheRefreshStatus === "error"
+      ),
+  );
 
   return (
     <main className={clsx("missiondesk", theme === "light" && "light")}>
@@ -1486,7 +1852,7 @@ export function MissionDashboard({
             <span>{primaryStatusLine}</span>
           </div>
           <div className="flex flex-wrap items-center gap-3">
-            {cacheRefreshJobStatus && cacheRefreshStatus !== "idle" && (
+            {shouldShowRefreshMessage && cacheRefreshJobStatus && (
               <span
                 className={clsx(
                   "text-xs",
@@ -2027,8 +2393,10 @@ export function MissionDashboard({
             )}
 
             {!showBriefingPanel && !showPrintPanel && !showSignalTrackingPanel && isUpcomingEventsProfile && (
-              <UpcomingEventsPanel
-                events={upcomingEventItems}
+              <UpcomingSignalsPanel
+                signals={upcomingSignals}
+                status={upcomingSignalsStatus}
+                errorMessage={upcomingSignalsError}
                 config={config}
                 nowTs={viewNowTs}
               />
@@ -2049,7 +2417,7 @@ export function MissionDashboard({
 
             {!showBriefingPanel && !showPrintPanel && !showSignalTrackingPanel && !isUpcomingEventsProfile && !isWeeklySummaryProfile && (
               <SourceFeed
-                rows={sourceRows}
+                rows={sourceRowsCurrentSignals}
                 query={sourceQuery}
                 onQueryChange={setSourceQuery}
                 config={config}
@@ -2543,123 +2911,298 @@ function SignalTrackingPanel({
   );
 }
 
-function UpcomingEventsPanel({
-  events,
+function UpcomingSignalsPanel({
+  signals,
+  status,
+  errorMessage,
   config,
   nowTs,
 }: {
-  events: IntelligenceItem[];
+  signals: TemporalSignalRecord[];
+  status: "idle" | "loading" | "ready" | "error";
+  errorMessage: string;
   config: EmbassyConfig;
   nowTs: number;
 }) {
-  const grouped = useMemo(() => {
-    const next7: IntelligenceItem[] = [];
-    const next30: IntelligenceItem[] = [];
-    const later: IntelligenceItem[] = [];
+  const [sortMode, setSortMode] = useState<UpcomingSortMode>("priority");
+  const [horizonFilter, setHorizonFilter] = useState<UpcomingHorizonFilter>("all");
+  const [typeFilter, setTypeFilter] = useState<UpcomingTypeFilter>("all");
 
-    for (const event of events) {
-      const ts = event.event_date ? new Date(event.event_date).getTime() : Number.NaN;
-      const days = Number.isFinite(ts) ? Math.max(0, Math.floor((ts - nowTs) / 86400000)) : null;
-      if (days === null) continue;
-      if (days <= 7) next7.push(event);
-      else if (days <= 30) next30.push(event);
-      else later.push(event);
-    }
+  const hasTemporalSignals = signals.length > 0;
+  const visibleSignals = useMemo(() => {
+    return [...signals]
+      .filter((record) => {
+        const timing = temporalSignalTiming(record.signal, nowTs);
+        if (horizonFilter === "all") return true;
+        if (horizonFilter === "ongoing") return timing.isOngoing;
+        if (timing.days === null) return false;
+        if (horizonFilter === "7d") return timing.days <= 7;
+        if (horizonFilter === "30d") return timing.days <= 30;
+        if (horizonFilter === "90d") return timing.days <= 90;
+        if (horizonFilter === "later") return timing.days > 90;
+        return true;
+      })
+      .filter((record) => typeFilter === "all" || temporalSignalTypeGroup(record) === typeFilter)
+      .sort((left, right) => {
+        const leftTiming = temporalSignalTiming(left.signal, nowTs);
+        const rightTiming = temporalSignalTiming(right.signal, nowTs);
 
-    return [
-      { key: "next7", label: "Nästa 7 dagar", items: next7 },
-      { key: "next30", label: "Nästa 30 dagar", items: next30 },
-      { key: "later", label: "Senare", items: later },
-    ];
-  }, [events, nowTs]);
+        if (sortMode === "soonest") {
+          const leftTs = Number.isFinite(leftTiming.referenceTs)
+            ? leftTiming.referenceTs
+            : Number.POSITIVE_INFINITY;
+          const rightTs = Number.isFinite(rightTiming.referenceTs)
+            ? rightTiming.referenceTs
+            : Number.POSITIVE_INFINITY;
+          if (leftTs !== rightTs) return leftTs - rightTs;
+          return temporalPriorityScore(right, nowTs) - temporalPriorityScore(left, nowTs);
+        }
+
+        if (sortMode === "certainty") {
+          if (left.signal.temporal_certainty_score !== right.signal.temporal_certainty_score) {
+            return right.signal.temporal_certainty_score - left.signal.temporal_certainty_score;
+          }
+          return temporalPriorityScore(right, nowTs) - temporalPriorityScore(left, nowTs);
+        }
+
+        return temporalPriorityScore(right, nowTs) - temporalPriorityScore(left, nowTs);
+      });
+  }, [horizonFilter, nowTs, signals, sortMode, typeFilter]);
 
   return (
     <section className="missiondesk-print-panel surface-strong rounded-xl p-5">
       <div className="flex flex-col gap-3 border-b border-[var(--app-line)] pb-5 lg:flex-row lg:items-end lg:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
-            <SectionKicker icon={CalendarDays} label="Kommande händelser" />
-            <span className="text-xs text-[var(--app-muted)]">–</span>
-            <span className="inline-flex items-center rounded border border-[color-mix(in_srgb,var(--app-gold),transparent_42%)] bg-[color-mix(in_srgb,var(--app-gold),transparent_86%)] px-2 py-1 text-xs font-medium text-[var(--app-gold)]">
-              Framåtblick
-            </span>
+            <SectionKicker icon={CalendarDays} label="Framåtblick" />
           </div>
-          <h2 className="mt-3 text-2xl font-semibold tracking-normal">Verifierad kalender</h2>
+          <h2 className="mt-3 text-2xl font-semibold tracking-normal">Kommande signaler</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--app-soft)]">
-            Händelser med spårbara datum i skannade signaler. Klicka på källa för verifiering.
+            Strategiska framtidssignaler med tidsfönster, relevansbedömning och spårbara källmeningar.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Pill tone="neutral">{events.length} händelser</Pill>
-          <Pill tone="neutral">90 dagars horisont</Pill>
+          <Pill tone="neutral">
+            {visibleSignals.length === signals.length
+              ? `${signals.length} signaler`
+              : `${visibleSignals.length} av ${signals.length} signaler`}
+          </Pill>
+          <Pill tone="neutral">{UPCOMING_EVENTS_HORIZON_DAYS} dagars horisont</Pill>
         </div>
       </div>
 
-      {events.length === 0 ? (
-        <div className="mt-6 rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-6">
-          <EmptyState title="Inga verifierade framtida händelser i urvalet just nu" />
+      {status === "loading" && !hasTemporalSignals ? (
+        <div className="mt-6 rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-6 text-sm text-[var(--app-soft)]">
+          <div className="inline-flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Läser kommande signaler…
+          </div>
         </div>
-      ) : (
-        <div className="mt-5 space-y-5">
-          {grouped.map((group) =>
-            group.items.length > 0 ? (
-              <div key={group.key}>
-                <p className="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-[var(--app-muted)]">
-                  {group.label}
-                </p>
-                <div className="space-y-3">
-                  {group.items.map((item) => {
-                    const ts = item.event_date ? new Date(item.event_date).getTime() : Number.NaN;
-                    const days = Number.isFinite(ts)
-                      ? Math.max(0, Math.floor((ts - nowTs) / 86400000))
-                      : 0;
-                    const verificationLevel =
-                      item.source_country === "Sverige" ||
-                      item.source_country === "Mexiko"
-                        ? "Hög verifiering"
-                        : "Medel verifiering";
-                    return (
-                      <article
-                        key={item.id}
-                        className="rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-4"
-                      >
+      ) : null}
+
+      {status === "error" && !hasTemporalSignals ? (
+        <div className="mt-6 rounded-lg border border-[color-mix(in_srgb,var(--app-danger),transparent_48%)] bg-[color-mix(in_srgb,var(--app-danger),transparent_92%)] p-4 text-sm text-[var(--app-soft)]">
+          Kunde inte läsa kommande signaler just nu. {errorMessage}
+        </div>
+      ) : null}
+
+      {hasTemporalSignals ? (
+        <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1fr)_260px]">
+          <div className="space-y-3">
+            {visibleSignals.length > 0 ? (
+              visibleSignals.map((record) => {
+                const { isOngoing, days } = temporalSignalTiming(record.signal, nowTs);
+                const verificationLevel =
+                  record.raw.source_country === "Sverige" ||
+                  record.raw.source_country === "Mexiko"
+                    ? "Hög verifiering"
+                    : "Medel verifiering";
+                const sourceItem = processedRecordToIntelligenceItem(record);
+                const dateCard = temporalSignalDateCard(record.signal, nowTs);
+                return (
+                  <article
+                    key={record.signal.id}
+                    className="rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-4"
+                  >
+                    <div className="grid gap-4 md:grid-cols-[108px_minmax(0,1fr)] md:items-start">
+                      <div className="flex min-h-[124px] min-w-[96px] flex-col justify-between rounded-lg bg-[color-mix(in_srgb,var(--app-gold),transparent_84%)] px-3 py-3 text-center shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--app-gold),transparent_46%)]">
+                        <div>
+                          <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-[color-mix(in_srgb,var(--app-gold),white_18%)]">
+                            {dateCard.eyebrow}
+                          </span>
+                          <span className="mt-1 block text-3xl font-semibold leading-none text-[var(--app-fg)]">
+                            {dateCard.day}
+                          </span>
+                          <span className="mt-1 block text-xs font-semibold uppercase tracking-[0.14em] text-[color-mix(in_srgb,var(--app-gold),white_10%)]">
+                            {dateCard.month}
+                          </span>
+                          <span className="mt-1 block text-xs text-[var(--app-soft)]">{dateCard.year}</span>
+                        </div>
+                        <div className="mt-3 border-t border-[color-mix(in_srgb,var(--app-gold),transparent_58%)] pt-2">
+                          <span className="block text-[10px] font-semibold uppercase tracking-[0.12em] text-[color-mix(in_srgb,var(--app-gold),white_18%)]">
+                            Tidsläge
+                          </span>
+                          <span className="mt-1 block text-sm font-medium text-[var(--app-fg)]">
+                            {dateCard.relativeLabel}
+                          </span>
+                          <span className="mt-1 block text-[11px] leading-4 text-[var(--app-muted)]">
+                            {dateCard.timelineLabel}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--app-muted)]">
                           <span className="inline-flex items-center gap-1">
                             <Clock3 className="h-3.5 w-3.5" />
-                            {formatDate(item.event_date, true)}
+                            {isOngoing && record.signal.date_end
+                              ? `Pågår till ${formatDate(record.signal.date_end)}`
+                              : formatDateRange(record.signal.date_start, record.signal.date_end)}
                           </span>
                           <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
-                          <span>{days === 0 ? "I dag" : `Om ${days} dagar`}</span>
+                          <span>{dateCard.relativeLabel}</span>
                           <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
                           <span>{verificationLevel}</span>
                           <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
-                          <span>{getGeographyLabel(item, config)}</span>
+                          <span>{getGeographyLabel(sourceItem, config)}</span>
                         </div>
-                        <h3 className="mt-2 text-base font-semibold leading-6 text-[var(--app-fg)]">
-                          {item.title_sv}
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <Pill tone="neutral">{temporalContextLabel[record.signal.temporal_context]}</Pill>
+                          <Pill tone="neutral">Tidsvisshet {record.signal.temporal_certainty_score}</Pill>
+                          <Pill tone="neutral">Strategi {record.signal.strategic_importance_score}</Pill>
+                          {record.signal.sweden_mexico_relevance_score > 0 ? (
+                            <Pill tone="neutral">Sve/Mex {record.signal.sweden_mexico_relevance_score}</Pill>
+                          ) : null}
+                        </div>
+                        <h3 className="mt-3 text-base font-semibold leading-6 text-[var(--app-fg)]">
+                          {record.processed.title_sv}
                         </h3>
                         <p className="mt-1 text-sm leading-6 text-[var(--app-soft)]">
-                          {item.summary_sv}
+                          {record.signal.normalized_summary || record.processed.summary_sv}
                         </p>
                         <p className="mt-2 rounded-md border border-[var(--app-line)] bg-[var(--app-panel)] px-3 py-2 text-xs leading-5 text-[var(--app-muted)]">
-                          Spårbarhet: {item.original_excerpt}
+                          Spårbarhet: {record.signal.source_sentence}
                         </p>
                         <a
-                          href={item.source_url}
+                          href={record.raw.url}
                           target="_blank"
                           rel="noreferrer"
                           className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--app-accent)] underline-offset-3 hover:underline"
                         >
-                          {xSourceDisplayName(item.source_name, item.source_url)}
+                          {xSourceDisplayName(record.raw.source_name, record.raw.url)}
                           <ExternalLink className="h-3.5 w-3.5" />
                         </a>
-                      </article>
-                    );
-                  })}
+                      </div>
+                    </div>
+                  </article>
+                );
+              })
+            ) : (
+              <div className="rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-6">
+                <EmptyState title="Inga signaler matchar valt urval just nu" />
+              </div>
+            )}
+          </div>
+
+          <aside className="xl:sticky xl:top-5 xl:self-start">
+            <div className="rounded-lg border border-[var(--app-line)] bg-[var(--app-panel)] p-3">
+              <div className="flex items-center gap-2 border-b border-[var(--app-line)] pb-3">
+                <ListFilter className="h-4 w-4 text-[var(--app-muted)]" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-[var(--app-fg)]">Urval</p>
+                  <p className="text-[11px] leading-5 text-[var(--app-muted)]">
+                    Sortera och fokusera utan att ta höjd från listan.
+                  </p>
                 </div>
               </div>
-            ) : null,
-          )}
+
+              <div className="mt-3 space-y-4">
+                <div>
+                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--app-muted)]">
+                    Sortering
+                  </p>
+                  <div className="grid grid-cols-1 gap-1.5">
+                    {upcomingSortOptions.map((option) => {
+                      const active = sortMode === option.id;
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          onClick={() => setSortMode(option.id)}
+                          className={clsx(
+                            "inline-flex items-center justify-between rounded-md border px-3 py-2 text-left text-xs font-medium transition",
+                            active
+                              ? "border-[color-mix(in_srgb,var(--app-accent),transparent_40%)] bg-[color-mix(in_srgb,var(--app-accent),transparent_88%)] text-[var(--app-fg)]"
+                              : "border-[var(--app-line)] text-[var(--app-soft)] hover:text-[var(--app-fg)]",
+                          )}
+                        >
+                          <span>{option.label}</span>
+                          {active ? <Check className="h-3.5 w-3.5" /> : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--app-muted)]">
+                    Tidsläge
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {upcomingHorizonOptions.map((option) => {
+                      const active = horizonFilter === option.id;
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          onClick={() => setHorizonFilter(option.id)}
+                          className={clsx(
+                            "inline-flex items-center rounded-md border px-2.5 py-1.5 text-[11px] font-medium transition",
+                            active
+                              ? "border-[color-mix(in_srgb,var(--app-gold),transparent_34%)] bg-[color-mix(in_srgb,var(--app-gold),transparent_86%)] text-[var(--app-fg)]"
+                              : "border-[var(--app-line)] text-[var(--app-soft)] hover:text-[var(--app-fg)]",
+                          )}
+                        >
+                          {option.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[var(--app-muted)]">
+                    Signaltyp
+                  </p>
+                  <div className="grid grid-cols-1 gap-1.5">
+                    {upcomingTypeOptions.map((option) => {
+                      const active = typeFilter === option.id;
+                      return (
+                        <button
+                          key={option.id}
+                          type="button"
+                          onClick={() => setTypeFilter(option.id)}
+                          className={clsx(
+                            "inline-flex items-center justify-between rounded-md border px-3 py-2 text-left text-xs font-medium transition",
+                            active
+                              ? "border-[color-mix(in_srgb,var(--app-warning),transparent_36%)] bg-[color-mix(in_srgb,var(--app-warning),transparent_88%)] text-[var(--app-fg)]"
+                              : "border-[var(--app-line)] text-[var(--app-soft)] hover:text-[var(--app-fg)]",
+                          )}
+                        >
+                          <span>{option.label}</span>
+                          {active ? <Check className="h-3.5 w-3.5" /> : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </aside>
+        </div>
+      ) : (
+        <div className="mt-6 rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-6">
+          <EmptyState title="Inga kommande signaler hittades i urvalet just nu" />
         </div>
       )}
     </section>

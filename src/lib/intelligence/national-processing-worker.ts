@@ -16,9 +16,11 @@ import {
   processNationalSourceItemWithOpenAI,
 } from "@/lib/ai/national-processing";
 import { detectGeographicDivisionIds } from "@/lib/ingestion/geography";
+import { isTemporalExtractionConfigured, storeTemporalSignalForProcessedRecord } from "@/lib/intelligence/temporal-signals";
 import type {
   BackgroundJob,
   NewProcessedItem,
+  ProcessedIntelligenceRecord,
   RankedCandidateRecord,
 } from "@/lib/intelligence/models";
 
@@ -203,7 +205,29 @@ async function processJob(
     cache_expires_at: cacheExpiresAtFor(cacheScope, options.cacheHours),
   };
 
-  await upsertProcessedItem(processed);
+  const persisted = await upsertProcessedItem(processed);
+
+  if (isTemporalExtractionConfigured()) {
+    try {
+      const temporalOutcome = await storeTemporalSignalForProcessedRecord({
+        raw: record.raw,
+        processed: persisted,
+      } satisfies ProcessedIntelligenceRecord);
+
+      console.info("[temporal] synced from national processing", {
+        rawSourceItemId,
+        outcome: temporalOutcome.outcome,
+        skipReason: temporalOutcome.skipReason,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown temporal sync error";
+      console.warn("[temporal] sync failed after national processing", {
+        rawSourceItemId,
+        error: message,
+      });
+    }
+  }
+
   return { skipped: false };
 }
 

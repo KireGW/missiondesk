@@ -33,6 +33,7 @@ export interface RawIngestionOptions {
   limitPerSource?: number;
   concurrency?: number;
   preserveRawContent?: boolean;
+  sourceTimeoutMs?: number;
 }
 
 export interface SourceIngestionResult {
@@ -211,6 +212,15 @@ function isDocumentAfterSince(document: RawSourceDocument, since?: string) {
   return new Date(document.publishedAt).getTime() >= new Date(since).getTime();
 }
 
+function signalWithTimeout(timeoutMs: number) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  return {
+    signal: controller.signal,
+    clear: () => clearTimeout(timeout),
+  };
+}
+
 function dedupeDocuments(source: IngestibleSourceDefinition, documents: RawSourceDocument[]) {
   const seen = new Set<string>();
   return documents.filter((document) => {
@@ -280,6 +290,8 @@ async function ingestSource(
   options: RawIngestionOptions,
 ): Promise<SourceIngestionResult> {
   const retrievalMethod = isMarketSource(source) ? "market" : retrievalMethodForIngestion(source);
+  const timeoutMs = Math.max(5_000, options.sourceTimeoutMs ?? 25_000);
+  const timeout = signalWithTimeout(timeoutMs);
 
   try {
     const limit = source.maxItemsPerRun ?? options.limitPerSource ?? 25;
@@ -308,6 +320,7 @@ async function ingestSource(
         embassy: config,
         limit,
         preserveRawContent,
+        signal: timeout.signal,
       });
     } else if (retrievalMethod === "market") {
       const recentItems = await listRawSourceItems({
@@ -317,6 +330,7 @@ async function ingestSource(
       const result = await fetchMarketSource(source, {
         preserveRawContent,
         recentItems,
+        signal: timeout.signal,
       });
       documents = result.documents;
       sourceErrors = result.errors;
@@ -324,6 +338,7 @@ async function ingestSource(
       const result = await fetchWebsiteSource(source, {
         limit,
         preserveRawContent,
+        signal: timeout.signal,
         isKnownUrl: async (url) => Boolean(await getRawSourceItemByUrl(canonicalUrl(url))),
       });
       documents = result.documents;
@@ -350,6 +365,7 @@ async function ingestSource(
         limit,
         preserveRawContent,
         since: options.since,
+        signal: timeout.signal,
       });
     } else {
       return {
@@ -414,11 +430,18 @@ async function ingestSource(
       items: [],
       errors: [
         {
-          message: error instanceof Error ? error.message : "Unknown ingestion error",
+          message:
+            error instanceof Error && error.name === "AbortError"
+              ? `Source ingestion timed out after ${timeoutMs}ms`
+              : error instanceof Error
+                ? error.message
+                : "Unknown ingestion error",
           url: source.url,
         },
       ],
     };
+  } finally {
+    timeout.clear();
   }
 }
 

@@ -102,6 +102,53 @@ export interface BackgroundJob {
   updated_at: string;
 }
 
+export type TemporalDateType =
+  | "exact"
+  | "range"
+  | "relative"
+  | "deadline"
+  | "estimated"
+  | "implicit";
+
+export type TemporalContext =
+  | "upcoming_event"
+  | "ongoing_process"
+  | "future_risk"
+  | "scheduled_vote"
+  | "earnings"
+  | "summit"
+  | "policy_deadline"
+  | "regulatory_change"
+  | "security_window"
+  | "market_window";
+
+export interface TemporalSignal {
+  id: string;
+  raw_source_item_id: string;
+  date_start?: string;
+  date_end?: string;
+  extracted_date_type: TemporalDateType;
+  temporal_context: TemporalContext;
+  temporal_certainty_score: number;
+  strategic_importance_score: number;
+  sweden_mexico_relevance_score: number;
+  extraction_confidence_score: number;
+  source_sentence: string;
+  normalized_summary: string;
+  extraction_reason?: string;
+  extraction_model: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export type NewTemporalSignal = Omit<TemporalSignal, "created_at" | "updated_at">;
+
+export interface TemporalSignalRecord {
+  signal: TemporalSignal;
+  raw: RawSourceItem;
+  processed: ProcessedItem;
+}
+
 export type IngestionUpdateStatus = "idle" | "pending" | "running" | "completed" | "failed";
 
 export interface IngestionUpdateState {
@@ -242,9 +289,11 @@ export interface ProcessedItemFilters {
   category?: IntelligenceCategory;
   profile?: ProfileMode;
   geographicTag?: string;
+  rawSourceItemIds?: string[];
   onlyFresh?: boolean;
   publishedSince?: string;
   limit?: number;
+  offset?: number;
 }
 
 export interface RankedCandidateFilters {

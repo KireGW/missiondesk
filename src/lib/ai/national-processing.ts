@@ -1,4 +1,6 @@
 import { swedenMexicoEmbassyConfig } from "@/lib/config/embassies/sweden-mexico";
+import { normalizeSwedishUserFacingText } from "@/lib/ai/swedish-normalization";
+import { normalizeEventDate } from "@/lib/intelligence/event-dates";
 import type {
   GeographicScope,
   IntelligenceCategory,
@@ -85,6 +87,7 @@ const nationalProcessingSchema = {
     "geographic_tags",
     "profile_tags",
     "why_it_may_matter_sv",
+    "event_date",
   ],
   properties: {
     title_sv: { type: "string" },
@@ -107,7 +110,7 @@ const nationalProcessingSchema = {
       items: { type: "string", enum: profiles },
     },
     why_it_may_matter_sv: { type: "string" },
-    event_date: { type: "string" },
+    event_date: { type: ["string", "null"] },
   },
 };
 
@@ -142,8 +145,8 @@ function extractResponseText(payload: ResponsesApiResult) {
 
 function sanitizeAnalysis(value: NationalProcessingAnalysis): NationalProcessingAnalysis {
   return {
-    title_sv: value.title_sv.slice(0, 140),
-    summary_sv: value.summary_sv.slice(0, 420),
+    title_sv: normalizeSwedishUserFacingText(value.title_sv).slice(0, 140),
+    summary_sv: normalizeSwedishUserFacingText(value.summary_sv).slice(0, 420),
     category: categories.includes(value.category) ? value.category : "domestic_politics",
     urgency_score: clampScore(value.urgency_score),
     diplomatic_relevance_score: clampScore(value.diplomatic_relevance_score),
@@ -155,8 +158,11 @@ function sanitizeAnalysis(value: NationalProcessingAnalysis): NationalProcessing
       : "national",
     geographic_tags: value.geographic_tags.filter(Boolean).slice(0, 6),
     profile_tags: value.profile_tags.filter((tag) => profiles.includes(tag)).slice(0, 4),
-    why_it_may_matter_sv: value.why_it_may_matter_sv.slice(0, 240),
-    event_date: typeof value.event_date === "string" ? value.event_date : undefined,
+    why_it_may_matter_sv: normalizeSwedishUserFacingText(value.why_it_may_matter_sv).slice(
+      0,
+      240,
+    ),
+    event_date: normalizeEventDate(value.event_date),
   };
 }
 
@@ -234,6 +240,11 @@ export async function processNationalSourceItemWithOpenAI(
             "Skriv kompakt nog för en morgonbriefing som ska läsas på under fem minuter.",
             "Titel och sammanfattning ska vara korta, tydliga och neutrala.",
             "Alla användarvända fält ska vara på svenska.",
+            "Skriv idiomatisk svensk nyhetssvenska: översätt betydelse, inte ord för ord, och lämna inte engelska fraser kvar i svenska rubriker.",
+            "Använd EU eller Europeiska unionen, inte Europeiska Unionen; skriv Mexiko på svenska och använd Mexiko-EU eller Mexiko och EU i rubriker.",
+            "Använd svensk stavning i användartext: skriv fentanyl, inte fentanil.",
+            "Översätt joint declaration/declaración conjunta som gemensam deklaration eller gemensamt uttalande beroende på källans innebörd; använd inte kumulativ deklaration.",
+            "Skriv Mexiko och EU som aktörer; skriv inte länderna i Mexiko om underlaget avser Mexiko som land.",
             "Returnera strikt JSON enligt schemat.",
           ].join(" "),
         },

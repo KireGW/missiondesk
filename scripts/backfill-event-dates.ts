@@ -1,4 +1,5 @@
 import { closeDb, getMigratedDb } from "@/lib/db/postgres";
+import { normalizeEventDate } from "@/lib/intelligence/event-dates";
 import nextEnv from "@next/env";
 
 nextEnv.loadEnvConfig(process.cwd());
@@ -202,7 +203,9 @@ async function main() {
         raw_source_items.published_at
       FROM processed_items
       JOIN raw_source_items ON raw_source_items.id = processed_items.raw_source_item_id
-      WHERE processed_items.event_date IS NULL OR processed_items.event_date = ''
+      WHERE processed_items.event_date IS NULL
+        OR processed_items.event_date = ''
+        OR lower(processed_items.event_date) = 'null'
       ORDER BY processed_items.processed_at DESC
       ${limit ? "LIMIT ?" : ""}
     `)
@@ -223,7 +226,7 @@ async function main() {
       .replace(/\s+/g, " ");
 
     const candidates = extractDateCandidates(text);
-    const chosen = pickBestFutureDate(candidates, row.published_at);
+    const chosen = normalizeEventDate(pickBestFutureDate(candidates, row.published_at));
     if (!chosen) continue;
     candidatesToUpdate.push({ id: row.raw_source_item_id, eventDate: chosen });
     if (sample.length < 10) {
@@ -242,7 +245,7 @@ async function main() {
           UPDATE processed_items
           SET event_date = ?, updated_at = datetime('now')
           WHERE raw_source_item_id = ?
-            AND (event_date IS NULL OR event_date = '')
+            AND (event_date IS NULL OR event_date = '' OR lower(event_date) = 'null')
         `)
             .run(item.eventDate, item.id),
         );
@@ -259,8 +262,25 @@ async function main() {
     db.prepare(`
     SELECT
       COUNT(*)::int AS total_processed,
-      COUNT(*) FILTER (WHERE event_date IS NOT NULL AND event_date <> '')::int AS with_event_date,
-      COUNT(*) FILTER (WHERE event_date IS NOT NULL AND event_date::timestamptz > now())::int AS with_future_event_date
+      COUNT(*) FILTER (
+        WHERE event_date IS NOT NULL
+          AND event_date <> ''
+          AND lower(event_date) <> 'null'
+          AND (
+            event_date ~ '^20[0-9]{2}-[0-9]{2}-[0-9]{2}$'
+            OR event_date ~ '^20[0-9]{2}-[0-9]{2}-[0-9]{2}T'
+          )
+      )::int AS with_event_date,
+      COUNT(*) FILTER (
+        WHERE event_date IS NOT NULL
+          AND event_date <> ''
+          AND lower(event_date) <> 'null'
+          AND (
+            event_date ~ '^20[0-9]{2}-[0-9]{2}-[0-9]{2}$'
+            OR event_date ~ '^20[0-9]{2}-[0-9]{2}-[0-9]{2}T'
+          )
+          AND event_date::timestamptz > now()
+      )::int AS with_future_event_date
     FROM processed_items
   `).get<{
       total_processed: number;

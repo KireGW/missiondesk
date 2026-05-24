@@ -29,6 +29,7 @@ export const dynamic = "force-dynamic";
 type RefreshScope = "national" | "briefings" | "all";
 
 const manualRefreshJobType = "manual_source_refresh";
+const STALE_MANUAL_REFRESH_MS = 15 * 60 * 1000;
 const refreshSteps = [
   "Skannar verifierade källor…",
   "Deduplicerar och prioriterar nya poster…",
@@ -39,12 +40,38 @@ const refreshSteps = [
 let manualRefreshInFlight: Promise<unknown> | null = null;
 
 async function activeManualRefreshJob() {
+  const jobs = await listBackgroundJobs({ type: manualRefreshJobType, limit: 10 });
+  const now = Date.now();
+
+  for (const job of jobs) {
+    if (job.status !== "running") continue;
+    const lockedAt = job.locked_at ? new Date(job.locked_at).getTime() : 0;
+    const updatedAt = job.updated_at ? new Date(job.updated_at).getTime() : 0;
+    const lastActivityAt = Math.max(lockedAt, updatedAt);
+    if (lastActivityAt > 0 && now - lastActivityAt > STALE_MANUAL_REFRESH_MS) {
+      await logManualRefresh(job.id, "manual source rescan marked stale", {
+        staleAfterMs: STALE_MANUAL_REFRESH_MS,
+      });
+      await updateIngestionUpdateState({
+        status: "failed",
+        started_at: payloadString(job, "startedAt", job.created_at),
+        completed_at: new Date().toISOString(),
+        error_message: "Uppdateringen fastnade och markerades som avbruten. Försök igen.",
+      });
+      await failBackgroundJob(
+        job.id,
+        "Manual source refresh became stale before completing.",
+      );
+    }
+  }
+
   return (await listBackgroundJobs({ type: manualRefreshJobType, limit: 10 })).find((job) =>
     ["pending", "running"].includes(job.status),
   );
 }
 
 async function latestManualRefreshJob() {
+  await activeManualRefreshJob();
   return (await listBackgroundJobs({ type: manualRefreshJobType, limit: 1 }))[0];
 }
 
@@ -152,6 +179,7 @@ async function runManualFullRescan(options: {
     limitPerSource: options.limitPerSource ?? 12,
     concurrency: 4,
     preserveRawContent: true,
+    sourceTimeoutMs: 25_000,
     since,
   });
 

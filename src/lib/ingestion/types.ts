@@ -50,6 +50,7 @@ export interface IngestionContext {
   since?: string;
   limit?: number;
   preserveRawContent?: boolean;
+  signal?: AbortSignal;
 }
 
 export interface IngestionAdapter {

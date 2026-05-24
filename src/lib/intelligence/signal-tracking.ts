@@ -1032,7 +1032,7 @@ async function translateCandidates(
           {
             role: "system",
             content:
-              "Översätt rubrik och eventuell kort snippet till saklig, kort svenska. Returnera endast JSON-array med {index,title_sv,snippet_sv}.",
+              "Översätt rubrik och eventuell kort snippet till saklig, kort svenska. Skriv idiomatisk svensk nyhetssvenska: översätt betydelse, inte ord för ord, och lämna inte engelska fraser kvar i svenska rubriker. Använd EU eller Europeiska unionen, inte Europeiska Unionen; skriv Mexiko på svenska och använd Mexiko-EU eller Mexiko och EU i rubriker. Använd svensk stavning i användartext: skriv fentanyl, inte fentanil. Översätt joint declaration/declaración conjunta som gemensam deklaration eller gemensamt uttalande beroende på källans innebörd; använd inte kumulativ deklaration. Skriv Mexiko och EU som aktörer; skriv inte länderna i Mexiko om underlaget avser Mexiko som land. Returnera endast JSON-array med {index,title_sv,snippet_sv}.",
           },
           {
             role: "user",
