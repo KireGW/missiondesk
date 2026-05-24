@@ -55,6 +55,7 @@ export interface RegionalProcessingAnalysis {
   geographic_tags: string[];
   profile_tags: ProfileMode[];
   why_it_may_matter_sv: string;
+  event_date?: string;
 }
 
 export interface RegionalRankingSignal {
@@ -116,6 +117,7 @@ const regionalProcessingSchema = {
       items: { type: "string", enum: profiles },
     },
     why_it_may_matter_sv: { type: "string" },
+    event_date: { type: "string" },
   },
 };
 
@@ -168,6 +170,7 @@ function sanitizeAnalysis(
     geographic_tags: [...new Set([...requiredGeographicTags, ...value.geographic_tags.filter(Boolean)])].slice(0, 6),
     profile_tags: value.profile_tags.filter((tag) => profiles.includes(tag)).slice(0, 4),
     why_it_may_matter_sv: value.why_it_may_matter_sv.slice(0, 220),
+    event_date: typeof value.event_date === "string" ? value.event_date : undefined,
   };
 }
 

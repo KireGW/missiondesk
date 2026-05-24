@@ -55,6 +55,7 @@ export interface NationalProcessingAnalysis {
   geographic_tags: string[];
   profile_tags: ProfileMode[];
   why_it_may_matter_sv: string;
+  event_date?: string;
 }
 
 interface ResponsesApiResult {
@@ -106,6 +107,7 @@ const nationalProcessingSchema = {
       items: { type: "string", enum: profiles },
     },
     why_it_may_matter_sv: { type: "string" },
+    event_date: { type: "string" },
   },
 };
 
@@ -154,6 +156,7 @@ function sanitizeAnalysis(value: NationalProcessingAnalysis): NationalProcessing
     geographic_tags: value.geographic_tags.filter(Boolean).slice(0, 6),
     profile_tags: value.profile_tags.filter((tag) => profiles.includes(tag)).slice(0, 4),
     why_it_may_matter_sv: value.why_it_may_matter_sv.slice(0, 240),
+    event_date: typeof value.event_date === "string" ? value.event_date : undefined,
   };
 }
 
