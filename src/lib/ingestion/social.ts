@@ -188,7 +188,7 @@ async function fetchXSource(
     throw new Error("Kunde inte läsa X-användarnamn från källans URL.");
   }
 
-  const requestedLimit = Math.max(1, Math.min(3, options.limit ?? 3));
+  const requestedLimit = Math.max(1, Math.min(5, options.limit ?? 5));
 
   const userUrl = new URL(`https://api.x.com/2/users/by/username/${encodeURIComponent(username)}`);
   userUrl.searchParams.set("user.fields", "name,username");

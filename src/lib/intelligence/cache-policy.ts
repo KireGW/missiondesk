@@ -13,7 +13,7 @@ const cacheDefaults: Record<MissionDeskCacheScope, { hours: number; min: number;
   breaking: { hours: 2, min: 1, max: 4 },
 };
 
-const signalDisplayWindow = { days: 3, min: 1, max: 14 };
+const signalDisplayWindow = { days: 4, min: 1, max: 14 };
 
 function envNumber(name: string) {
   const value = Number(process.env[name]);

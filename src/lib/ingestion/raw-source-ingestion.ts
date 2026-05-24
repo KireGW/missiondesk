@@ -1,6 +1,7 @@
 import { swedenMexicoEmbassyConfig } from "@/lib/config/embassies/sweden-mexico";
 import { detectGeography } from "@/lib/ingestion/geography";
 import { fetchMarketSource } from "@/lib/ingestion/market";
+import { sanitizePublishedAt } from "@/lib/ingestion/published-at";
 import { ingestionAdapters } from "@/lib/ingestion/registry";
 import { fetchWebsiteSource, type WebsiteFetchStats } from "@/lib/ingestion/website";
 import { getSources } from "@/lib/sources/store";
@@ -259,7 +260,9 @@ function toRawSourceItem(
     source_name: source.name,
     source_country: source.country,
     source_language: source.language,
-    published_at: document.publishedAt,
+    published_at: sanitizePublishedAt(document.publishedAt, {
+      allowFuture: source.type === "calendar",
+    }),
     detected_country: geography.detectedCountry,
     detected_region: geography.detectedRegion,
     detected_city: geography.detectedCity,

@@ -25,7 +25,6 @@ import {
   LineChart,
   ListFilter,
   Loader2,
-  Map as MapIcon,
   MapPin,
   Moon,
   Newspaper,
@@ -352,6 +351,104 @@ const decodeHtmlEntities = (value?: string) => {
     .trim();
 };
 
+const isXUrl = (value?: string) => {
+  if (!value) return false;
+  try {
+    const host = new URL(value).hostname.toLowerCase();
+    return host.includes("x.com") || host.includes("twitter.com");
+  } catch {
+    return false;
+  }
+};
+
+const xSourceDisplayName = (sourceName: string, sourceUrl?: string) =>
+  isXUrl(sourceUrl) ? `${sourceName} på X` : sourceName;
+
+const escapeRegex = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+const normalizeForGrouping = (value: string) =>
+  value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const weeklyDatePattern =
+  /\b(20\d{2}-\d{2}-\d{2}|\d{1,2}[\/\-]\d{1,2}[\/\-](?:20)?\d{2}|\d{1,2}\s+(?:januari|februari|mars|april|maj|juni|juli|augusti|september|oktober|november|december|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre|january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{4})\b/i;
+
+const weeklyActionTerms = [
+  "beslut",
+  "antog",
+  "godkände",
+  "genomförde",
+  "inledde",
+  "lanserade",
+  "publicerade",
+  "meddelade",
+  "undertecknade",
+  "tillkännagav",
+  "acordó",
+  "aprobó",
+  "anunció",
+  "publicó",
+  "firmó",
+  "inició",
+  "announced",
+  "approved",
+  "published",
+  "signed",
+  "launched",
+  "started",
+  "held",
+];
+
+const weeklyGenericOnlyTerms = [
+  "kritik mot",
+  "oro för",
+  "debatt om",
+  "diskussion om",
+  "analys av",
+];
+
+const asWeeklyRetrospective = (summary: string) => {
+  const trimmed = summary.trim();
+  if (!trimmed) return "";
+  const normalized = trimmed.endsWith(".") ? trimmed.slice(0, -1) : trimmed;
+  return `Det rapporterades att ${normalized}.`;
+};
+
+const highlightSearchTerms = (text: string, terms: string[]) => {
+  const normalizedTerms = [...new Set(terms.map((term) => term.trim()).filter(Boolean))]
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 10);
+  if (!text || normalizedTerms.length === 0) return text;
+  const pattern = normalizedTerms.map((term) => escapeRegex(term)).join("|");
+  if (!pattern) return text;
+  const regex = new RegExp(`(${pattern})`, "gi");
+  const parts = text.split(regex);
+  if (parts.length <= 1) return text;
+  return parts.map((part, index) =>
+    index % 2 === 1 ? (
+      <mark
+        key={`${part}-${index}`}
+        className="rounded-sm bg-[color-mix(in_srgb,var(--app-warning),transparent_76%)] px-0.5 text-[var(--app-fg)]"
+      >
+        {part}
+      </mark>
+    ) : (
+      <span key={`${part}-${index}`}>{part}</span>
+    ),
+  );
+};
+
+const matchFieldLabel: Record<NonNullable<SignalTrackingResult["match_field"]>, string> = {
+  title: "rubrik",
+  snippet: "sammanfattning",
+  body: "artikeltext",
+  url: "länk",
+};
+
 const getCompositeScore = (
   item: IntelligenceItem,
   config: EmbassyConfig,
@@ -426,7 +523,7 @@ const getOrderedThemeCategories = (config: EmbassyConfig) => {
   ];
 };
 
-const getSignalThemeTags = (item: IntelligenceItem, config: EmbassyConfig) => {
+const getSignalCategoryIds = (item: IntelligenceItem) => {
   const tagIds = new Set<IntelligenceCategory>([item.category]);
 
   if (item.sweden_relevance_score >= 55) tagIds.add("sweden_connection");
@@ -436,7 +533,13 @@ const getSignalThemeTags = (item: IntelligenceItem, config: EmbassyConfig) => {
   if (item.profile_tags.includes("trade_business")) tagIds.add("trade");
   if (item.profile_tags.includes("political_risk")) tagIds.add("domestic_politics");
 
-  return Array.from(tagIds)
+  return Array.from(tagIds);
+};
+
+const getSignalThemeTags = (item: IntelligenceItem, config: EmbassyConfig) => {
+  const tagIds = getSignalCategoryIds(item);
+
+  return tagIds
     .map((id) => ({
       id,
       label: getCategoryLabel(config, id),
@@ -479,9 +582,8 @@ export function MissionDashboard({
     type: "national",
     ids: [],
   });
-  const [geoView, setGeoView] = useState<"list" | "map">("list");
   const [expandedRegionIds, setExpandedRegionIds] = useState<string[]>([]);
-  const [expandedId, setExpandedId] = useState(initialItems[0]?.id ?? "");
+  const [expandedId, setExpandedId] = useState("");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
   const [sourceQuery, setSourceQuery] = useState("");
   const [trackingQuery, setTrackingQuery] = useState("");
@@ -493,11 +595,16 @@ export function MissionDashboard({
   const [trackingStepIndex, setTrackingStepIndex] = useState(0);
   const [trackingPayload, setTrackingPayload] = useState<SignalTrackingSearchResult | null>(null);
   const [trackingError, setTrackingError] = useState("");
-  const [trackingAiEnabled, setTrackingAiEnabled] = useState(false);
-  const [trackingIncludeWebRss, setTrackingIncludeWebRss] = useState(true);
+  const [trackingAiEnabled, setTrackingAiEnabled] = useState(true);
+  const [trackingIncludeWebRss, setTrackingIncludeWebRss] = useState(false);
   const [trackingQuickSearches, setTrackingQuickSearches] = useState<string[]>([
     ...SIGNAL_TRACKING_DEFAULT_QUICK_SEARCHES,
   ]);
+  const [weeklySummaryWindow, setWeeklySummaryWindow] = useState<"week" | "month" | "custom">(
+    "week",
+  );
+  const [weeklyCustomFrom, setWeeklyCustomFrom] = useState("");
+  const [weeklyCustomTo, setWeeklyCustomTo] = useState("");
   const [regionalStatus, setRegionalStatus] = useState<RegionalStatus>("idle");
   const [regionalFreshness, setRegionalFreshness] = useState<string | undefined>();
   const [regionalCacheExpiresAt, setRegionalCacheExpiresAt] = useState<string | undefined>();
@@ -505,6 +612,7 @@ export function MissionDashboard({
   const [regionalMessageIndex, setRegionalMessageIndex] = useState(0);
   const [regionalError, setRegionalError] = useState("");
   const [regionalLabels, setRegionalLabels] = useState<string[]>([]);
+  const [viewNowTs] = useState(() => Date.now());
   const [cacheRefreshStatus, setCacheRefreshStatus] = useState<
     "idle" | "queued" | "loading" | "ready" | "error"
   >("idle");
@@ -650,7 +758,7 @@ export function MissionDashboard({
 
   const loadCachedDashboardData = useCallback(async () => {
     const [processedResponse, briefingsResponse] = await Promise.all([
-      fetch("/api/intelligence/processed?limit=220", { cache: "no-store" }),
+      fetch("/api/intelligence/processed?limit=200", { cache: "no-store" }),
       fetch("/api/intelligence/briefings?limit=12", { cache: "no-store" }),
     ]);
 
@@ -856,16 +964,33 @@ export function MissionDashboard({
     return () => window.clearInterval(timer);
   }, [regionalStatus]);
 
-  const baseFilteredItems = useMemo(() => {
+  const categoryFilteredItems = useMemo(() => {
     return items
       .filter((item) =>
         selectedCategories.length === 0
           ? true
-          : selectedCategories.includes(item.category),
-      )
+          : selectedCategories.some((selectedCategory) =>
+              getSignalCategoryIds(item).includes(selectedCategory),
+            ),
+      );
+  }, [items, selectedCategories]);
+
+  const regionSignalCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const region of config.geography.regions) {
+      const count = categoryFilteredItems.filter((item) =>
+        item.geographic_tags.some((tag) => region.divisionIds.includes(tag)),
+      ).length;
+      counts.set(region.id, count);
+    }
+    return counts;
+  }, [categoryFilteredItems, config.geography.regions]);
+
+  const baseFilteredItems = useMemo(() => {
+    return categoryFilteredItems
       .filter((item) => itemMatchesGeography(item, config, geographySelection))
       .sort(byScore(config, profile));
-  }, [config, geographySelection, items, profile, selectedCategories]);
+  }, [categoryFilteredItems, config, geographySelection, profile]);
 
   const filteredItems = baseFilteredItems;
 
@@ -889,7 +1014,7 @@ export function MissionDashboard({
     .map((id) => items.find((item) => item.id === id))
     .filter((item): item is IntelligenceItem => Boolean(item));
   const expandedItem =
-    filteredItems.find((item) => item.id === expandedId) ?? filteredItems[0];
+    topFive.find((item) => item.id === expandedId) ?? topFive[0];
 
   const toggleManualPriority = (id: string, checked: boolean) => {
     if (checked) {
@@ -1199,6 +1324,94 @@ export function MissionDashboard({
   const swedenRelevantCount = filteredItems.filter(
     (item) => item.sweden_relevance_score >= 75,
   ).length;
+  const isUpcomingEventsProfile = profile === "upcoming_events";
+  const isWeeklySummaryProfile = profile === "weekly_summary";
+  const upcomingEventItems = useMemo(() => {
+    const unique = new Set<string>();
+
+    return filteredItems
+      .filter((item) => {
+        if (!item.event_date) return false;
+        const eventAt = new Date(item.event_date).getTime();
+        return Number.isFinite(eventAt) && eventAt >= viewNowTs;
+      })
+      .filter((item) => {
+        const key = `${item.event_date}|${item.title_sv.toLowerCase()}|${item.source_url}`;
+        if (unique.has(key)) return false;
+        unique.add(key);
+        return true;
+      })
+      .sort((left, right) => {
+        const leftTime = new Date(left.event_date ?? left.published_at).getTime();
+        const rightTime = new Date(right.event_date ?? right.published_at).getTime();
+        if (leftTime !== rightTime) return leftTime - rightTime;
+        return getCompositeScore(right, config, profile) - getCompositeScore(left, config, profile);
+      })
+      .slice(0, 120);
+  }, [config, filteredItems, profile, viewNowTs]);
+  const weeklySummaryItems = useMemo(() => {
+    const now = viewNowTs;
+    const customFromTs = weeklyCustomFrom ? new Date(`${weeklyCustomFrom}T00:00:00`).getTime() : Number.NaN;
+    const customToTs = weeklyCustomTo ? new Date(`${weeklyCustomTo}T23:59:59`).getTime() : Number.NaN;
+    const windowStart =
+      weeklySummaryWindow === "week"
+        ? now - 7 * 86400000
+        : weeklySummaryWindow === "month"
+          ? now - 30 * 86400000
+          : Number.isFinite(customFromTs)
+            ? customFromTs
+            : now - 7 * 86400000;
+    const windowEnd =
+      weeklySummaryWindow === "custom" && Number.isFinite(customToTs) ? customToTs : now;
+    const inWindow = filteredItems.filter((item) => {
+      const ts = new Date(item.published_at).getTime();
+      if (!Number.isFinite(ts) || ts < windowStart || ts > windowEnd) return false;
+
+      const eventTs = item.event_date ? new Date(item.event_date).getTime() : Number.NaN;
+      if (Number.isFinite(eventTs) && eventTs > now) return false;
+      if (Number.isFinite(eventTs) && eventTs < windowStart) return false;
+
+      const text = [item.title_sv, item.title_original, item.summary_sv, item.original_excerpt]
+        .join(" ")
+        .toLowerCase();
+      const hasConcreteDate = weeklyDatePattern.test(text) || Number.isFinite(eventTs);
+      const hasAction = weeklyActionTerms.some((term) => text.includes(term));
+      const genericOnly = weeklyGenericOnlyTerms.some((term) => text.includes(term));
+
+      if (!hasConcreteDate && !hasAction) return false;
+      if (genericOnly && !hasConcreteDate && !hasAction) return false;
+      return true;
+    });
+
+    const groups = new Map<
+      string,
+      {
+        representative: IntelligenceItem;
+        items: IntelligenceItem[];
+        latestTs: number;
+      }
+    >();
+
+    for (const item of inWindow) {
+      const fingerprint = normalizeForGrouping(item.title_sv || item.title_original).split(" ").slice(0, 10).join(" ");
+      const key = `${item.category}|${fingerprint}`;
+      const ts = new Date(item.published_at).getTime();
+      const existing = groups.get(key);
+      if (!existing) {
+        groups.set(key, { representative: item, items: [item], latestTs: ts });
+        continue;
+      }
+      existing.items.push(item);
+      if (ts > existing.latestTs) {
+        existing.latestTs = ts;
+        existing.representative = item;
+      }
+    }
+
+    return [...groups.values()]
+      .sort((a, b) => b.latestTs - a.latestTs)
+      .slice(0, weeklySummaryWindow === "week" ? 16 : 28);
+  }, [filteredItems, viewNowTs, weeklySummaryWindow, weeklyCustomFrom, weeklyCustomTo]);
   const morningBriefing = briefings.find((briefing) => briefing.type === "morning_brief");
   const ambassadorBriefing =
     briefings.find((briefing) => briefing.type === "ambassador_brief") ?? morningBriefing;
@@ -1519,15 +1732,9 @@ export function MissionDashboard({
                   <div className="flex rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-1">
                     <IconButton
                       label="Lista"
-                      active={geoView === "list"}
-                      onClick={() => setGeoView("list")}
+                      active
+                      onClick={() => undefined}
                       icon={ListFilter}
-                    />
-                    <IconButton
-                      label="Karta"
-                      active={geoView === "map"}
-                      onClick={() => setGeoView("map")}
-                      icon={MapIcon}
                     />
                   </div>
                 </div>
@@ -1574,77 +1781,77 @@ export function MissionDashboard({
                         key={region.id}
                         className="rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-2"
                       >
-                        <div className="relative">
-                          <button
-                            type="button"
-                            onClick={() => toggleRegion(region.id)}
-                            className={clsx(
-                              "w-full rounded-md border px-3 py-2 text-left transition",
-                              active
-                                ? "border-[var(--app-accent)] bg-[color-mix(in_srgb,var(--app-accent),transparent_86%)]"
-                                : "border-transparent bg-transparent hover:border-[var(--app-accent)] hover:bg-[var(--app-panel-muted)]",
-                            )}
-                          >
-                            <span className="flex items-center justify-between gap-3">
-                              <span className="text-sm font-medium text-[var(--app-fg)]">
-                                {region.displayName}
-                              </span>
-                              <span className="font-mono text-xs text-[var(--app-muted)]">
-                                {region.divisionIds.length}
-                              </span>
-                            </span>
-                            <span className="mt-1 block pr-7 text-xs leading-5 text-[var(--app-muted)]">
-                              {region.description}
-                            </span>
-                          </button>
-
-                          <button
-                            type="button"
-                            aria-expanded={expanded}
-                            aria-label={
-                              expanded
-                                ? `Dölj delstater i ${region.displayName}`
-                                : `Visa delstater i ${region.displayName}`
-                            }
-                            onClick={() => toggleRegionExpansion(region.id)}
-                            className="absolute bottom-2 right-2 z-10 inline-flex h-5 w-5 items-center justify-center rounded text-[var(--app-muted)] transition hover:bg-[var(--app-panel)] hover:text-[var(--app-fg)]"
-                          >
-                            <ChevronDown
-                              className={clsx(
-                                "h-3 w-3 opacity-80 transition-transform",
-                                expanded && "rotate-180",
-                              )}
-                            />
-                          </button>
-                        </div>
-
-                        {expanded && (
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {divisions.map((division) => {
-                              const divisionActive =
-                                geographySelection.type === "division" &&
-                                geographySelection.ids.includes(division.id);
-
-                              return (
-                                <button
-                                  key={division.id}
-                                  type="button"
-                                  onClick={() => toggleDivision(division.id)}
-                                  className={clsx(
-                                    "inline-flex min-h-7 max-w-full items-center rounded-[4px] border px-2 py-1 text-left text-[11px] font-medium leading-4 transition",
-                                    divisionActive
-                                      ? "border-[var(--app-accent)] bg-[color-mix(in_srgb,var(--app-accent),transparent_84%)] text-[var(--app-accent-strong)]"
-                                      : "border-[var(--app-line)] bg-[var(--app-panel)] text-[var(--app-soft)] hover:border-[var(--app-accent)]",
-                                  )}
-                                >
-                                  <span className="min-w-0 whitespace-nowrap">
-                                    {division.displayName}
+                            <div className="relative">
+                              <button
+                                type="button"
+                                onClick={() => toggleRegion(region.id)}
+                                className={clsx(
+                                  "w-full rounded-md border px-3 py-2 text-left transition",
+                                  active
+                                    ? "border-[var(--app-accent)] bg-[color-mix(in_srgb,var(--app-accent),transparent_86%)]"
+                                    : "border-transparent bg-transparent hover:border-[var(--app-accent)] hover:bg-[var(--app-panel-muted)]",
+                                )}
+                              >
+                                <span className="flex items-center justify-between gap-3">
+                                  <span className="text-sm font-medium text-[var(--app-fg)]">
+                                    {region.displayName}
                                   </span>
-                                </button>
-                              );
-                            })}
-                          </div>
-                        )}
+                                  <span className="font-mono text-xs text-[var(--app-muted)]">
+                                    {regionSignalCounts.get(region.id) ?? 0}
+                                  </span>
+                                </span>
+                                <span className="mt-1 block pr-7 text-xs leading-5 text-[var(--app-muted)]">
+                                  {region.description}
+                                </span>
+                              </button>
+
+                              <button
+                                type="button"
+                                aria-expanded={expanded}
+                                aria-label={
+                                  expanded
+                                    ? `Dölj delstater i ${region.displayName}`
+                                    : `Visa delstater i ${region.displayName}`
+                                }
+                                onClick={() => toggleRegionExpansion(region.id)}
+                                className="absolute bottom-2 right-2 z-10 inline-flex h-5 w-5 items-center justify-center rounded text-[var(--app-muted)] transition hover:bg-[var(--app-panel)] hover:text-[var(--app-fg)]"
+                              >
+                                <ChevronDown
+                                  className={clsx(
+                                    "h-3 w-3 opacity-80 transition-transform",
+                                    expanded && "rotate-180",
+                                  )}
+                                />
+                              </button>
+                            </div>
+
+                            {expanded && (
+                              <div className="mt-2 flex flex-wrap gap-1.5">
+                                {divisions.map((division) => {
+                                  const divisionActive =
+                                    geographySelection.type === "division" &&
+                                    geographySelection.ids.includes(division.id);
+
+                                  return (
+                                    <button
+                                      key={division.id}
+                                      type="button"
+                                      onClick={() => toggleDivision(division.id)}
+                                      className={clsx(
+                                        "inline-flex min-h-7 max-w-full items-center rounded-[4px] border px-2 py-1 text-left text-[11px] font-medium leading-4 transition",
+                                        divisionActive
+                                          ? "border-[var(--app-accent)] bg-[color-mix(in_srgb,var(--app-accent),transparent_84%)] text-[var(--app-accent-strong)]"
+                                          : "border-[var(--app-line)] bg-[var(--app-panel)] text-[var(--app-soft)] hover:border-[var(--app-accent)]",
+                                      )}
+                                    >
+                                      <span className="min-w-0 whitespace-nowrap">
+                                        {division.displayName}
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            )}
                       </div>
                     );
                   })}
@@ -1749,7 +1956,7 @@ export function MissionDashboard({
               />
             )}
 
-            {!showBriefingPanel && !showPrintPanel && !showSignalTrackingPanel && (
+            {!showBriefingPanel && !showPrintPanel && !showSignalTrackingPanel && !isUpcomingEventsProfile && !isWeeklySummaryProfile && (
               <section className="surface-strong rounded-xl p-5">
                 <div className="flex flex-col gap-3 border-b border-[var(--app-line)] pb-5 lg:flex-row lg:items-end lg:justify-between">
                   <div className="min-w-0">
@@ -1819,7 +2026,28 @@ export function MissionDashboard({
               </section>
             )}
 
-            {!showBriefingPanel && !showPrintPanel && !showSignalTrackingPanel && (
+            {!showBriefingPanel && !showPrintPanel && !showSignalTrackingPanel && isUpcomingEventsProfile && (
+              <UpcomingEventsPanel
+                events={upcomingEventItems}
+                config={config}
+                nowTs={viewNowTs}
+              />
+            )}
+
+            {!showBriefingPanel && !showPrintPanel && !showSignalTrackingPanel && isWeeklySummaryProfile && (
+              <WeeklySummaryPanel
+                windowMode={weeklySummaryWindow}
+                onWindowChange={setWeeklySummaryWindow}
+                groups={weeklySummaryItems}
+                config={config}
+                customFrom={weeklyCustomFrom}
+                customTo={weeklyCustomTo}
+                onCustomFromChange={setWeeklyCustomFrom}
+                onCustomToChange={setWeeklyCustomTo}
+              />
+            )}
+
+            {!showBriefingPanel && !showPrintPanel && !showSignalTrackingPanel && !isUpcomingEventsProfile && !isWeeklySummaryProfile && (
               <SourceFeed
                 rows={sourceRows}
                 query={sourceQuery}
@@ -2056,7 +2284,7 @@ function SignalTrackingPanel({
   }, [showTrackingInfo]);
 
   return (
-    <section className="surface-strong rounded-xl p-5">
+    <section className="missiondesk-print-panel surface-strong rounded-xl p-5">
       <div className="border-b border-[var(--app-line)] pb-5">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
@@ -2232,6 +2460,15 @@ function SignalTrackingPanel({
             {results.map((item) => {
               const Icon = categoryIcon[item.category];
               const geographyLabel = getTrackingGeographyLabel(item, config);
+              const highlightTerms = [
+                ...(payload?.queryVariants ?? []),
+                item.match_term ?? "",
+                query,
+              ].filter(Boolean);
+              const displayTitle = decodeHtmlEntities(item.title_sv);
+              const displayOriginalTitle = decodeHtmlEntities(item.title_original);
+              const displaySnippet = decodeHtmlEntities(item.snippet_sv ?? item.snippet_original);
+              const displayMatchExcerpt = decodeHtmlEntities(item.match_excerpt);
 
               return (
                 <article
@@ -2249,28 +2486,47 @@ function SignalTrackingPanel({
                         <span>{geographyLabel}</span>
                         <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
                         <span>{formatDate(item.published_at, true)}</span>
+                        {item.source_type === "social" && (
+                          <span className="rounded border border-[color-mix(in_srgb,var(--app-gold),transparent_42%)] bg-[color-mix(in_srgb,var(--app-gold),transparent_90%)] px-2 py-0.5 text-[11px] font-medium text-[var(--app-gold)]">
+                            X-konto
+                          </span>
+                        )}
                       </div>
                       <a
                         href={item.url}
                         target="_blank"
                         rel="noreferrer"
-                        className="text-base font-semibold leading-6 text-[var(--app-fg)] transition hover:text-[var(--app-accent)]"
+                        className="group text-base font-semibold leading-6 text-[var(--app-fg)] transition hover:text-[var(--app-accent)]"
                       >
-                        {decodeHtmlEntities(item.title_sv)}
+                        <span className="group-hover:underline group-hover:decoration-1 group-hover:decoration-[color-mix(in_srgb,var(--app-fg),transparent_38%)] group-hover:underline-offset-3">
+                          {highlightSearchTerms(displayTitle, highlightTerms)}
+                        </span>
                       </a>
-                      {decodeHtmlEntities(item.title_sv) !== decodeHtmlEntities(item.title_original) && (
+                      {displayTitle !== displayOriginalTitle && (
                         <p className="mt-1 text-xs leading-5 text-[var(--app-muted)]">
-                          {decodeHtmlEntities(item.title_original)}
+                          {highlightSearchTerms(displayOriginalTitle, highlightTerms)}
                         </p>
                       )}
                       {(item.snippet_sv ?? item.snippet_original) && (
                         <p className="mt-2 max-w-4xl text-sm leading-6 text-[var(--app-soft)]">
-                          {decodeHtmlEntities(item.snippet_sv ?? item.snippet_original)}
+                          {highlightSearchTerms(displaySnippet, highlightTerms)}
                         </p>
                       )}
+                      {item.match_field && displayMatchExcerpt ? (
+                        <p className="mt-2 text-xs leading-5 text-[var(--app-muted)]">
+                          Träff i {matchFieldLabel[item.match_field]}:{" "}
+                          {highlightSearchTerms(displayMatchExcerpt, highlightTerms)}
+                        </p>
+                      ) : null}
                     </div>
                     <div className="shrink-0 text-xs leading-5 text-[var(--app-muted)] lg:text-right">
-                      <p className="font-medium text-[var(--app-soft)]">{decodeHtmlEntities(item.source_name)}</p>
+                      <p className="font-medium text-[var(--app-soft)]">
+                        {decodeHtmlEntities(
+                          item.source_type === "social"
+                            ? `${item.source_name} på X`
+                            : item.source_name,
+                        )}
+                      </p>
                       <p>
                         {countryNameSv(item.source_country) ?? item.source_country} ·{" "}
                         {item.source_language.toUpperCase()}
@@ -2283,6 +2539,317 @@ function SignalTrackingPanel({
           </div>
         )}
       </div>
+    </section>
+  );
+}
+
+function UpcomingEventsPanel({
+  events,
+  config,
+  nowTs,
+}: {
+  events: IntelligenceItem[];
+  config: EmbassyConfig;
+  nowTs: number;
+}) {
+  const grouped = useMemo(() => {
+    const next7: IntelligenceItem[] = [];
+    const next30: IntelligenceItem[] = [];
+    const later: IntelligenceItem[] = [];
+
+    for (const event of events) {
+      const ts = event.event_date ? new Date(event.event_date).getTime() : Number.NaN;
+      const days = Number.isFinite(ts) ? Math.max(0, Math.floor((ts - nowTs) / 86400000)) : null;
+      if (days === null) continue;
+      if (days <= 7) next7.push(event);
+      else if (days <= 30) next30.push(event);
+      else later.push(event);
+    }
+
+    return [
+      { key: "next7", label: "Nästa 7 dagar", items: next7 },
+      { key: "next30", label: "Nästa 30 dagar", items: next30 },
+      { key: "later", label: "Senare", items: later },
+    ];
+  }, [events, nowTs]);
+
+  return (
+    <section className="missiondesk-print-panel surface-strong rounded-xl p-5">
+      <div className="flex flex-col gap-3 border-b border-[var(--app-line)] pb-5 lg:flex-row lg:items-end lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <SectionKicker icon={CalendarDays} label="Kommande händelser" />
+            <span className="text-xs text-[var(--app-muted)]">–</span>
+            <span className="inline-flex items-center rounded border border-[color-mix(in_srgb,var(--app-gold),transparent_42%)] bg-[color-mix(in_srgb,var(--app-gold),transparent_86%)] px-2 py-1 text-xs font-medium text-[var(--app-gold)]">
+              Framåtblick
+            </span>
+          </div>
+          <h2 className="mt-3 text-2xl font-semibold tracking-normal">Verifierad kalender</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--app-soft)]">
+            Händelser med spårbara datum i skannade signaler. Klicka på källa för verifiering.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Pill tone="neutral">{events.length} händelser</Pill>
+          <Pill tone="neutral">90 dagars horisont</Pill>
+        </div>
+      </div>
+
+      {events.length === 0 ? (
+        <div className="mt-6 rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-6">
+          <EmptyState title="Inga verifierade framtida händelser i urvalet just nu" />
+        </div>
+      ) : (
+        <div className="mt-5 space-y-5">
+          {grouped.map((group) =>
+            group.items.length > 0 ? (
+              <div key={group.key}>
+                <p className="mb-2 text-xs font-medium uppercase tracking-[0.08em] text-[var(--app-muted)]">
+                  {group.label}
+                </p>
+                <div className="space-y-3">
+                  {group.items.map((item) => {
+                    const ts = item.event_date ? new Date(item.event_date).getTime() : Number.NaN;
+                    const days = Number.isFinite(ts)
+                      ? Math.max(0, Math.floor((ts - nowTs) / 86400000))
+                      : 0;
+                    const verificationLevel =
+                      item.source_country === "Sverige" ||
+                      item.source_country === "Mexiko"
+                        ? "Hög verifiering"
+                        : "Medel verifiering";
+                    return (
+                      <article
+                        key={item.id}
+                        className="rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-4"
+                      >
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--app-muted)]">
+                          <span className="inline-flex items-center gap-1">
+                            <Clock3 className="h-3.5 w-3.5" />
+                            {formatDate(item.event_date, true)}
+                          </span>
+                          <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
+                          <span>{days === 0 ? "I dag" : `Om ${days} dagar`}</span>
+                          <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
+                          <span>{verificationLevel}</span>
+                          <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
+                          <span>{getGeographyLabel(item, config)}</span>
+                        </div>
+                        <h3 className="mt-2 text-base font-semibold leading-6 text-[var(--app-fg)]">
+                          {item.title_sv}
+                        </h3>
+                        <p className="mt-1 text-sm leading-6 text-[var(--app-soft)]">
+                          {item.summary_sv}
+                        </p>
+                        <p className="mt-2 rounded-md border border-[var(--app-line)] bg-[var(--app-panel)] px-3 py-2 text-xs leading-5 text-[var(--app-muted)]">
+                          Spårbarhet: {item.original_excerpt}
+                        </p>
+                        <a
+                          href={item.source_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--app-accent)] underline-offset-3 hover:underline"
+                        >
+                          {xSourceDisplayName(item.source_name, item.source_url)}
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </a>
+                      </article>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null,
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function WeeklySummaryPanel({
+  windowMode,
+  onWindowChange,
+  groups,
+  config,
+  customFrom,
+  customTo,
+  onCustomFromChange,
+  onCustomToChange,
+}: {
+  windowMode: "week" | "month" | "custom";
+  onWindowChange: (mode: "week" | "month" | "custom") => void;
+  groups: Array<{
+    representative: IntelligenceItem;
+    items: IntelligenceItem[];
+    latestTs: number;
+  }>;
+  config: EmbassyConfig;
+  customFrom: string;
+  customTo: string;
+  onCustomFromChange: (value: string) => void;
+  onCustomToChange: (value: string) => void;
+}) {
+  const handlePrint = () => window.print();
+  const periodEnd = new Date();
+  const periodStart = new Date(
+    windowMode === "week"
+      ? periodEnd.getTime() - 7 * 86400000
+      : windowMode === "month"
+        ? periodEnd.getTime() - 30 * 86400000
+        : customFrom
+          ? new Date(`${customFrom}T00:00:00`).getTime()
+          : periodEnd.getTime() - 7 * 86400000,
+  );
+  const customToDate = customTo ? new Date(`${customTo}T23:59:59`) : periodEnd;
+  const labelEnd = windowMode === "custom" && customTo ? customToDate : periodEnd;
+  const periodLabel = `${formatDate(periodStart.toISOString())} – ${formatDate(labelEnd.toISOString())}`;
+
+  return (
+    <section className="surface-strong rounded-xl p-5">
+      <div className="flex flex-col gap-3 border-b border-[var(--app-line)] pb-5 lg:flex-row lg:items-end lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <SectionKicker icon={ClipboardList} label="Veckosammanfattning" />
+            <span className="text-xs text-[var(--app-muted)]">–</span>
+            <span className="inline-flex items-center rounded border border-[color-mix(in_srgb,var(--app-gold),transparent_42%)] bg-[color-mix(in_srgb,var(--app-gold),transparent_86%)] px-2 py-1 text-xs font-medium text-[var(--app-gold)]">
+              Konkreta händelser
+            </span>
+          </div>
+          <h2 className="mt-3 text-2xl font-semibold tracking-normal">
+            Sammanfattning av gångna perioden
+          </h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--app-soft)]">
+            Daterade, spårbara händelser grupperade från skannade signaler.
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Pill tone="gold">{periodLabel}</Pill>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onWindowChange("week")}
+              aria-label="Visa senaste veckan"
+              className={clsx(
+                "inline-flex h-8 w-36 items-center justify-center rounded px-2 py-1 text-xs font-medium transition whitespace-nowrap",
+                windowMode === "week"
+                  ? "border border-[color-mix(in_srgb,var(--app-gold),transparent_45%)] bg-[color-mix(in_srgb,var(--app-gold),transparent_86%)] text-[var(--app-gold)]"
+                  : "border border-[var(--app-line)] bg-[var(--app-panel-muted)] text-[var(--app-muted)] hover:text-[var(--app-fg)]",
+              )}
+            >
+              Senaste veckan
+            </button>
+            <button
+              type="button"
+              onClick={() => onWindowChange("month")}
+              aria-label="Visa senaste månaden"
+              className={clsx(
+                "inline-flex h-8 w-36 items-center justify-center rounded px-2 py-1 text-xs font-medium transition whitespace-nowrap",
+                windowMode === "month"
+                  ? "border border-[color-mix(in_srgb,var(--app-gold),transparent_45%)] bg-[color-mix(in_srgb,var(--app-gold),transparent_86%)] text-[var(--app-gold)]"
+                  : "border border-[var(--app-line)] bg-[var(--app-panel-muted)] text-[var(--app-muted)] hover:text-[var(--app-fg)]",
+              )}
+            >
+              Senaste månaden
+            </button>
+            <button
+              type="button"
+              onClick={() => onWindowChange("custom")}
+              aria-label="Välj egna datum"
+              className={clsx(
+                "inline-flex h-8 w-36 items-center justify-center rounded px-2 py-1 text-xs font-medium transition whitespace-nowrap",
+                windowMode === "custom"
+                  ? "border border-[color-mix(in_srgb,var(--app-gold),transparent_45%)] bg-[color-mix(in_srgb,var(--app-gold),transparent_86%)] text-[var(--app-gold)]"
+                  : "border border-[var(--app-line)] bg-[var(--app-panel-muted)] text-[var(--app-muted)] hover:text-[var(--app-fg)]",
+              )}
+            >
+              Välj egna datum
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={handlePrint}
+            className="inline-flex items-center gap-2 rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-3 py-2 text-xs font-medium text-[var(--app-soft)] transition hover:border-[var(--app-accent)] hover:text-[var(--app-fg)]"
+          >
+            <Printer className="h-3.5 w-3.5" />
+            Skriv ut sammanfattning
+          </button>
+        </div>
+      </div>
+
+      {windowMode === "custom" && (
+        <div className="mt-4 flex flex-wrap items-end gap-3 rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-3">
+          <label className="text-xs text-[var(--app-muted)]">
+            Från
+            <input
+              type="date"
+              value={customFrom}
+              onChange={(event) => onCustomFromChange(event.target.value)}
+              className="mt-1 block rounded border border-[var(--app-line)] bg-[var(--app-panel)] px-2 py-1 text-sm text-[var(--app-fg)]"
+            />
+          </label>
+          <label className="text-xs text-[var(--app-muted)]">
+            Till
+            <input
+              type="date"
+              value={customTo}
+              onChange={(event) => onCustomToChange(event.target.value)}
+              className="mt-1 block rounded border border-[var(--app-line)] bg-[var(--app-panel)] px-2 py-1 text-sm text-[var(--app-fg)]"
+            />
+          </label>
+        </div>
+      )}
+
+      {groups.length === 0 ? (
+        <div className="mt-5 rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-5">
+          <EmptyState title="Inga daterade händelser i valt tidsfönster" />
+        </div>
+      ) : (
+        <div className="mt-5 space-y-3">
+          {groups.map((group) => {
+            const item = group.representative;
+            const uniqueSources = [...new Set(group.items.map((entry) => entry.source_url))].slice(0, 3);
+            return (
+              <article
+                key={`${item.id}-${group.latestTs}`}
+                className="rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-4"
+              >
+                <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--app-muted)]">
+                  <span>{formatDate(item.published_at, true)}</span>
+                  <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
+                  <span>{getCategoryLabel(config, item.category)}</span>
+                  <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
+                  <span>{getGeographyLabel(item, config)}</span>
+                  <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
+                  <span>{group.items.length} relaterade signaler</span>
+                </div>
+                <h3 className="mt-2 text-base font-semibold leading-6 text-[var(--app-fg)]">
+                  {item.title_sv}
+                </h3>
+                <p className="mt-1 text-sm leading-6 text-[var(--app-soft)]">
+                  {asWeeklyRetrospective(item.summary_sv)}
+                </p>
+                <div className="mt-2 space-y-1">
+                  {uniqueSources.map((url) => {
+                    const source = group.items.find((entry) => entry.source_url === url);
+                    return (
+                      <a
+                        key={url}
+                        href={url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--app-accent)] underline-offset-3 hover:underline"
+                      >
+                        {source ? xSourceDisplayName(source.source_name, source.source_url) : "Källa"}
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </a>
+                    );
+                  })}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }
@@ -2709,7 +3276,7 @@ function PrimaryBriefingPanel({
                       {item.title_sv}
                     </span>
                     <span className="mt-1 block text-xs leading-5 text-[var(--app-muted)]">
-                      {item.source_name} · {formatDate(item.published_at, true)}
+                      {xSourceDisplayName(item.source_name, item.source_url)} · {formatDate(item.published_at, true)}
                     </span>
                   </span>
                   <ExternalLink className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--app-muted)]" />
@@ -2835,6 +3402,14 @@ function IntelligenceCard({
                 <Icon className={clsx("h-3.5 w-3.5", categoryIconTone[item.category])} />
                 {getCategoryLabel(config, item.category)}
               </span>
+              {isXUrl(item.source_url) && (
+                <>
+                  <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
+                  <span className="rounded border border-[var(--app-line)] bg-[var(--app-panel)] px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--app-soft)]">
+                    X-post
+                  </span>
+                </>
+              )}
               <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
               <span>{getGeographyLabel(item, config)}</span>
               <span className="h-1 w-1 rounded-full bg-[var(--app-line)]" />
@@ -2946,7 +3521,7 @@ function DetailPanel({
             rel="noreferrer"
             className="mt-3 inline-flex items-center gap-2 text-xs font-medium text-[var(--app-accent)] hover:text-[var(--app-accent-strong)]"
           >
-            {item.source_name}
+            {xSourceDisplayName(item.source_name, item.source_url)}
             <ExternalLink className="h-3.5 w-3.5" />
           </a>
         </div>
@@ -3137,21 +3712,25 @@ function SourceFeed({
                         {item.title_original}
                       </p>
                     </td>
-                    <td className="px-5 py-4">
+                    <td className="group px-5 py-4">
                       <a
                         href={item.source_url}
                         target="_blank"
                         rel="noreferrer"
-                        className="inline-flex items-center gap-1.5 font-medium text-[var(--app-fg)] transition hover:text-[var(--app-accent)]"
+                        className="block rounded-sm transition hover:text-[var(--app-accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-accent)]"
                       >
-                        {item.source_name}
-                        <ArrowUpRight className="h-3.5 w-3.5 text-[var(--app-muted)]" />
+                        <span className="inline-flex items-center gap-1.5 font-medium text-[var(--app-fg)]">
+                          <span className="group-hover:underline group-hover:decoration-1 group-hover:decoration-[color-mix(in_srgb,var(--app-fg),transparent_38%)] group-hover:underline-offset-3">
+                            {xSourceDisplayName(item.source_name, item.source_url)}
+                          </span>
+                          <ArrowUpRight className="h-3.5 w-3.5 text-[var(--app-muted)]" />
+                        </span>
+                        <span className="mt-1 flex items-center gap-2 text-xs text-[var(--app-muted)]">
+                          <Languages className="h-3.5 w-3.5" />
+                          {countryNameSv(item.source_country) ?? item.source_country} ·{" "}
+                          {item.source_language.toUpperCase()}
+                        </span>
                       </a>
-                      <p className="mt-1 flex items-center gap-2 text-xs text-[var(--app-muted)]">
-                        <Languages className="h-3.5 w-3.5" />
-                        {countryNameSv(item.source_country) ?? item.source_country} ·{" "}
-                        {item.source_language.toUpperCase()}
-                      </p>
                     </td>
                     <td className="px-5 py-4 font-mono text-xs text-[var(--app-muted)]">
                       {formatDate(item.published_at, true)}

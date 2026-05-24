@@ -63,6 +63,7 @@ export interface ProcessedItem {
   geographic_tags: string[];
   why_it_may_matter_sv: string;
   profile_tags: ProfileMode[];
+  event_date?: string;
   processed_model: string;
   processed_at: string;
   cache_expires_at: string;

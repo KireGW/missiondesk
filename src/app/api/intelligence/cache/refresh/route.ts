@@ -137,6 +137,8 @@ async function runManualFullRescan(options: {
   limitPerSource?: number;
 }) {
   const startedAt = new Date().toISOString();
+  const previousState = await getIngestionUpdateState();
+  const since = previousState?.last_ingested_at ?? undefined;
   await updateIngestionUpdateState({
     status: "running",
     started_at: startedAt,
@@ -150,6 +152,7 @@ async function runManualFullRescan(options: {
     limitPerSource: options.limitPerSource ?? 12,
     concurrency: 4,
     preserveRawContent: true,
+    since,
   });
 
   await logManualRefresh(options.jobId, "source rescan finished", {
@@ -158,6 +161,7 @@ async function runManualFullRescan(options: {
     storedCount: ingestion.storedCount,
     skippedCount: ingestion.skippedCount,
     errorCount: ingestion.errors.length,
+    since,
   });
   await updateManualRefreshPhase(options.jobId, "ingesting_sources", 34, 0, {
     sourceCount: ingestion.sourceCount,

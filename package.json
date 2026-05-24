@@ -16,7 +16,8 @@
     "smoke:website": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-website-ingestion.ts",
     "smoke:social": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-social-ingestion.ts",
     "smoke:markets": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-market-ingestion.ts",
-    "audit:rss": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/audit-rss-quality.ts"
+    "audit:rss": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/audit-rss-quality.ts",
+    "backfill:event-dates": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/backfill-event-dates.ts"
   },
   "dependencies": {
     "@tailwindcss/postcss": "latest",

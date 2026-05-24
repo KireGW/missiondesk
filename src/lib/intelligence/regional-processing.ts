@@ -341,6 +341,7 @@ export async function processRegionalIntelligenceOnDemand(
       geographic_tags: [...new Set([...geographicTags, ...analysis.geographic_tags])],
       why_it_may_matter_sv: analysis.why_it_may_matter_sv,
       profile_tags: analysis.profile_tags,
+      event_date: analysis.event_date ?? undefined,
       processed_model: model,
       processed_at: processedAt.toISOString(),
       cache_expires_at: itemExpiresAt,

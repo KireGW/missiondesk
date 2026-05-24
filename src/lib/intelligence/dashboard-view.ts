@@ -48,9 +48,10 @@ export function processedRecordToIntelligenceItem(
     ],
     original_excerpt: record.raw.snippet ?? record.raw.title_original,
     event_date:
-      record.raw.source_type === "event" || record.raw.source_type === "advisory"
+      record.processed.event_date ??
+      (record.raw.source_type === "event" || record.raw.source_type === "advisory"
         ? record.raw.published_at
-        : undefined,
+        : undefined),
   };
 }
 

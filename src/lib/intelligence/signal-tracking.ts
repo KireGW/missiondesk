@@ -1,6 +1,7 @@
 import { getMigratedDb } from "@/lib/db/postgres";
 import { swedenMexicoEmbassyConfig } from "@/lib/config/embassies/sweden-mexico";
 import { detectGeography } from "@/lib/ingestion/geography";
+import { sanitizePublishedAt } from "@/lib/ingestion/published-at";
 import { fetchRssSource } from "@/lib/ingestion/rss";
 import { fetchSocialSource } from "@/lib/ingestion/social";
 import { fetchWebsiteSource } from "@/lib/ingestion/website";
@@ -21,10 +22,10 @@ import type { SourceIntelligenceType } from "@/lib/intelligence/models";
 const MAX_QUERY_VARIANTS = 5;
 const MAX_RSS_ITEMS_PER_SOURCE = 20;
 const MAX_WEBSITE_ITEMS_PER_SOURCE = 12;
-const MAX_SOCIAL_POSTS_PER_ACCOUNT = 3;
+const MAX_SOCIAL_POSTS_PER_ACCOUNT = 5;
 const DEFAULT_LOCAL_RESULT_LIMIT = 50;
 const DEFAULT_DEEP_RESULT_LIMIT = 60;
-const LOCAL_SCAN_LIMIT = 2200;
+const LOCAL_SCAN_LIMIT = 5000;
 const AI_CANDIDATE_LIMIT = 16;
 const QUERY_CACHE_TTL_HOURS = 24 * 14;
 const QUERY_VARIANTS_CACHE_VERSION = "v3";
@@ -51,6 +52,9 @@ export interface SignalTrackingResult {
   relevance_score: number;
   discovery: "local_cache" | "deep_discovery" | "source_metadata";
   ai_enriched: boolean;
+  match_field?: "title" | "snippet" | "body" | "url";
+  match_term?: string;
+  match_excerpt?: string;
 }
 
 export interface SignalTrackingSearchResult {
@@ -112,6 +116,9 @@ interface Candidate {
   detectedCity?: string;
   discovery: SignalTrackingResult["discovery"];
   rawId?: string;
+  matchField?: SignalTrackingResult["match_field"];
+  matchTerm?: string;
+  matchExcerpt?: string;
 }
 
 interface QueryExpansionCacheRow {
@@ -119,6 +126,16 @@ interface QueryExpansionCacheRow {
   variants_json: string;
   model: string | null;
   expires_at: string | null;
+}
+
+interface ResponsesApiResult {
+  output_text?: string;
+  output?: Array<{
+    content?: Array<{
+      text?: string;
+      refusal?: string;
+    }>;
+  }>;
 }
 
 interface DeepSearchStats {
@@ -132,6 +149,12 @@ interface DeepSearchStats {
   aiCandidatesProcessed: number;
   estimatedTokenUsage: number;
   estimatedApiReads: number;
+}
+
+interface TranslationItem {
+  titleSv: string;
+  snippetSv?: string;
+  ai: boolean;
 }
 
 const categoryKeywords: Record<IntelligenceCategory, string[]> = {
@@ -169,6 +192,9 @@ const localDictionary: Record<string, string[]> = {
   energi: ["energy", "energia"],
   energy: ["energi", "energia"],
   energia: ["energi", "energy"],
+  fentanilo: ["fentanyl", "fentanil"],
+  fentanyl: ["fentanilo", "fentanil"],
+  fentanil: ["fentanilo", "fentanyl"],
 };
 
 function normalize(value: string) {
@@ -301,6 +327,16 @@ function queryExpansionModel() {
   return process.env.MISSIONDESK_SIGNAL_TRACKING_MODEL ?? "gpt-4o-mini";
 }
 
+function extractResponseText(payload: ResponsesApiResult) {
+  if (payload.output_text) return payload.output_text;
+  return (
+    payload.output
+      ?.flatMap((output) => output.content ?? [])
+      .map((content) => content.text ?? "")
+      .find(Boolean) ?? ""
+  );
+}
+
 function isOpenAiConfigured() {
   return Boolean(process.env.OPENAI_API_KEY);
 }
@@ -398,8 +434,8 @@ async function aiExpansion(query: string, existing: string[]) {
     }),
   });
   if (!response.ok) return existing;
-  const payload = (await response.json()) as { output_text?: string };
-  const output = payload.output_text ?? "";
+  const payload = (await response.json()) as ResponsesApiResult;
+  const output = extractResponseText(payload);
   const jsonText = output.match(/\[[\s\S]*\]/)?.[0] ?? output;
   try {
     const parsed = JSON.parse(jsonText) as string[];
@@ -506,7 +542,22 @@ function isVariantNearOriginal(original: string, variant: string) {
   return damerauLevenshtein(a, b) <= maxDistance;
 }
 
-function hasStrictVariantMatch(
+function buildBodyMatchExcerpt(text: string | undefined, variant: string) {
+  const body = (text ?? "").replace(/\s+/g, " ").trim();
+  if (!body) return "";
+  const sections = body
+    .split(/(?<=[.!?])\s+/)
+    .map((section) => section.trim())
+    .filter(Boolean);
+  const found =
+    sections.find((section) => normalize(section).includes(variant)) ??
+    sections.find((section) => section.length >= 40) ??
+    sections[0];
+  if (!found) return body.slice(0, 280);
+  return found.slice(0, 280);
+}
+
+function findVariantMatch(
   title: string,
   snippet: string | undefined,
   text: string | undefined,
@@ -520,26 +571,70 @@ function hasStrictVariantMatch(
   const deepTokens = new Set(deepHaystack.split(" ").filter(Boolean));
 
   const normalizedVariants = [...new Set(queryVariants.map((value) => normalize(value)).filter(Boolean))];
-  if (normalizedVariants.length === 0) return false;
+  if (normalizedVariants.length === 0) return null;
 
-  const containsVariant = (haystack: string, tokens: Set<string>, allowFuzzy: boolean) =>
-    normalizedVariants.some((variant) => {
-      if (variant.includes(" ")) return haystack.includes(variant);
-      if (tokens.has(variant)) return true;
-      if (!allowFuzzy) return false;
-      if (!fuzzyEnabledVariants.has(variant)) return false;
-      for (const token of tokens) {
-        if (isApproximateTokenMatch(variant, token)) return true;
+  const containsVariant = (
+    haystack: string,
+    tokens: Set<string>,
+    allowFuzzy: boolean,
+  ): { variant: string; fuzzy: boolean } | null => {
+    for (const variant of normalizedVariants) {
+      if (variant.includes(" ")) {
+        if (haystack.includes(variant)) return { variant, fuzzy: false };
+        continue;
       }
-      return false;
-    });
+      if (tokens.has(variant)) return { variant, fuzzy: false };
+      if (!allowFuzzy) continue;
+      if (!fuzzyEnabledVariants.has(variant)) continue;
+      for (const token of tokens) {
+        if (isApproximateTokenMatch(variant, token)) return { variant, fuzzy: true };
+      }
+    }
+    return null;
+  };
 
-  if (containsVariant(visibleHaystack, visibleTokens, true)) return true;
+  const titleText = title.trim();
+  const titleNorm = normalize(titleText);
+  const titleTokens = new Set(titleNorm.split(" ").filter(Boolean));
+  const titleMatch = containsVariant(titleNorm, titleTokens, true);
+  if (titleMatch) {
+    return { field: "title" as const, term: titleMatch.variant, excerpt: titleText.slice(0, 220) };
+  }
+
+  const snippetText = (snippet ?? "").trim();
+  const snippetNorm = normalize(snippetText);
+  const snippetTokens = new Set(snippetNorm.split(" ").filter(Boolean));
+  const snippetMatch = containsVariant(snippetNorm, snippetTokens, true);
+  if (snippetMatch) {
+    return { field: "snippet" as const, term: snippetMatch.variant, excerpt: snippetText.slice(0, 260) };
+  }
+
+  const urlNorm = normalize(url);
+  const urlTokens = new Set(urlNorm.split(" ").filter(Boolean));
+  const urlMatch = containsVariant(urlNorm, urlTokens, false);
+  if (urlMatch) {
+    return { field: "url" as const, term: urlMatch.variant, excerpt: url.slice(0, 260) };
+  }
+
+  if (containsVariant(visibleHaystack, visibleTokens, true)) {
+    return {
+      field: "snippet" as const,
+      term: normalizedVariants[0],
+      excerpt: snippetText.slice(0, 260) || titleText.slice(0, 220),
+    };
+  }
   // Fallback to deep body text only for exact variant hits (no fuzzy),
   // to avoid false positives from near-miss tokens in long article bodies.
-  if (deepHaystack && containsVariant(deepHaystack, deepTokens, false)) return true;
+  const deepMatch = deepHaystack ? containsVariant(deepHaystack, deepTokens, false) : null;
+  if (deepMatch) {
+    return {
+      field: "body" as const,
+      term: deepMatch.variant,
+      excerpt: buildBodyMatchExcerpt(text, deepMatch.variant),
+    };
+  }
 
-  return false;
+  return null;
 }
 
 function toRawSourceItem(source: SourceDefinition, document: RawSourceDocument, config: EmbassyConfig): RawSourceItem | null {
@@ -575,7 +670,9 @@ function toRawSourceItem(source: SourceDefinition, document: RawSourceDocument, 
     source_name: source.name,
     source_country: source.country,
     source_language: source.language,
-    published_at: document.publishedAt,
+    published_at: sanitizePublishedAt(document.publishedAt, {
+      allowFuture: source.type === "calendar",
+    }),
     detected_country: geography.detectedCountry,
     detected_region: geography.detectedRegion,
     detected_city: geography.detectedCity,
@@ -617,16 +714,15 @@ function candidateFromRaw(
   fuzzyEnabledVariants: Set<string>,
 ): Candidate | null {
   const snippet = item.snippet ?? item.raw_content?.slice(0, 420);
-  if (
-    !hasStrictVariantMatch(
-      item.title_original,
-      snippet,
-      item.raw_content,
-      item.url,
-      queryVariants,
-      fuzzyEnabledVariants,
-    )
-  ) {
+  const match = findVariantMatch(
+    item.title_original,
+    snippet,
+    item.raw_content,
+    item.url,
+    queryVariants,
+    fuzzyEnabledVariants,
+  );
+  if (!match) {
     return null;
   }
   const score =
@@ -653,6 +749,9 @@ function candidateFromRaw(
     detectedCity: item.detected_city,
     discovery: "local_cache",
     rawId: item.id,
+    matchField: match.field,
+    matchTerm: match.term,
+    matchExcerpt: match.excerpt,
   };
 }
 
@@ -865,7 +964,7 @@ async function deepSearchCandidates(
     notes.push("RSS gav få träffar – webbkälla kontrollerades.");
   }
   if (stats.xAccountsQueried > 0) {
-    notes.push("Senaste X-poster hämtades från aktiva konton.");
+    notes.push("Senaste X-poster hämtades från bevakade konton.");
   }
 
   const seen = new Set<string>();
@@ -892,7 +991,7 @@ async function deepSearchCandidates(
 async function translateCandidates(
   candidates: Candidate[],
   aiEnabled: boolean,
-): Promise<{ translatedCount: number; model?: string; items: Array<{ titleSv: string; snippetSv?: string; ai: boolean }> }> {
+): Promise<{ translatedCount: number; model?: string; items: TranslationItem[] }> {
   if (!aiEnabled || !isOpenAiConfigured()) {
     return {
       translatedCount: 0,
@@ -907,105 +1006,87 @@ async function translateCandidates(
 
   const model = queryExpansionModel();
   const apiKey = process.env.OPENAI_API_KEY!;
-  const topCandidates = candidates.slice(0, Math.min(AI_CANDIDATE_LIMIT, candidates.length));
-  const rest = candidates.slice(topCandidates.length);
-  if (topCandidates.length === 0) {
+  if (candidates.length === 0) {
     return { translatedCount: 0, model: undefined, items: [] };
   }
+  const topCandidates = candidates.slice(0, Math.min(AI_CANDIDATE_LIMIT, candidates.length));
+  const fallbackItems: TranslationItem[] = candidates.map((candidate) => ({
+    titleSv: candidate.titleOriginal,
+    snippetSv: undefined,
+    ai: false,
+  }));
+  const translatedItems = [...fallbackItems];
+  const translatedIndexes = new Set<number>();
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model,
-      input: [
-        {
-          role: "system",
-          content:
-            "Översätt rubrik och eventuell kort snippet till saklig, kort svenska. Returnera endast JSON-array med {index,title_sv,snippet_sv}.",
-        },
-        {
-          role: "user",
-          content: JSON.stringify(
-            topCandidates.map((candidate, index) => ({
-              index,
-              title: candidate.titleOriginal,
-              snippet: candidate.snippetOriginal ?? null,
-              language: candidate.source.language,
-            })),
-          ),
-        },
-      ],
-      max_output_tokens: Math.min(3200, Math.max(300, topCandidates.length * 90)),
-      temperature: 0,
-    }),
-  });
-
-  if (!response.ok) {
-    return {
-      translatedCount: 0,
-      model: undefined,
-      items: candidates.map((candidate) => ({
-        titleSv: candidate.titleOriginal,
-        snippetSv: undefined,
-        ai: false,
-      })),
-    };
-  }
-
-  const payload = (await response.json()) as { output_text?: string };
-  const output = payload.output_text ?? "";
-  const jsonText = output.match(/\[[\s\S]*\]/)?.[0] ?? output;
-  try {
-    const parsed = JSON.parse(jsonText) as Array<{
-      index?: number;
-      title_sv?: string;
-      snippet_sv?: string;
-    }>;
-    const translationMap = new Map<number, { titleSv: string; snippetSv?: string }>();
-    for (const row of parsed) {
-      if (typeof row.index !== "number") continue;
-      if (!row.title_sv) continue;
-      translationMap.set(row.index, {
-        titleSv: row.title_sv.slice(0, 260),
-        snippetSv: row.snippet_sv?.slice(0, 420),
-      });
-    }
-    const topTranslated = topCandidates.map((candidate, index) => {
-      const translated = translationMap.get(index);
-      if (!translated) {
-        return { titleSv: candidate.titleOriginal, snippetSv: undefined, ai: false };
-      }
-      return {
-        titleSv: translated.titleSv,
-        snippetSv: translated.snippetSv,
-        ai: true,
-      };
+  for (let offset = 0; offset < topCandidates.length; offset += AI_CANDIDATE_LIMIT) {
+    const chunk = topCandidates.slice(offset, offset + AI_CANDIDATE_LIMIT);
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model,
+        input: [
+          {
+            role: "system",
+            content:
+              "Översätt rubrik och eventuell kort snippet till saklig, kort svenska. Returnera endast JSON-array med {index,title_sv,snippet_sv}.",
+          },
+          {
+            role: "user",
+            content: JSON.stringify(
+              chunk.map((candidate, index) => ({
+                index,
+                title: candidate.titleOriginal,
+                snippet: candidate.snippetOriginal ?? null,
+                language: candidate.source.language,
+              })),
+            ),
+          },
+        ],
+        max_output_tokens: Math.min(3200, Math.max(300, chunk.length * 90)),
+        temperature: 0,
+      }),
     });
-    const restUntouched = rest.map((candidate) => ({
-      titleSv: candidate.titleOriginal,
-      snippetSv: undefined,
-      ai: false,
-    }));
-    return {
-      translatedCount: topTranslated.filter((row) => row.ai).length,
-      model,
-      items: [...topTranslated, ...restUntouched],
-    };
-  } catch {
-    return {
-      translatedCount: 0,
-      model: undefined,
-      items: candidates.map((candidate) => ({
-        titleSv: candidate.titleOriginal,
-        snippetSv: undefined,
-        ai: false,
-      })),
-    };
+
+    if (!response.ok) {
+      continue;
+    }
+
+    const payload = (await response.json()) as ResponsesApiResult;
+    const output = extractResponseText(payload);
+    const jsonText = output.match(/\[[\s\S]*\]/)?.[0] ?? output;
+
+    try {
+      const parsed = JSON.parse(jsonText) as Array<{
+        index?: number;
+        title_sv?: string;
+        snippet_sv?: string;
+      }>;
+      for (const row of parsed) {
+        if (typeof row.index !== "number") continue;
+        if (!row.title_sv) continue;
+        if (row.index < 0 || row.index >= chunk.length) continue;
+        const targetIndex = offset + row.index;
+        translatedItems[targetIndex] = {
+          titleSv: row.title_sv.slice(0, 260),
+          snippetSv: row.snippet_sv?.slice(0, 420),
+          ai: true,
+        };
+        translatedIndexes.add(targetIndex);
+      }
+    } catch {
+      continue;
+    }
   }
+
+  return {
+    translatedCount: translatedIndexes.size,
+    model,
+    items: translatedItems,
+  };
 }
 
 export async function searchSignalsAcrossSources({
@@ -1099,14 +1180,11 @@ export async function searchSignalsAcrossSources({
     relevance_score: candidate.score,
     discovery: candidate.discovery,
     ai_enriched: processed ? false : (translations.items[index]?.ai ?? false),
+    match_field: candidate.matchField,
+    match_term: candidate.matchTerm,
+    match_excerpt: candidate.matchExcerpt,
     };
   });
-
-  if (deepSearchUsed && deepSearchOptions.includeSocialX) {
-    notes.push(
-      `Senaste X-poster hämtades automatiskt från aktiva konton (${deepStats.xAccountsQueried} konton, ${deepStats.xPostsFetched} poster; tak ${MAX_SOCIAL_POSTS_PER_ACCOUNT} per konto).`,
-    );
-  }
 
   return {
     query,

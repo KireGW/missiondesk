@@ -247,6 +247,7 @@ CREATE TABLE IF NOT EXISTS processed_items (
   geographic_tags TEXT NOT NULL DEFAULT '[]',
   why_it_may_matter_sv TEXT NOT NULL,
   profile_tags TEXT NOT NULL DEFAULT '[]',
+  event_date TEXT,
   processed_model TEXT NOT NULL,
   processed_at TEXT NOT NULL,
   cache_expires_at TEXT NOT NULL,
@@ -464,6 +465,13 @@ CREATE TABLE IF NOT EXISTS ingestion_update_state (
 INSERT INTO ingestion_update_state (id, status)
 VALUES ('feed', 'idle')
 ON CONFLICT (id) DO NOTHING;
+`,
+  },
+  {
+    id: "0006_processed_items_event_date_postgres.sql",
+    sql: `
+ALTER TABLE processed_items
+  ADD COLUMN IF NOT EXISTS event_date TEXT;
 `,
   },
 ];

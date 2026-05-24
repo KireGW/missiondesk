@@ -46,9 +46,10 @@ type RawSourceItemRow = Omit<
   raw_content: string | null;
 };
 
-type ProcessedItemRow = Omit<ProcessedItem, "geographic_tags" | "profile_tags"> & {
+type ProcessedItemRow = Omit<ProcessedItem, "geographic_tags" | "profile_tags" | "event_date"> & {
   geographic_tags: string;
   profile_tags: string;
+  event_date: string | null;
 };
 
 type BriefingRow = Omit<Briefing, "region" | "source_item_ids"> & {
@@ -225,6 +226,7 @@ function mapProcessedItem(row: ProcessedItemRow): ProcessedItem {
     ...row,
     geographic_tags: parseStringArray(row.geographic_tags),
     profile_tags: parseStringArray(row.profile_tags) as ProcessedItem["profile_tags"],
+    event_date: optional(row.event_date),
   };
 }
 
@@ -472,6 +474,10 @@ export async function listRawSourceItems(filters: RawSourceItemFilters = {}, db:
     params.push(nowIso());
   }
 
+  // Signal tracking and deep source exploration need a wider search window than
+  // the default repository clamp used by user-facing list endpoints.
+  const rawListLimit = Math.max(1, Math.min(5000, Math.round(filters.limit ?? 100)));
+
   const rows = await db
     .prepare(`
       SELECT *
@@ -482,7 +488,7 @@ export async function listRawSourceItems(filters: RawSourceItemFilters = {}, db:
         source_priority DESC
       LIMIT ?
     `)
-    .all(...params, limitValue(filters.limit, 100)) as unknown as RawSourceItemRow[];
+    .all(...params, rawListLimit) as unknown as RawSourceItemRow[];
 
   return rows.map(mapRawSourceItem);
 }
@@ -705,11 +711,12 @@ export async function upsertProcessedItem(input: NewProcessedItem, db: MissionDe
       geographic_tags,
       why_it_may_matter_sv,
       profile_tags,
+      event_date,
       processed_model,
       processed_at,
       cache_expires_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(raw_source_item_id) DO UPDATE SET
       title_sv = excluded.title_sv,
       summary_sv = excluded.summary_sv,
@@ -723,6 +730,7 @@ export async function upsertProcessedItem(input: NewProcessedItem, db: MissionDe
       geographic_tags = excluded.geographic_tags,
       why_it_may_matter_sv = excluded.why_it_may_matter_sv,
       profile_tags = excluded.profile_tags,
+      event_date = excluded.event_date,
       processed_model = excluded.processed_model,
       processed_at = excluded.processed_at,
       cache_expires_at = excluded.cache_expires_at,
@@ -741,6 +749,7 @@ export async function upsertProcessedItem(input: NewProcessedItem, db: MissionDe
     stringifyArray(input.geographic_tags),
     input.why_it_may_matter_sv,
     stringifyArray(input.profile_tags),
+    nullable(input.event_date),
     input.processed_model,
     input.processed_at,
     input.cache_expires_at,
