@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import type { MissionDeskDb } from "@/lib/db/postgres";
 import { getMigratedDb } from "@/lib/db/postgres";
 import { cacheFreshnessState } from "@/lib/intelligence/cache-policy";
+import { eventDateRange, normalizeEventDate } from "@/lib/intelligence/event-dates";
 import type {
   BackgroundJob,
   BackgroundJobFilters,
@@ -16,6 +17,7 @@ import type {
   NewProcessedItem,
   NewRankedProcessingCandidate,
   NewRawSourceItem,
+  NewTemporalSignal,
   ProcessedIntelligenceRecord,
   ProcessedItem,
   ProcessedItemFilters,
@@ -24,6 +26,8 @@ import type {
   RankedProcessingCandidate,
   RawSourceItem,
   RawSourceItemFilters,
+  TemporalSignal,
+  TemporalSignalRecord,
 } from "@/lib/intelligence/models";
 import type { CacheFreshnessState } from "@/lib/intelligence/cache-policy";
 
@@ -156,6 +160,51 @@ interface JoinedProcessedRow extends ProcessedItemRow {
   raw_updated_at: string;
 }
 
+type TemporalSignalRow = Omit<TemporalSignal, "date_start" | "date_end" | "extraction_reason"> & {
+  date_start: string | null;
+  date_end: string | null;
+  extraction_reason: string | null;
+};
+
+interface JoinedTemporalSignalRow extends TemporalSignalRow {
+  processed_title_sv: string;
+  processed_summary_sv: string;
+  processed_category: ProcessedItem["category"];
+  processed_urgency_score: number;
+  processed_diplomatic_relevance_score: number;
+  processed_sweden_relevance_score: number;
+  processed_economic_impact_score: number;
+  processed_security_impact_score: number;
+  processed_geographic_scope: ProcessedItem["geographic_scope"];
+  processed_geographic_tags: string;
+  processed_why_it_may_matter_sv: string;
+  processed_profile_tags: string;
+  processed_event_date: string | null;
+  processed_processed_model: string;
+  processed_processed_at: string;
+  processed_cache_expires_at: string;
+  processed_created_at: string;
+  processed_updated_at: string;
+  raw_id: string;
+  raw_source_type: RawSourceItem["source_type"];
+  raw_title_original: string;
+  raw_url: string;
+  raw_source_name: string;
+  raw_source_country: string;
+  raw_source_language: string;
+  raw_published_at: string | null;
+  raw_detected_country: string | null;
+  raw_detected_region: string | null;
+  raw_detected_city: string | null;
+  raw_snippet: string | null;
+  raw_raw_content: string | null;
+  raw_source_priority: number;
+  raw_credibility_score: number;
+  raw_crawl_status: RawSourceItem["crawl_status"];
+  raw_created_at: string;
+  raw_updated_at: string;
+}
+
 const optional = (value: string | null | undefined) => value ?? undefined;
 const nullable = (value: string | undefined) => value ?? null;
 const nowIso = () => new Date().toISOString();
@@ -226,7 +275,7 @@ function mapProcessedItem(row: ProcessedItemRow): ProcessedItem {
     ...row,
     geographic_tags: parseStringArray(row.geographic_tags),
     profile_tags: parseStringArray(row.profile_tags) as ProcessedItem["profile_tags"],
-    event_date: optional(row.event_date),
+    event_date: normalizeEventDate(row.event_date),
   };
 }
 
@@ -236,6 +285,87 @@ function mapBriefing(row: BriefingRow): Briefing {
     region: optional(row.region),
     source_item_ids: parseStringArray(row.source_item_ids),
   };
+}
+
+function mapTemporalSignal(row: TemporalSignalRow): TemporalSignal {
+  return {
+    ...row,
+    date_start: normalizeEventDate(row.date_start),
+    date_end: normalizeEventDate(row.date_end),
+    extraction_reason: optional(row.extraction_reason),
+  };
+}
+
+function mapJoinedTemporalSignal(row: JoinedTemporalSignalRow): TemporalSignalRecord {
+  return {
+    signal: mapTemporalSignal(row),
+    processed: mapProcessedItem({
+      raw_source_item_id: row.raw_source_item_id,
+      title_sv: row.processed_title_sv,
+      summary_sv: row.processed_summary_sv,
+      category: row.processed_category,
+      urgency_score: row.processed_urgency_score,
+      diplomatic_relevance_score: row.processed_diplomatic_relevance_score,
+      sweden_relevance_score: row.processed_sweden_relevance_score,
+      economic_impact_score: row.processed_economic_impact_score,
+      security_impact_score: row.processed_security_impact_score,
+      geographic_scope: row.processed_geographic_scope,
+      geographic_tags: row.processed_geographic_tags,
+      why_it_may_matter_sv: row.processed_why_it_may_matter_sv,
+      profile_tags: row.processed_profile_tags,
+      event_date: row.processed_event_date,
+      processed_model: row.processed_processed_model,
+      processed_at: row.processed_processed_at,
+      cache_expires_at: row.processed_cache_expires_at,
+      created_at: row.processed_created_at,
+      updated_at: row.processed_updated_at,
+    }),
+    raw: mapRawSourceItem({
+      id: row.raw_id,
+      source_type: row.raw_source_type,
+      title_original: row.raw_title_original,
+      url: row.raw_url,
+      source_name: row.raw_source_name,
+      source_country: row.raw_source_country,
+      source_language: row.raw_source_language,
+      published_at: row.raw_published_at,
+      detected_country: row.raw_detected_country,
+      detected_region: row.raw_detected_region,
+      detected_city: row.raw_detected_city,
+      snippet: row.raw_snippet,
+      raw_content: row.raw_raw_content,
+      source_priority: row.raw_source_priority,
+      credibility_score: row.raw_credibility_score,
+      crawl_status: row.raw_crawl_status,
+      created_at: row.raw_created_at,
+      updated_at: row.raw_updated_at,
+    }),
+  };
+}
+
+const futureLeanTemporalContexts = new Set<TemporalSignal["temporal_context"]>([
+  "upcoming_event",
+  "future_risk",
+  "scheduled_vote",
+  "earnings",
+  "summit",
+  "policy_deadline",
+  "regulatory_change",
+  "security_window",
+  "market_window",
+]);
+
+function temporalRecordPriority(record: TemporalSignalRecord, nowTs = Date.now()) {
+  const latestRange = eventDateRange(record.signal.date_end ?? record.signal.date_start);
+  const futureWindowBoost = latestRange && latestRange.endTs >= nowTs ? 120 : 0;
+  const futureContextBoost = futureLeanTemporalContexts.has(record.signal.temporal_context) ? 40 : 0;
+  return (
+    futureWindowBoost +
+    futureContextBoost +
+    record.signal.strategic_importance_score +
+    record.signal.sweden_mexico_relevance_score +
+    record.signal.temporal_certainty_score
+  );
 }
 
 function mapBackgroundJob(row: BackgroundJobRow): BackgroundJob {
@@ -749,7 +879,7 @@ export async function upsertProcessedItem(input: NewProcessedItem, db: MissionDe
     stringifyArray(input.geographic_tags),
     input.why_it_may_matter_sv,
     stringifyArray(input.profile_tags),
-    nullable(input.event_date),
+    nullable(normalizeEventDate(input.event_date)),
     input.processed_model,
     input.processed_at,
     input.cache_expires_at,
@@ -783,6 +913,202 @@ export async function getFreshProcessedItemByRawId(
   return row ? mapProcessedItem(row) : null;
 }
 
+export async function upsertTemporalSignal(input: NewTemporalSignal, db: MissionDeskDb = getMigratedDb()) {
+  await db.prepare(`
+    INSERT INTO temporal_signals (
+      id,
+      raw_source_item_id,
+      date_start,
+      date_end,
+      extracted_date_type,
+      temporal_context,
+      temporal_certainty_score,
+      strategic_importance_score,
+      sweden_mexico_relevance_score,
+      extraction_confidence_score,
+      source_sentence,
+      normalized_summary,
+      extraction_reason,
+      extraction_model
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      raw_source_item_id = excluded.raw_source_item_id,
+      date_start = excluded.date_start,
+      date_end = excluded.date_end,
+      extracted_date_type = excluded.extracted_date_type,
+      temporal_context = excluded.temporal_context,
+      temporal_certainty_score = excluded.temporal_certainty_score,
+      strategic_importance_score = excluded.strategic_importance_score,
+      sweden_mexico_relevance_score = excluded.sweden_mexico_relevance_score,
+      extraction_confidence_score = excluded.extraction_confidence_score,
+      source_sentence = excluded.source_sentence,
+      normalized_summary = excluded.normalized_summary,
+      extraction_reason = excluded.extraction_reason,
+      extraction_model = excluded.extraction_model,
+      updated_at = datetime('now')
+  `).run(
+    input.id,
+    input.raw_source_item_id,
+    nullable(normalizeEventDate(input.date_start)),
+    nullable(normalizeEventDate(input.date_end)),
+    input.extracted_date_type,
+    input.temporal_context,
+    clampScore(input.temporal_certainty_score),
+    clampScore(input.strategic_importance_score),
+    clampScore(input.sweden_mexico_relevance_score),
+    clampScore(input.extraction_confidence_score),
+    input.source_sentence.slice(0, 1200),
+    input.normalized_summary.slice(0, 800),
+    nullable(input.extraction_reason?.slice(0, 800)),
+    input.extraction_model,
+  );
+
+  return getTemporalSignalById(input.id, db);
+}
+
+export async function getTemporalSignalById(id: string, db: MissionDeskDb = getMigratedDb()) {
+  const row = await db
+    .prepare("SELECT * FROM temporal_signals WHERE id = ?")
+    .get(id) as TemporalSignalRow | undefined;
+
+  return row ? mapTemporalSignal(row) : null;
+}
+
+export async function listTemporalSignalRawSourceItemIds(
+  rawSourceItemIds?: string[],
+  db: MissionDeskDb = getMigratedDb(),
+) {
+  const where: string[] = [];
+  const params: DbValue[] = [];
+
+  if (rawSourceItemIds && rawSourceItemIds.length > 0) {
+    where.push(`raw_source_item_id IN (${placeholders(rawSourceItemIds)})`);
+    params.push(...rawSourceItemIds);
+  }
+
+  const rows = await db
+    .prepare(`
+      SELECT DISTINCT raw_source_item_id
+      FROM temporal_signals
+      ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
+    `)
+    .all(...params) as Array<{ raw_source_item_id: string }>;
+
+  return rows.map((row) => row.raw_source_item_id);
+}
+
+export async function listTemporalSignals(
+  filters: {
+    limit?: number;
+    onlyUpcoming?: boolean;
+    minTemporalCertainty?: number;
+    minStrategicImportance?: number;
+    minSwedenMexicoRelevance?: number;
+  } = {},
+  db: MissionDeskDb = getMigratedDb(),
+) {
+  const where: string[] = [];
+  const params: DbValue[] = [];
+
+  if (filters.onlyUpcoming ?? true) {
+    where.push(`
+      (
+        temporal_signals.date_start IS NULL
+        OR datetime(COALESCE(temporal_signals.date_end, temporal_signals.date_start)) >= datetime(?)
+      )
+    `);
+    params.push(nowIso());
+  }
+
+  if (filters.minTemporalCertainty !== undefined) {
+    where.push("temporal_signals.temporal_certainty_score >= ?");
+    params.push(clampScore(filters.minTemporalCertainty));
+  }
+
+  if (filters.minStrategicImportance !== undefined) {
+    where.push("temporal_signals.strategic_importance_score >= ?");
+    params.push(clampScore(filters.minStrategicImportance));
+  }
+
+  if (filters.minSwedenMexicoRelevance !== undefined) {
+    where.push("temporal_signals.sweden_mexico_relevance_score >= ?");
+    params.push(clampScore(filters.minSwedenMexicoRelevance));
+  }
+
+  const rows = await db.prepare(`
+    SELECT
+      temporal_signals.*,
+      processed_items.title_sv AS processed_title_sv,
+      processed_items.summary_sv AS processed_summary_sv,
+      processed_items.category AS processed_category,
+      processed_items.urgency_score AS processed_urgency_score,
+      processed_items.diplomatic_relevance_score AS processed_diplomatic_relevance_score,
+      processed_items.sweden_relevance_score AS processed_sweden_relevance_score,
+      processed_items.economic_impact_score AS processed_economic_impact_score,
+      processed_items.security_impact_score AS processed_security_impact_score,
+      processed_items.geographic_scope AS processed_geographic_scope,
+      processed_items.geographic_tags AS processed_geographic_tags,
+      processed_items.why_it_may_matter_sv AS processed_why_it_may_matter_sv,
+      processed_items.profile_tags AS processed_profile_tags,
+      processed_items.event_date AS processed_event_date,
+      processed_items.processed_model AS processed_processed_model,
+      processed_items.processed_at AS processed_processed_at,
+      processed_items.cache_expires_at AS processed_cache_expires_at,
+      processed_items.created_at AS processed_created_at,
+      processed_items.updated_at AS processed_updated_at,
+      raw_source_items.id AS raw_id,
+      raw_source_items.source_type AS raw_source_type,
+      raw_source_items.title_original AS raw_title_original,
+      raw_source_items.url AS raw_url,
+      raw_source_items.source_name AS raw_source_name,
+      raw_source_items.source_country AS raw_source_country,
+      raw_source_items.source_language AS raw_source_language,
+      raw_source_items.published_at AS raw_published_at,
+      raw_source_items.detected_country AS raw_detected_country,
+      raw_source_items.detected_region AS raw_detected_region,
+      raw_source_items.detected_city AS raw_detected_city,
+      raw_source_items.snippet AS raw_snippet,
+      raw_source_items.raw_content AS raw_raw_content,
+      raw_source_items.source_priority AS raw_source_priority,
+      raw_source_items.credibility_score AS raw_credibility_score,
+      raw_source_items.crawl_status AS raw_crawl_status,
+      raw_source_items.created_at AS raw_created_at,
+      raw_source_items.updated_at AS raw_updated_at
+    FROM temporal_signals
+    INNER JOIN processed_items
+      ON processed_items.raw_source_item_id = temporal_signals.raw_source_item_id
+    INNER JOIN raw_source_items
+      ON raw_source_items.id = temporal_signals.raw_source_item_id
+    ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
+    ORDER BY
+      CASE WHEN temporal_signals.date_start IS NULL THEN 1 ELSE 0 END ASC,
+      temporal_signals.date_start ASC,
+      temporal_signals.strategic_importance_score DESC,
+      temporal_signals.sweden_mexico_relevance_score DESC
+    LIMIT ?
+  `).all(...params, Math.max(limitValue(filters.limit, 50) * 5, 50)) as unknown as JoinedTemporalSignalRow[];
+
+  const mapped = rows.map(mapJoinedTemporalSignal);
+  const deduped = new Map<string, TemporalSignalRecord>();
+
+  for (const record of mapped) {
+    const existing = deduped.get(record.raw.id);
+    if (!existing || temporalRecordPriority(record) > temporalRecordPriority(existing)) {
+      deduped.set(record.raw.id, record);
+    }
+  }
+
+  return [...deduped.values()]
+    .sort((a, b) => {
+      const aDate = a.signal.date_start ?? a.signal.date_end ?? "9999-12-31";
+      const bDate = b.signal.date_start ?? b.signal.date_end ?? "9999-12-31";
+      if (aDate !== bDate) return aDate.localeCompare(bDate);
+      return temporalRecordPriority(b) - temporalRecordPriority(a);
+    })
+    .slice(0, limitValue(filters.limit, 50));
+}
+
 export async function listProcessedItems(
   filters: ProcessedItemFilters = {},
   db: MissionDeskDb = getMigratedDb(),
@@ -804,6 +1130,11 @@ export async function listProcessedItems(
   if (filters.geographicTag) {
     where.push("processed_items.geographic_tags LIKE ?");
     params.push(`%"${filters.geographicTag}"%`);
+  }
+
+  if (filters.rawSourceItemIds && filters.rawSourceItemIds.length > 0) {
+    where.push(`processed_items.raw_source_item_id IN (${placeholders(filters.rawSourceItemIds)})`);
+    params.push(...filters.rawSourceItemIds);
   }
 
   if (filters.onlyFresh ?? true) {
@@ -853,8 +1184,13 @@ export async function listProcessedItems(
         raw_source_items.source_priority DESC,
         COALESCE(raw_source_items.published_at, processed_items.processed_at) DESC
       LIMIT ?
+      OFFSET ?
     `)
-    .all(...params, limitValue(filters.limit, 100)) as unknown as JoinedProcessedRow[];
+    .all(
+      ...params,
+      limitValue(filters.limit, 100),
+      Math.max(0, Math.round(filters.offset ?? 0)),
+    ) as unknown as JoinedProcessedRow[];
 
   return rows.map(mapJoinedProcessed);
 }

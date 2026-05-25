@@ -102,6 +102,8 @@ function compositeScore(record: ProcessedIntelligenceRecord, type: BriefingType)
 
 function sourceTypeMatches(type: BriefingType, record: ProcessedIntelligenceRecord) {
   if (type !== "upcoming_events_advisories") return true;
+  // MVP compatibility: this briefing type predates a real Upcoming Signals
+  // model and should not be treated as authoritative event infrastructure.
   return ["advisory", "event", "government", "institution"].includes(record.raw.source_type);
 }
 

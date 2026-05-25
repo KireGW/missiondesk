@@ -1,5 +1,6 @@
 import { swedenMexicoEmbassyConfig } from "@/lib/config/embassies/sweden-mexico";
 import { analyzeArticleWithOpenAI, isOpenAiConfigured } from "@/lib/ai/pipeline";
+import { normalizeEventDate } from "@/lib/intelligence/event-dates";
 import { fetchRssSource } from "@/lib/ingestion/rss";
 import type {
   EmbassyConfig,
@@ -382,7 +383,7 @@ async function enhanceWithAi(
         profile_tags: analysis.profile_tags,
         why_it_matters_sv: analysis.why_it_matters_sv,
         suggested_talking_points_sv: analysis.suggested_talking_points_sv,
-        event_date: analysis.event_date ?? item.event_date,
+        event_date: normalizeEventDate(analysis.event_date) ?? item.event_date,
         risk_sv: analysis.risk_sv ?? item.risk_sv,
         opportunity_sv: analysis.opportunity_sv ?? item.opportunity_sv,
         actors: [...(item.actors ?? []), "AI-bearbetad"],

@@ -212,10 +212,10 @@ export const swedenMexicoEmbassyConfig: EmbassyConfig = {
     },
     {
       id: "upcoming_events",
-      label: "Kommande händelser",
-      shortLabel: "Kommande",
-      description: "Kalenderdrivna signaler och förberedelsepunkter.",
-      emphasis: ["förberedelse", "mötespunkter", "kalender"],
+      label: "Framåtblick",
+      shortLabel: "Kommande signaler",
+      description: "Strategiska framtidssignaler och förberedelsepunkter.",
+      emphasis: ["förberedelse", "signal", "tidsfönster"],
       categoryWeights: {
         foreign_policy: 1.2,
         trade: 1.2,

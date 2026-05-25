@@ -5,6 +5,7 @@ import {
   CheckCircle2,
   Database,
   Download,
+  ExternalLink,
   Plus,
   RotateCcw,
   XCircle,
@@ -730,9 +731,7 @@ export function SourceManager({
                       <tr key={item.sourceId} className="align-top hover:bg-[var(--app-panel-muted)]">
                         <td className="px-4 py-3">
                           <p className="font-medium text-[var(--app-fg)]">{source.name}</p>
-                          <p className="mt-1 break-all font-mono text-xs text-[var(--app-muted)]">
-                            {source.url}
-                          </p>
+                          <SourceUrlLink url={source.url} className="mt-1" />
                         </td>
                         <td className="px-4 py-3">
                           <AuditPill tone="neutral">
@@ -1051,9 +1050,7 @@ export function SourceManager({
                           </AuditPill>
                         )}
                       </div>
-                      <p className="mt-2 break-all font-mono text-xs text-[var(--app-muted)]">
-                        {source.url}
-                      </p>
+                      <SourceUrlLink url={source.url} className="mt-2" />
                       <div className="mt-3 flex flex-wrap gap-2 text-xs text-[var(--app-muted)]">
                         <span>{countryNameSv(source.country) ?? source.country}</span>
                         <span>{source.language.toUpperCase()}</span>
@@ -1176,6 +1173,26 @@ function SelectField<T extends string>({
         ))}
       </select>
     </label>
+  );
+}
+
+function SourceUrlLink({ url, className }: { url: string; className?: string }) {
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noreferrer"
+      className={clsx(
+        "group inline-flex max-w-full items-center gap-1 break-all font-mono text-xs text-[var(--app-muted)] transition hover:text-[var(--app-accent)]",
+        className,
+      )}
+    >
+      <span className="group-hover:underline group-hover:decoration-1 group-hover:decoration-[color-mix(in_srgb,var(--app-fg),transparent_38%)] group-hover:underline-offset-3">
+        {url}
+      </span>
+      <ExternalLink className="h-3 w-3 shrink-0" aria-hidden="true" />
+      <span className="sr-only">Öppna källa i ny flik</span>
+    </a>
   );
 }
 

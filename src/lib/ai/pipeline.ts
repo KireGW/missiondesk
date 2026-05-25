@@ -6,6 +6,8 @@ import type {
   ProfileMode,
 } from "@/lib/types";
 import type { NormalizedSourceDocument } from "@/lib/ingestion/types";
+import { normalizeSwedishUserFacingText } from "@/lib/ai/swedish-normalization";
+import { normalizeEventDate } from "@/lib/intelligence/event-dates";
 
 export interface DiplomaticProcessingInput {
   embassy: EmbassyConfig;
@@ -42,6 +44,10 @@ export interface DiplomaticProcessor {
 
 export const processingInstructionsSv = [
   "Översätt allt slutanvändarinnehåll till svenska.",
+  "Skriv idiomatisk svensk nyhetssvenska: översätt betydelse, inte ord för ord, och lämna inte engelska fraser kvar i svenska rubriker.",
+  "Använd EU eller Europeiska unionen, inte Europeiska Unionen; skriv Mexiko på svenska och använd Mexiko-EU eller Mexiko och EU i rubriker.",
+  "Använd svensk stavning i användartext: skriv fentanyl, inte fentanil.",
+  "Översätt joint declaration/declaración conjunta som gemensam deklaration eller gemensamt uttalande beroende på källans innebörd; använd inte kumulativ deklaration.",
   "Prioritera signalvärde över allmän nyhetsvärdering.",
   "Identifiera relevans för Sverige, EU-positioner, svenska företag och ambassadens relationer utan att spekulera.",
   "Skilj tydligt mellan brådska, diplomatisk relevans, ekonomisk påverkan och säkerhetspåverkan.",
@@ -253,8 +259,8 @@ function sanitizeAnalysis(analysis: AiArticleAnalysis): AiArticleAnalysis {
 
   return {
     ...analysis,
-    title_sv: analysis.title_sv.slice(0, 140),
-    summary_sv: analysis.summary_sv.slice(0, 420),
+    title_sv: normalizeSwedishUserFacingText(analysis.title_sv).slice(0, 140),
+    summary_sv: normalizeSwedishUserFacingText(analysis.summary_sv).slice(0, 420),
     category,
     geographic_scope: geographicScope,
     geographic_tags: analysis.geographic_tags.slice(0, 6),
@@ -265,10 +271,14 @@ function sanitizeAnalysis(analysis: AiArticleAnalysis): AiArticleAnalysis {
     security_impact_score: clampScore(analysis.security_impact_score),
     public_attention_score: clampScore(analysis.public_attention_score),
     profile_tags: profileTags.length > 0 ? profileTags : ["daily_overview"],
-    why_it_matters_sv: analysis.why_it_matters_sv.slice(0, 240),
+    why_it_matters_sv: normalizeSwedishUserFacingText(analysis.why_it_matters_sv).slice(
+      0,
+      240,
+    ),
     suggested_talking_points_sv: analysis.suggested_talking_points_sv
       .map((point) => point.slice(0, 120))
       .slice(0, 2),
+    event_date: normalizeEventDate(analysis.event_date) ?? null,
     confidence: Math.max(0, Math.min(1, analysis.confidence)),
   };
 }

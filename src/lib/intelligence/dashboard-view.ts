@@ -4,6 +4,7 @@ import type {
 } from "@/lib/intelligence/models";
 import type { IntelligenceItem } from "@/lib/types";
 import { countryNameSv } from "@/lib/i18n/countries";
+import { normalizeEventDate } from "@/lib/intelligence/event-dates";
 
 const scopeLabel = (record: ProcessedIntelligenceRecord) => {
   if (record.raw.detected_city) return record.raw.detected_city;
@@ -47,11 +48,7 @@ export function processedRecordToIntelligenceItem(
       "Kontrollera originalkällan före eventuell extern användning.",
     ],
     original_excerpt: record.raw.snippet ?? record.raw.title_original,
-    event_date:
-      record.processed.event_date ??
-      (record.raw.source_type === "event" || record.raw.source_type === "advisory"
-        ? record.raw.published_at
-        : undefined),
+    event_date: normalizeEventDate(record.processed.event_date),
   };
 }
 

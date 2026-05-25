@@ -7,6 +7,11 @@ import {
   upsertDuplicateCluster,
   upsertRankedCandidate,
 } from "@/lib/intelligence/repository";
+import {
+  compactSwedenMexicoReason,
+  detectSwedenMexicoRelevance,
+  type SwedenMexicoRelevanceSignal,
+} from "@/lib/intelligence/sweden-relevance";
 import type {
   CandidateSelectionStatus,
   NewRankedProcessingCandidate,
@@ -53,6 +58,7 @@ interface RankedDraft {
   sourceCount: number;
   titleFingerprint: string;
   urlFingerprint: string;
+  swedenMexicoSignal: SwedenMexicoRelevanceSignal;
   scores: Omit<
     NewRankedProcessingCandidate,
     | "raw_source_item_id"
@@ -108,10 +114,6 @@ const swedenTerms = [
   "sueca",
   "suecos",
   "suecas",
-  "nordic",
-  "nordico",
-  "nordica",
-  "nordiska",
   "embajada de suecia",
   "sweden abroad",
   "business sweden",
@@ -463,6 +465,11 @@ function selectionReason(draft: RankedDraft, status: CandidateSelectionStatus) {
     reasons.push("regional_state_item_held_for_on_demand_processing");
   }
 
+  const signalReason = compactSwedenMexicoReason(draft.swedenMexicoSignal);
+  if (signalReason) {
+    reasons.push(signalReason);
+  }
+
   return reasons.join("; ");
 }
 
@@ -495,12 +502,22 @@ export function rankRawSourceItems(
 
     for (const item of cluster) {
       const text = textForItem(item);
+      const swedenMexicoSignal = detectSwedenMexicoRelevance(item);
       const noisePenalty = termScore(text, noiseTerms, 70);
-      const keyword = termScore(text, strategicKeywords, 100);
+      const baseKeyword = termScore(text, strategicKeywords, 100);
       const diplomatic = diplomaticRelevanceScore(text, item);
-      const sweden = termScore(text, swedenTerms, 100);
+      const sweden = Math.max(termScore(text, swedenTerms, 100), swedenMexicoSignal.swedenRelevanceScore);
       const geography = geographicRelevanceScore(item, config);
-      const category = categoryRelevanceScore(text, item, config);
+      const keyword = clampScore(
+        Math.max(baseKeyword, baseKeyword + swedenMexicoSignal.crossRegionalScore * 0.35),
+      );
+      const category = clampScore(
+        Math.max(
+          categoryRelevanceScore(text, item, config),
+          swedenMexicoSignal.swedenRelevanceScore >= 50 ? 58 : 0,
+          swedenMexicoSignal.crossRegionalScore >= 50 ? 62 : 0,
+        ),
+      );
       const novelty = noveltyScore(
         item,
         titleFingerprint(item.title_original),
@@ -525,6 +542,7 @@ export function rankRawSourceItems(
           geography * 0.09 +
           category * 0.08 +
           novelty * 0.08 +
+          swedenMexicoSignal.crossRegionalScore * 0.08 +
           crossSource * 0.08 -
           noisePenalty * 0.22 -
           stalePenalty -
@@ -540,6 +558,7 @@ export function rankRawSourceItems(
         sourceCount,
         titleFingerprint: canonicalTitleFp,
         urlFingerprint: canonicalUrlFp,
+        swedenMexicoSignal,
         scores: {
           rank_score: rank,
           freshness_score: fresh,
@@ -554,6 +573,24 @@ export function rankRawSourceItems(
           cross_source_confirmation_score: crossSource,
         },
       });
+
+      if (
+        process.env.MISSIONDESK_DEBUG_RELEVANCE === "1" &&
+        (swedenMexicoSignal.swedenRelevanceScore > 0 || swedenMexicoSignal.crossRegionalScore > 0)
+      ) {
+        console.info("[MissionDesk relevance] ranked signal", {
+          title: item.title_original,
+          source: item.source_name,
+          swedishEntities: swedenMexicoSignal.swedishEntities,
+          mexicanEntities: swedenMexicoSignal.mexicanEntities,
+          sectors: swedenMexicoSignal.strategicSectors,
+          regionalSignals: swedenMexicoSignal.regionalSignals,
+          swedenScore: swedenMexicoSignal.swedenRelevanceScore,
+          crossRegionalScore: swedenMexicoSignal.crossRegionalScore,
+          reasons: swedenMexicoSignal.reasons,
+          caps: swedenMexicoSignal.falsePositiveFlags,
+        });
+      }
     }
   }
 

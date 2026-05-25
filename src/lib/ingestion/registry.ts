@@ -16,6 +16,7 @@ export const ingestionAdapters: IngestionAdapter[] = [
       fetchRssSource(source, {
         limit: context.limit,
         preserveRawContent: context.preserveRawContent,
+        signal: context.signal,
       }),
   },
   {
@@ -25,6 +26,7 @@ export const ingestionAdapters: IngestionAdapter[] = [
       fetchWebsiteMetadataSource(source, {
         limit: context.limit,
         preserveRawContent: context.preserveRawContent,
+        signal: context.signal,
       }),
   },
   {
@@ -57,6 +59,7 @@ export const ingestionAdapters: IngestionAdapter[] = [
       fetchSocialSource(source, {
         limit: context.limit,
         preserveRawContent: context.preserveRawContent,
+        signal: context.signal,
       }),
   },
   {
@@ -66,6 +69,7 @@ export const ingestionAdapters: IngestionAdapter[] = [
       fetchWebsiteMetadataSource(source, {
         limit: context.limit,
         preserveRawContent: context.preserveRawContent,
+        signal: context.signal,
       }),
   },
   {
@@ -75,6 +79,7 @@ export const ingestionAdapters: IngestionAdapter[] = [
       fetchWebsiteMetadataSource(source, {
         limit: context.limit,
         preserveRawContent: context.preserveRawContent,
+        signal: context.signal,
       }),
   },
   {
@@ -84,6 +89,7 @@ export const ingestionAdapters: IngestionAdapter[] = [
       fetchWebsiteMetadataSource(source, {
         limit: context.limit,
         preserveRawContent: context.preserveRawContent,
+        signal: context.signal,
       }),
   },
 ];
