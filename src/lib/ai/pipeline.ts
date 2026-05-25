@@ -7,6 +7,7 @@ import type {
 } from "@/lib/types";
 import type { NormalizedSourceDocument } from "@/lib/ingestion/types";
 import { normalizeSwedishUserFacingText } from "@/lib/ai/swedish-normalization";
+import { ensureSwedishSignalTitle } from "@/lib/ai/title-guardrail";
 import { normalizeEventDate } from "@/lib/intelligence/event-dates";
 
 export interface DiplomaticProcessingInput {
@@ -371,5 +372,16 @@ export async function analyzeArticleWithOpenAI(
   const text = extractResponseText(payload);
   if (!text) return null;
 
-  return sanitizeAnalysis(JSON.parse(text) as AiArticleAnalysis);
+  const analysis = sanitizeAnalysis(JSON.parse(text) as AiArticleAnalysis);
+  analysis.title_sv = await ensureSwedishSignalTitle({
+    apiKey,
+    model: process.env.OPENAI_MODEL ?? "gpt-5-mini",
+    sourceLanguage: article.sourceLanguage,
+    titleSv: analysis.title_sv,
+    titleOriginal: article.title,
+    snippetOriginal: article.excerpt,
+    summarySv: analysis.summary_sv,
+  });
+
+  return analysis;
 }

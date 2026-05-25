@@ -1,5 +1,6 @@
 import { swedenMexicoEmbassyConfig } from "@/lib/config/embassies/sweden-mexico";
 import { normalizeSwedishUserFacingText } from "@/lib/ai/swedish-normalization";
+import { ensureSwedishSignalTitle } from "@/lib/ai/title-guardrail";
 import { normalizeEventDate } from "@/lib/intelligence/event-dates";
 import type {
   GeographicScope,
@@ -303,5 +304,16 @@ if (!text) {
   return null;
 }
 
-return sanitizeAnalysis(JSON.parse(text) as NationalProcessingAnalysis);
+  const analysis = sanitizeAnalysis(JSON.parse(text) as NationalProcessingAnalysis);
+  analysis.title_sv = await ensureSwedishSignalTitle({
+    apiKey,
+    model,
+    sourceLanguage: raw.source_language,
+    titleSv: analysis.title_sv,
+    titleOriginal: raw.title_original,
+    snippetOriginal: raw.snippet,
+    summarySv: analysis.summary_sv,
+  });
+
+  return analysis;
 }
