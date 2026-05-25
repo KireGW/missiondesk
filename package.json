@@ -21,7 +21,8 @@
     "audit:temporal-prefilter": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/audit-temporal-prefilter.ts",
     "audit:rss": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/audit-rss-quality.ts",
     "backfill:temporal-signals": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/backfill-temporal-signals.ts",
-    "backfill:event-dates": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/backfill-event-dates.ts"
+    "backfill:event-dates": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/backfill-event-dates.ts",
+    "briefing:regenerate": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/regenerate-briefing.ts"
   },
   "dependencies": {
     "@tailwindcss/postcss": "latest",

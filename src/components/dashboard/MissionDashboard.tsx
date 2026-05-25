@@ -3787,6 +3787,18 @@ const BRIEFING_SECTION_PATTERNS = [
   /^att följa$/i,
 ];
 
+const BRIEFING_HIDDEN_SECTION_PATTERNS = [
+  /^att följa i dag\b.*:$/i,
+];
+
+function isBriefingSectionLine(line: string) {
+  if (BRIEFING_SECTION_PATTERNS.some((pattern) => pattern.test(line))) {
+    return true;
+  }
+
+  return line.endsWith(":") && line.length <= 96 && !/\bbetydelse:\s*/i.test(line);
+}
+
 function parseBriefingBlocks(content?: string) {
   if (!content) return [] as BriefingContentBlock[];
 
@@ -3800,12 +3812,18 @@ function parseBriefingBlocks(content?: string) {
     )
     .filter(Boolean)
     .filter((line) => !/^(ambassadörsbrief|briefing|morning brief|morgonbrief)\b/i.test(line))
+    .filter((line) => !BRIEFING_HIDDEN_SECTION_PATTERNS.some((pattern) => pattern.test(line)))
+    .filter((line) => !isBriefingSynthesisLine(line))
     .map((line) =>
-      BRIEFING_SECTION_PATTERNS.some((pattern) => pattern.test(line))
+      isBriefingSectionLine(line)
         ? ({ kind: "section", title: line } satisfies BriefingContentBlock)
         : ({ kind: "item", text: line } satisfies BriefingContentBlock),
     )
     .slice(0, 9);
+}
+
+function isBriefingSynthesisLine(line: string) {
+  return /^(mönster|samlad bild|övergripande bild|sammanfattningsvis)\b/i.test(line.trim());
 }
 
 function fallbackBriefingMeta(line: string): {
@@ -3881,8 +3899,14 @@ function PrimaryBriefingPanel({
   onPrint: () => void;
 }) {
   const lines = parseBriefingBlocks(briefing?.content_sv);
+  const briefingPointCount =
+    lines.length > 0
+      ? lines.filter((line) => line.kind === "item").length
+      : Math.min(fallbackItems.length, 5);
 
-  const sourceCount = briefing?.source_item_ids.length ?? fallbackItems.length;
+  const sourceCount = briefing
+    ? new Set(briefing.source_item_ids).size
+    : fallbackItems.length;
   const resolvedSourceItems = briefing ? sourceItems : fallbackItems.slice(0, 5);
   const hasPrintableItems = resolvedSourceItems.length > 0 || fallbackItems.length > 0;
 
@@ -3906,7 +3930,8 @@ function PrimaryBriefingPanel({
                   ? `Uppdaterad ${formatDate(cacheTimestamp, true)}`
                   : "Inväntar briefing"}
             </Pill>
-            <Pill tone="neutral">Underlag {sourceCount}</Pill>
+            <Pill tone="neutral">Punkter {briefingPointCount}</Pill>
+            <Pill tone="neutral">Källposter {sourceCount}</Pill>
             <Pill tone="neutral">Bearbetad från verifierade källor</Pill>
           </div>
         </div>
@@ -3924,7 +3949,7 @@ function PrimaryBriefingPanel({
       {lines && lines.length > 0 ? (
         <ol className="mt-5 space-y-3">
           {(() => {
-            let itemIndex = 0;
+            let sourceItemIndex = 0;
             return lines.map((line, index) =>
               line.kind === "section" ? (
                 <li
@@ -3939,8 +3964,8 @@ function PrimaryBriefingPanel({
                 <BriefingBullet
                   key={`${line.text}-${index}`}
                   line={line.text}
-                  index={itemIndex}
-                  item={resolvedSourceItems[itemIndex++]}
+                  index={index}
+                  item={resolvedSourceItems[sourceItemIndex++]}
                   config={config}
                 />
               ),
@@ -3972,7 +3997,7 @@ function PrimaryBriefingPanel({
                 Källposter som briefingen bygger på.
               </p>
             </div>
-            <Pill tone="neutral">{resolvedSourceItems.length} verifierbara underlag</Pill>
+            <Pill tone="neutral">{resolvedSourceItems.length} verifierbara källposter</Pill>
           </div>
           <div className="mt-4 grid gap-2">
             {resolvedSourceItems.map((item) => (

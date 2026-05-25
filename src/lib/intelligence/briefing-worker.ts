@@ -5,7 +5,11 @@ import {
   generateBriefingWithOpenAI,
   isBriefingGenerationConfigured,
 } from "@/lib/ai/briefing-generation";
-import { cacheExpiresAtFor, cacheHoursFor } from "@/lib/intelligence/cache-policy";
+import {
+  cacheExpiresAtFor,
+  cacheHoursFor,
+  signalDisplaySince,
+} from "@/lib/intelligence/cache-policy";
 import {
   claimBackgroundJobs,
   completeBackgroundJob,
@@ -155,10 +159,12 @@ export async function selectBriefingItems(
   const profileRecords = await listProcessedItems({
     profile,
     onlyFresh: true,
+    publishedSince: signalDisplaySince(),
     limit: 120,
   });
   const fallbackRecords = await listProcessedItems({
     onlyFresh: true,
+    publishedSince: signalDisplaySince(),
     limit: 120,
   });
   const sourceRecords = profileRecords.length >= minItems ? profileRecords : fallbackRecords;
@@ -246,8 +252,8 @@ export async function enqueueDefaultBriefingJobs(options: { force?: boolean; cac
     }),
     enqueueBriefingGenerationJob({
       type: "ambassador_brief",
-      minItems: 3,
-      maxItems: 6,
+      minItems: 5,
+      maxItems: 5,
       force: options.force,
       cacheHours: options.cacheHours,
     }),

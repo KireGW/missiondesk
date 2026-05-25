@@ -193,6 +193,14 @@ export async function generateBriefingWithOpenAI(
             "Använd bara de tillhandahållna processade posterna.",
             "Prioritera 5-7 kärnsignaler framför fullständig täckning.",
             "Alla användarvända texter ska vara på svenska.",
+            "Skriv idiomatisk, tät och flytande briefing-svenska.",
+            "Datum får användas när de klargör timing, men väv in dem naturligt i meningen i stället för att stapla dem i parenteser.",
+            "Undvik parentesbrus, överlastade satser och för många orts-/delstatsmarkörer i samma huvudrad.",
+            "Låt huvudraden bära observationen; lägg bedömningen efter 'Betydelse:' när det passar.",
+            "Varje briefingpunkt måste gå att härleda direkt till en eller flera av de givna processade posterna.",
+            "Skriv inte någon separat syntespunkt, sammanfattande slutpunkt eller metarad som återberättar de andra briefingpunkterna.",
+            "Varje rad i briefingen ska vara en egen sakuppgift eller utveckling som direkt bygger på underlaget.",
+            "Tillför inte nya fakta, nya datum, nya aktörer eller kausala samband som inte stöds av underlaget.",
             "Returnera strikt JSON enligt schemat.",
           ].join(" "),
         },
@@ -205,9 +213,12 @@ export async function generateBriefingWithOpenAI(
               profile: input.profile,
               geographicScope: input.geographicScope,
               region: input.region,
-              targetCoreDevelopments: "5-7",
+              targetCoreDevelopments:
+                input.type === "ambassador_brief" ? "5" : "5-7",
               style:
-                "Kort morgonbriefing: en rad per kärnsignal. Börja med vad som kräver uppmärksamhet. Inga långa stycken.",
+                input.type === "ambassador_brief"
+                  ? "Kort ambassadörsbriefing med exakt 5 briefingpunkter om underlaget räcker. En rad per kärnsignal. Börja med vad som kräver uppmärksamhet. Inga långa stycken. Naturlig svenska med gott flyt; datum får nämnas när det hjälper, men utan klumpiga parenteser eller onödigt tät komprimering."
+                  : "Kort morgonbriefing: en rad per kärnsignal. Börja med vad som kräver uppmärksamhet. Inga långa stycken. Naturlig svenska med gott flyt; datum får nämnas när det hjälper, men utan klumpiga parenteser eller onödigt tät komprimering.",
             },
             embassy: {
               name: swedenMexicoEmbassyConfig.embassyName,
