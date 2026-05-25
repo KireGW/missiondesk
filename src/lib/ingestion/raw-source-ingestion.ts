@@ -34,6 +34,17 @@ export interface RawIngestionOptions {
   concurrency?: number;
   preserveRawContent?: boolean;
   sourceTimeoutMs?: number;
+  onSourceProgress?: (progress: {
+    completedSources: number;
+    totalSources: number;
+    latestResult: SourceIngestionResult;
+    totals: {
+      fetchedCount: number;
+      storedCount: number;
+      skippedCount: number;
+      errorCount: number;
+    };
+  }) => void | Promise<void>;
 }
 
 export interface SourceIngestionResult {
@@ -475,6 +486,7 @@ async function mapWithConcurrency<T, R>(
   values: T[],
   concurrency: number,
   mapper: (value: T) => Promise<R>,
+  onResolved?: (result: R, index: number) => void | Promise<void>,
 ) {
   const results: R[] = [];
   let index = 0;
@@ -483,7 +495,11 @@ async function mapWithConcurrency<T, R>(
     while (index < values.length) {
       const currentIndex = index;
       index += 1;
-      results[currentIndex] = await mapper(values[currentIndex]);
+      const result = await mapper(values[currentIndex]);
+      results[currentIndex] = result;
+      if (onResolved) {
+        await onResolved(result, currentIndex);
+      }
     }
   }
 
@@ -539,10 +555,34 @@ export async function ingestRawSourceItems(
     skippedSources,
   });
 
+  let completedSources = 0;
+  let partialFetchedCount = 0;
+  let partialStoredCount = 0;
+  let partialSkippedCount = 0;
+  let partialErrorCount = 0;
   const results = await mapWithConcurrency(
     sources,
     options.concurrency ?? 6,
     (source) => ingestSource(source, config, options),
+    async (result) => {
+      completedSources += 1;
+      partialFetchedCount += result.fetchedCount;
+      partialStoredCount += result.storedCount;
+      partialSkippedCount += result.skippedCount;
+      partialErrorCount += result.errors.length;
+
+      await options.onSourceProgress?.({
+        completedSources,
+        totalSources: sources.length,
+        latestResult: result,
+        totals: {
+          fetchedCount: partialFetchedCount,
+          storedCount: partialStoredCount,
+          skippedCount: partialSkippedCount,
+          errorCount: partialErrorCount,
+        },
+      });
+    },
   );
 
   const websiteStats = combineWebsiteStats(results);

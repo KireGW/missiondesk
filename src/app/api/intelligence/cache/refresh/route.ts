@@ -16,6 +16,7 @@ import {
   getBackgroundJobById,
   getIngestionUpdateState,
   listBackgroundJobs,
+  requeueBackgroundJob,
   updateIngestionUpdateState,
   updateBackgroundJobPayload,
 } from "@/lib/intelligence/repository";
@@ -30,6 +31,7 @@ type RefreshScope = "national" | "briefings" | "all";
 
 const manualRefreshJobType = "manual_source_refresh";
 const STALE_MANUAL_REFRESH_MS = 15 * 60 * 1000;
+const ORPHANED_MANUAL_REFRESH_MS = 90 * 1000;
 const refreshSteps = [
   "Skannar verifierade källor…",
   "Deduplicerar och prioriterar nya poster…",
@@ -48,6 +50,25 @@ async function activeManualRefreshJob() {
     const lockedAt = job.locked_at ? new Date(job.locked_at).getTime() : 0;
     const updatedAt = job.updated_at ? new Date(job.updated_at).getTime() : 0;
     const lastActivityAt = Math.max(lockedAt, updatedAt);
+    if (
+      !manualRefreshInFlight &&
+      lastActivityAt > 0 &&
+      now - lastActivityAt > ORPHANED_MANUAL_REFRESH_MS &&
+      now - lastActivityAt <= STALE_MANUAL_REFRESH_MS
+    ) {
+      await logManualRefresh(job.id, "manual source rescan worker heartbeat missing; re-queued", {
+        heartbeatMissingAfterMs: ORPHANED_MANUAL_REFRESH_MS,
+      });
+      await requeueBackgroundJob(job.id, { errorMessage: null });
+      await updateIngestionUpdateState({
+        status: "pending",
+        started_at: payloadString(job, "startedAt", job.created_at),
+        completed_at: null,
+        error_message: null,
+      });
+      continue;
+    }
+
     if (lastActivityAt > 0 && now - lastActivityAt > STALE_MANUAL_REFRESH_MS) {
       await logManualRefresh(job.id, "manual source rescan marked stale", {
         staleAfterMs: STALE_MANUAL_REFRESH_MS,
@@ -71,7 +92,10 @@ async function activeManualRefreshJob() {
 }
 
 async function latestManualRefreshJob() {
-  await activeManualRefreshJob();
+  const activeJob = await activeManualRefreshJob();
+  if (activeJob && !manualRefreshInFlight) {
+    startManualRefreshWorkerInBackground();
+  }
   return (await listBackgroundJobs({ type: manualRefreshJobType, limit: 1 }))[0];
 }
 
@@ -95,6 +119,22 @@ function payloadLogs(job: BackgroundJob | null | undefined) {
   return Array.isArray(value) ? value.slice(-20) : [];
 }
 
+function manualRefreshFailureMessage(job: BackgroundJob | undefined, stateErrorMessage?: string | null) {
+  if (stateErrorMessage?.trim()) {
+    return stateErrorMessage.trim();
+  }
+
+  if (job?.error_message === "Manual source refresh became stale before completing.") {
+    const phase = payloadString(job, "phase", "");
+    if (phase === "ingesting_sources") {
+      return "Uppdateringen fastnade under källskanningen och markerades som avbruten. Försök igen.";
+    }
+    return "Uppdateringen fastnade innan den blev klar och markerades som avbruten. Försök igen.";
+  }
+
+  return job?.error_message ?? "Uppdateringen misslyckades.";
+}
+
 async function statusFromRefreshJob(job: BackgroundJob | undefined) {
   const state = await getIngestionUpdateState();
   const active = Boolean(job && ["pending", "running"].includes(job.status));
@@ -102,7 +142,7 @@ async function statusFromRefreshJob(job: BackgroundJob | undefined) {
     job?.status === "completed" ? 100 : payloadNumber(job, "progressPercent", active ? 8 : 0);
   const message =
     job?.status === "failed"
-      ? (job.error_message ?? "Uppdateringen misslyckades.")
+      ? manualRefreshFailureMessage(job, state?.error_message)
       : job?.status === "completed"
         ? payloadNumber(job, "processedCount") > 0
           ? `Uppdatering klar. ${payloadNumber(job, "processedCount")} nya signaler bearbetades.`
@@ -181,6 +221,21 @@ async function runManualFullRescan(options: {
     preserveRawContent: true,
     sourceTimeoutMs: 25_000,
     since,
+    onSourceProgress: async (progress) => {
+      const { completedSources, totalSources, latestResult, totals } = progress;
+      const sourceProgress = totalSources > 0 ? completedSources / totalSources : 0;
+      const progressPercent = Math.min(34, 12 + Math.round(sourceProgress * 22));
+      await updateManualRefreshPhase(options.jobId, "ingesting_sources", progressPercent, 0, {
+        sourceCount: totalSources,
+        completedSourceCount: completedSources,
+        latestSourceName: latestResult.sourceName,
+        latestSourceMethod: latestResult.retrievalMethod,
+        fetchedCount: totals.fetchedCount,
+        rawInsertedCount: totals.storedCount,
+        skippedCount: totals.skippedCount,
+        ingestionErrorCount: totals.errorCount,
+      });
+    },
   });
 
   await logManualRefresh(options.jobId, "source rescan finished", {

@@ -1605,6 +1605,33 @@ export async function failBackgroundJob(
   return getBackgroundJobById(id, db);
 }
 
+export async function requeueBackgroundJob(
+  id: string,
+  input: {
+    errorMessage?: string | null;
+    runAfter?: string;
+  } = {},
+  db: MissionDeskDb = getMigratedDb(),
+) {
+  await db.prepare(`
+    UPDATE background_jobs
+    SET
+      status = 'pending',
+      run_after = ?,
+      locked_at = NULL,
+      locked_by = NULL,
+      error_message = ?,
+      updated_at = datetime('now')
+    WHERE id = ?
+  `).run(
+    input.runAfter ?? nowIso(),
+    nullable(input.errorMessage ?? undefined),
+    id,
+  );
+
+  return getBackgroundJobById(id, db);
+}
+
 export async function getIngestionUpdateState(
   id = "feed",
   db: MissionDeskDb = getMigratedDb(),
