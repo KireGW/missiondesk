@@ -44,6 +44,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
+import { normalizeSwedishUserFacingText } from "@/lib/ai/swedish-normalization";
 import type { SignalTrackingResult, SignalTrackingSearchResult } from "@/lib/intelligence/signal-tracking";
 import { processedRecordToIntelligenceItem } from "@/lib/intelligence/dashboard-view";
 import {
@@ -75,6 +76,8 @@ interface MissionDashboardProps {
   activeSourceCount: number;
   lastIngestedAt?: string;
 }
+
+const DEFAULT_PROFILE: ProfileMode = "daily_overview";
 
 type GeographySelection =
   | { type: "national"; ids: string[] }
@@ -139,6 +142,10 @@ interface CacheRefreshStatusPayload {
   updateErrorMessage?: string;
   updateStatus?: "idle" | "pending" | "running" | "completed" | "failed";
 }
+
+type BriefingContentBlock =
+  | { kind: "section"; title: string }
+  | { kind: "item"; text: string };
 
 interface UpcomingSignalsApiPayload {
   signals: TemporalSignalRecord[];
@@ -803,12 +810,13 @@ export function MissionDashboard({
 }: MissionDashboardProps) {
   const [items, setItems] = useState<IntelligenceItem[]>(initialItems);
   const [briefings, setBriefings] = useState<Briefing[]>(initialBriefings);
+  const [briefingSupportItems, setBriefingSupportItems] = useState<IntelligenceItem[]>([]);
   const [cacheTimestamp, setCacheTimestamp] = useState(initialCacheTimestamp);
   const [cacheExpiresAt, setCacheExpiresAt] = useState(initialCacheExpiresAt);
   const [secondaryStatus, setSecondaryStatus] = useState<"idle" | "loading" | "ready" | "error">(
     "idle",
   );
-  const [profile, setProfile] = useState<ProfileMode>("daily_overview");
+  const [profile, setProfile] = useState<ProfileMode>(DEFAULT_PROFILE);
   const [showBriefingPanel, setShowBriefingPanel] = useState(false);
   const [showPrintPanel, setShowPrintPanel] = useState(false);
   const [showSignalTrackingPanel, setShowSignalTrackingPanel] = useState(false);
@@ -1357,7 +1365,7 @@ export function MissionDashboard({
   const topFive = priorityItems;
   const prioritizedIds = topFive.map((item) => item.id);
   const printItems = printItemIds
-    .map((id) => items.find((item) => item.id === id))
+    .map((id) => [...items, ...briefingSupportItems].find((item) => item.id === id))
     .filter((item): item is IntelligenceItem => Boolean(item));
   const expandedItem =
     topFive.find((item) => item.id === expandedId) ?? topFive[0];
@@ -1529,8 +1537,10 @@ export function MissionDashboard({
     );
   };
 
-  const activateSignalView = () => {
-    setProfile("daily_overview");
+  const activateSignalView = (nextProfile?: ProfileMode) => {
+    if (nextProfile) {
+      setProfile(nextProfile);
+    }
     setShowBriefingPanel(false);
     setShowPrintPanel(false);
     setShowSignalTrackingPanel(false);
@@ -1772,6 +1782,78 @@ export function MissionDashboard({
   const morningBriefing = briefings.find((briefing) => briefing.type === "morning_brief");
   const ambassadorBriefing =
     briefings.find((briefing) => briefing.type === "ambassador_brief") ?? morningBriefing;
+  const briefingSourceItems = useMemo(() => {
+    if (!ambassadorBriefing) return [];
+
+    const itemsById = new Map<string, IntelligenceItem>();
+    for (const item of [...items, ...briefingSupportItems]) {
+      itemsById.set(item.id, item);
+    }
+
+    return ambassadorBriefing.source_item_ids
+      .map((sourceId) => itemsById.get(`processed-${sourceId}`))
+      .filter((item): item is IntelligenceItem => Boolean(item));
+  }, [ambassadorBriefing, briefingSupportItems, items]);
+
+  useEffect(() => {
+    if (!showBriefingPanel || !ambassadorBriefing || ambassadorBriefing.source_item_ids.length === 0) {
+      setBriefingSupportItems([]);
+      return;
+    }
+
+    const existingIds = new Set(items.map((item) => item.id));
+    const missingRawIds = ambassadorBriefing.source_item_ids.filter(
+      (sourceId) => !existingIds.has(`processed-${sourceId}`),
+    );
+
+    if (missingRawIds.length === 0) {
+      setBriefingSupportItems([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadBriefingSupportItems() {
+      try {
+        const params = new URLSearchParams({
+          limit: String(Math.max(missingRawIds.length, 1)),
+          fresh: "0",
+          rawSourceItemIds: missingRawIds.join(","),
+        });
+
+        const response = await fetch(`/api/intelligence/processed?${params.toString()}`, {
+          cache: "no-store",
+        });
+
+        if (!response.ok) {
+          throw new Error("Briefing support items could not be loaded");
+        }
+
+        const payload = (await response.json()) as { items: ProcessedIntelligenceRecord[] };
+        if (cancelled) return;
+        setBriefingSupportItems(payload.items.map(processedRecordToIntelligenceItem));
+      } catch {
+        if (!cancelled) {
+          setBriefingSupportItems([]);
+        }
+      }
+    }
+
+    void loadBriefingSupportItems();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ambassadorBriefing, items, showBriefingPanel]);
+
+  const openBriefingPrintView = useCallback(() => {
+    const seedItems = briefingSourceItems.length > 0 ? briefingSourceItems : topFive.slice(0, 5);
+    setPrintItemIds(seedItems.map((item) => item.id));
+    setShowBriefingPanel(false);
+    setShowPrintPanel(true);
+    setShowSignalTrackingPanel(false);
+  }, [briefingSourceItems, topFive]);
+
   const hasPrimaryData = Boolean(ambassadorBriefing || topFive.length > 0);
   const statusTimestamp =
     lastIngestedAt ?? cacheRefreshJobStatus?.updateCompletedAt ?? cacheTimestamp;
@@ -2020,10 +2102,7 @@ export function MissionDashboard({
                         <button
                           type="button"
                           onClick={() => {
-                            setProfile(mode.id);
-                            setShowBriefingPanel(false);
-                            setShowPrintPanel(false);
-                            setShowSignalTrackingPanel(false);
+                            activateSignalView(mode.id);
                           }}
                           className={clsx(
                             "flex items-center gap-3 rounded-lg border px-3 py-3 text-left transition",
@@ -2274,21 +2353,10 @@ export function MissionDashboard({
               <PrimaryBriefingPanel
                 briefing={ambassadorBriefing}
                 fallbackItems={topFive}
-                allItems={items}
+                sourceItems={briefingSourceItems}
                 cacheTimestamp={cacheTimestamp}
                 config={config}
-              />
-            )}
-
-            {showBriefingPanel && !showPrintPanel && (
-              <SourceFeed
-                rows={sourceRows}
-                query={sourceQuery}
-                onQueryChange={setSourceQuery}
-                config={config}
-                profile={profile}
-                prioritizedIds={prioritizedIds}
-                onTogglePriority={toggleManualPriority}
+                onPrint={openBriefingPrintView}
               />
             )}
 
@@ -3712,70 +3780,172 @@ function FirstRunPanel({
   );
 }
 
+const BRIEFING_SECTION_PATTERNS = [
+  /^att bevaka(?:\/åtgärder)?$/i,
+  /^rekommenderade åtgärder$/i,
+  /^åtgärder$/i,
+  /^att följa$/i,
+];
+
+function parseBriefingBlocks(content?: string) {
+  if (!content) return [] as BriefingContentBlock[];
+
+  return normalizeSwedishUserFacingText(content)
+    .split("\n")
+    .map((line) =>
+      line
+        .trim()
+        .replace(/^[-*•]\s*/, "")
+        .replace(/^\d+[.)]\s*/, ""),
+    )
+    .filter(Boolean)
+    .filter((line) => !/^(ambassadörsbrief|briefing|morning brief|morgonbrief)\b/i.test(line))
+    .map((line) =>
+      BRIEFING_SECTION_PATTERNS.some((pattern) => pattern.test(line))
+        ? ({ kind: "section", title: line } satisfies BriefingContentBlock)
+        : ({ kind: "item", text: line } satisfies BriefingContentBlock),
+    )
+    .slice(0, 9);
+}
+
+function fallbackBriefingMeta(line: string): {
+  label: string;
+  Icon: LucideIcon;
+  tone: string;
+} {
+  const prefix = line.split(":")[0]?.trim() || "";
+  const normalized = prefix.toLowerCase();
+
+  if (normalized.includes("konsul")) {
+    return {
+      label: "Konsulärt",
+      Icon: Users,
+      tone: "text-[var(--app-warning)]",
+    };
+  }
+
+  if (
+    normalized.includes("företag") ||
+    normalized.includes("närings") ||
+    normalized.includes("upphandling") ||
+    normalized.includes("export")
+  ) {
+    return {
+      label: prefix || "Näringsliv",
+      Icon: BriefcaseBusiness,
+      tone: "text-[var(--app-accent)]",
+    };
+  }
+
+  if (
+    normalized.includes("rätt") ||
+    normalized.includes("domstol") ||
+    normalized.includes("regel") ||
+    normalized.includes("lag")
+  ) {
+    return {
+      label: prefix || "Rättsstat",
+      Icon: Landmark,
+      tone: "text-[var(--app-positive)]",
+    };
+  }
+
+  if (normalized.includes("säker")) {
+    return {
+      label: prefix || "Säkerhet",
+      Icon: Shield,
+      tone: "text-[var(--app-danger)]",
+    };
+  }
+
+  return {
+    label: prefix || "Åtgärdspunkt",
+    Icon: ClipboardList,
+    tone: "text-[var(--app-accent)]",
+  };
+}
+
 function PrimaryBriefingPanel({
   briefing,
   fallbackItems,
-  allItems,
+  sourceItems,
   cacheTimestamp,
   config,
+  onPrint,
 }: {
   briefing?: Briefing;
   fallbackItems: IntelligenceItem[];
-  allItems: IntelligenceItem[];
+  sourceItems: IntelligenceItem[];
   cacheTimestamp?: string;
   config: EmbassyConfig;
+  onPrint: () => void;
 }) {
-  const lines = briefing?.content_sv
-    .split("\n")
-    .map((line) => line.trim().replace(/^[-*]\s*/, "").replace(/^\d+[.)]\s*/, ""))
-    .filter(Boolean)
-    .filter((line) => !/^(ambassadörsbrief|briefing|morning brief|morgonbrief)\b/i.test(line))
-    .slice(0, 7);
+  const lines = parseBriefingBlocks(briefing?.content_sv);
 
   const sourceCount = briefing?.source_item_ids.length ?? fallbackItems.length;
-  const sourceItems = briefing
-    ? briefing.source_item_ids
-        .map((sourceId) =>
-          allItems.find((item) => item.id === `processed-${sourceId}`),
-        )
-        .filter((item): item is IntelligenceItem => Boolean(item))
-    : fallbackItems.slice(0, 5);
+  const resolvedSourceItems = briefing ? sourceItems : fallbackItems.slice(0, 5);
+  const hasPrintableItems = resolvedSourceItems.length > 0 || fallbackItems.length > 0;
 
   return (
     <section className="surface-strong rounded-xl p-6">
-      <div className="flex flex-col gap-3 border-b border-[var(--app-line)] pb-5">
-        <SectionKicker icon={Gauge} label="Briefing" />
-        <h2 className="text-2xl font-semibold tracking-normal">
-          Daglig överblick med verifierbart underlag
-        </h2>
-        <p className="max-w-3xl text-sm leading-6 text-[var(--app-soft)]">
-          En kort lägesbild av de viktigaste utvecklingarna. Varje punkt kan följas tillbaka
-          till verifierade signaler och originalkällor.
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <Pill tone={briefing ? "accent" : "neutral"}>
-            {briefing
-              ? `Genererad ${formatDate(briefing.generated_at, true)}`
-              : cacheTimestamp
-                ? `Uppdaterad ${formatDate(cacheTimestamp, true)}`
-                : "Inväntar briefing"}
-          </Pill>
-          <Pill tone="neutral">Underlag {sourceCount}</Pill>
-          <Pill tone="neutral">Bearbetad från verifierade källor</Pill>
+      <div className="flex flex-col gap-4 border-b border-[var(--app-line)] pb-5 lg:flex-row lg:items-end lg:justify-between">
+        <div className="min-w-0">
+          <SectionKicker icon={Gauge} label="Briefing" />
+          <h2 className="text-2xl font-semibold tracking-normal">
+            Daglig överblick med verifierbart underlag
+          </h2>
+          <p className="max-w-3xl text-sm leading-6 text-[var(--app-soft)]">
+            En kort lägesbild av de viktigaste utvecklingarna. Varje punkt kan följas tillbaka
+            till verifierade signaler och originalkällor.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Pill tone={briefing ? "accent" : "neutral"}>
+              {briefing
+                ? `Genererad ${formatDate(briefing.generated_at, true)}`
+                : cacheTimestamp
+                  ? `Uppdaterad ${formatDate(cacheTimestamp, true)}`
+                  : "Inväntar briefing"}
+            </Pill>
+            <Pill tone="neutral">Underlag {sourceCount}</Pill>
+            <Pill tone="neutral">Bearbetad från verifierade källor</Pill>
+          </div>
         </div>
+        <button
+          type="button"
+          onClick={onPrint}
+          disabled={!hasPrintableItems}
+          className="inline-flex items-center justify-center gap-2 rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-3 py-2 text-xs font-medium text-[var(--app-soft)] transition hover:border-[var(--app-accent)] hover:text-[var(--app-fg)] disabled:cursor-not-allowed disabled:opacity-45 lg:self-start"
+        >
+          <Printer className="h-3.5 w-3.5" />
+          Öppna i mötesunderlag
+        </button>
       </div>
 
       {lines && lines.length > 0 ? (
         <ol className="mt-5 space-y-3">
-          {lines.map((line, index) => (
-            <BriefingBullet
-              key={line}
-              line={line}
-              index={index}
-              item={sourceItems[index]}
-              config={config}
-            />
-          ))}
+          {(() => {
+            let itemIndex = 0;
+            return lines.map((line, index) =>
+              line.kind === "section" ? (
+                <li
+                  key={`${line.title}-${index}`}
+                  className="rounded-lg border border-[var(--app-line)] bg-[var(--app-panel)] px-4 py-3"
+                >
+                  <span className="text-xs font-semibold uppercase tracking-[0.22em] text-[var(--app-muted)]">
+                    {line.title}
+                  </span>
+                </li>
+              ) : (
+                <BriefingBullet
+                  key={`${line.text}-${index}`}
+                  line={line.text}
+                  index={itemIndex}
+                  item={resolvedSourceItems[itemIndex++]}
+                  config={config}
+                />
+              ),
+            );
+          })()}
         </ol>
       ) : fallbackItems.length > 0 ? (
         <ol className="mt-5 space-y-3">
@@ -3793,7 +3963,7 @@ function PrimaryBriefingPanel({
         <SkeletonStack label="Ingen aktuell morgonbrief" />
       )}
 
-      {sourceItems.length > 0 && (
+      {resolvedSourceItems.length > 0 && (
         <div className="mt-6 border-t border-[var(--app-line)] pt-5">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -3802,10 +3972,10 @@ function PrimaryBriefingPanel({
                 Källposter som briefingen bygger på.
               </p>
             </div>
-            <Pill tone="neutral">{sourceItems.length} verifierbara underlag</Pill>
+            <Pill tone="neutral">{resolvedSourceItems.length} verifierbara underlag</Pill>
           </div>
           <div className="mt-4 grid gap-2">
-            {sourceItems.map((item) => (
+            {resolvedSourceItems.map((item) => (
               <a
                 key={item.id}
                 href={item.source_url}
@@ -3844,9 +4014,15 @@ function BriefingBullet({
   item?: IntelligenceItem;
   config: EmbassyConfig;
 }) {
-  const Icon = item ? categoryIcon[item.category] : Target;
   const [mainText, implicationText] = line.split(/\bBetydelse:\s*/i);
-  const iconTone = item ? categoryIconTone[item.category] : "text-[var(--app-accent)]";
+  const fallbackMeta = item ? null : fallbackBriefingMeta(mainText.trim());
+  const Icon = item ? categoryIcon[item.category] : fallbackMeta?.Icon ?? ClipboardList;
+  const iconTone = item
+    ? categoryIconTone[item.category]
+    : fallbackMeta?.tone ?? "text-[var(--app-accent)]";
+  const label = item
+    ? getCategoryLabel(config, item.category)
+    : fallbackMeta?.label ?? "Åtgärdspunkt";
 
   return (
     <li className="rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-4 py-3">
@@ -3860,7 +4036,7 @@ function BriefingBullet({
           <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--app-muted)]">
             <span className="flex items-center gap-1.5">
               <Icon className={clsx("h-3.5 w-3.5", iconTone)} />
-              {item ? getCategoryLabel(config, item.category) : "Briefingpunkt"}
+              {label}
             </span>
             {item && (
               <>

@@ -3,6 +3,7 @@ import type {
   ProcessedIntelligenceRecord,
 } from "@/lib/intelligence/models";
 import type { IntelligenceItem } from "@/lib/types";
+import { normalizeSwedishUserFacingText } from "@/lib/ai/swedish-normalization";
 import { countryNameSv } from "@/lib/i18n/countries";
 import { normalizeEventDate } from "@/lib/intelligence/event-dates";
 
@@ -19,8 +20,8 @@ export function processedRecordToIntelligenceItem(
   return {
     id: `processed-${record.raw.id}`,
     title_original: record.raw.title_original,
-    title_sv: record.processed.title_sv,
-    summary_sv: record.processed.summary_sv,
+    title_sv: normalizeSwedishUserFacingText(record.processed.title_sv),
+    summary_sv: normalizeSwedishUserFacingText(record.processed.summary_sv),
     source_name: record.raw.source_name,
     source_url: record.raw.url,
     source_country: countryNameSv(record.raw.source_country) ?? record.raw.source_country,
@@ -42,7 +43,7 @@ export function processedRecordToIntelligenceItem(
       (record.processed.urgency_score + record.processed.diplomatic_relevance_score) / 2,
     ),
     profile_tags: record.processed.profile_tags,
-    why_it_matters_sv: record.processed.why_it_may_matter_sv,
+    why_it_matters_sv: normalizeSwedishUserFacingText(record.processed.why_it_may_matter_sv),
     suggested_talking_points_sv: [
       "Bedöm om signalen kräver intern uppföljning i dag.",
       "Kontrollera originalkällan före eventuell extern användning.",

@@ -107,6 +107,35 @@ function sourceTypeMatches(type: BriefingType, record: ProcessedIntelligenceReco
   return ["advisory", "event", "government", "institution"].includes(record.raw.source_type);
 }
 
+function diversityKey(record: ProcessedIntelligenceRecord) {
+  const haystack = [
+    record.processed.title_sv,
+    record.processed.summary_sv,
+    record.processed.why_it_may_matter_sv,
+    record.raw.title_original,
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  if (
+    /\b(issste|pemex|cfe|imss|servidores p[uú]blicos|funcionaria|inhabilit|sancion|desv[ií]o|corrupci[oó]n|federala institutioner|offentliga institutioner)\b/i.test(
+      haystack,
+    )
+  ) {
+    return `${record.processed.category}:public_integrity`;
+  }
+
+  if (/\b(morelos|quer[eé]taro|delincuencia organizada|gripanden|ord[eé]n de aprehensi[oó]n)\b/i.test(haystack)) {
+    return `${record.processed.category}:morelos_security`;
+  }
+
+  if (/\b(scjn|suprema corte|domstol|rättsstat|judicial)\b/i.test(haystack)) {
+    return `${record.processed.category}:rule_of_law`;
+  }
+
+  return `${record.processed.category}:${record.raw.source_name}`;
+}
+
 function thresholdFor(type: BriefingType) {
   if (type === "urgent_developments") return 56;
   if (type === "ambassador_brief") return 54;
@@ -158,7 +187,7 @@ export async function selectBriefingItems(
   const uniqueByCategory = new Map<string, ProcessedIntelligenceRecord>();
 
   for (const record of candidates) {
-    const key = `${record.processed.category}:${record.raw.source_name}`;
+    const key = diversityKey(record);
     if (!uniqueByCategory.has(key)) {
       uniqueByCategory.set(key, record);
     }

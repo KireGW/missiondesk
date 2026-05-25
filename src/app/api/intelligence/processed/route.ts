@@ -40,6 +40,10 @@ export async function GET(request: Request) {
   const limit = Number(url.searchParams.get("limit") ?? 60);
   const onlyFresh = url.searchParams.get("fresh") !== "0";
   const recentDays = Number(url.searchParams.get("recentDays") ?? undefined);
+  const rawSourceItemIds = (url.searchParams.get("rawSourceItemIds") ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
 
   const items = await listProcessedItems({
     category: categories.includes(categoryParam as IntelligenceCategory)
@@ -51,6 +55,7 @@ export async function GET(request: Request) {
     geographicTag: url.searchParams.get("geographicTag") ?? undefined,
     onlyFresh,
     publishedSince: onlyFresh ? signalDisplaySince(recentDays) : undefined,
+    rawSourceItemIds: rawSourceItemIds.length > 0 ? rawSourceItemIds : undefined,
     limit: Number.isFinite(limit) ? limit : 60,
   });
 

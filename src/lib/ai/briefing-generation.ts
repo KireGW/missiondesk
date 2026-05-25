@@ -1,4 +1,5 @@
 import { swedenMexicoEmbassyConfig } from "@/lib/config/embassies/sweden-mexico";
+import { normalizeSwedishUserFacingText } from "@/lib/ai/swedish-normalization";
 import type { ProcessedIntelligenceRecord } from "@/lib/intelligence/models";
 import type { GeographicScope, ProfileMode } from "@/lib/types";
 
@@ -108,7 +109,8 @@ function itemPayload(records: ProcessedIntelligenceRecord[]) {
 }
 
 function sanitizeContent(value: string) {
-  return value
+  return normalizeSwedishUserFacingText(
+    value
     .replace(/^```(?:json)?/i, "")
     .replace(/```$/i, "")
     .replace(/\n{3,}/g, "\n\n")
@@ -117,7 +119,8 @@ function sanitizeContent(value: string) {
     .map((line) => line.trim())
     .filter(Boolean)
     .slice(0, 9)
-    .join("\n")
+    .join("\n"),
+  )
     .slice(0, 2600);
 }
 
