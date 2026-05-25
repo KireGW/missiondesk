@@ -828,6 +828,7 @@ export function MissionDashboard({
     type: "national",
     ids: [],
   });
+  const [showRegionCards, setShowRegionCards] = useState(false);
   const [expandedRegionIds, setExpandedRegionIds] = useState<string[]>([]);
   const [expandedId, setExpandedId] = useState("");
   const [theme, setTheme] = useState<"dark" | "light">("dark");
@@ -1439,6 +1440,11 @@ export function MissionDashboard({
       .filter(Boolean)
       .join(", ");
   }, [config, geographySelection]);
+
+  const regionCardsVisible =
+    showRegionCards ||
+    geographySelection.type === "region" ||
+    geographySelection.type === "division";
 
   const regionalLoadingMessages = useMemo(() => {
     const label = regionalLabels[0] ?? activeGeoLabel;
@@ -2190,6 +2196,9 @@ export function MissionDashboard({
                   onClick={() => {
                     activateSignalView();
                     setGeographySelection({ type: "national", ids: [] });
+                    setShowRegionCards((current) =>
+                      geographySelection.type === "national" ? !current : true,
+                    );
                   }}
                   className={clsx(
                     "mt-3 flex w-full items-center justify-between rounded-lg border px-3 py-3 text-left transition",
@@ -2200,17 +2209,26 @@ export function MissionDashboard({
                 >
                   <span>
                     <span className="block text-sm font-medium">Nationellt</span>
-                    <span className="block text-xs text-[var(--app-muted)]">
+                    <span className="block pr-7 text-xs text-[var(--app-muted)]">
                       Utgångsläget för hela landet
                     </span>
                   </span>
-                  {geographySelection.type === "national" && (
-                    <Check className="h-4 w-4 text-[var(--app-accent)]" />
-                  )}
+                  <span className="flex flex-col items-end justify-between self-stretch">
+                    {geographySelection.type === "national" && (
+                      <Check className="mt-0.5 h-4 w-4 text-[var(--app-accent)]" />
+                    )}
+                    <ChevronDown
+                      className={clsx(
+                        "mt-3 h-3.5 w-3.5 text-[var(--app-muted)] transition-transform",
+                        regionCardsVisible && "rotate-180",
+                      )}
+                    />
+                  </span>
                 </button>
 
-                <div className="mt-3 space-y-3">
-                  {config.geography.regions.map((region) => {
+                {regionCardsVisible && (
+                  <div className="mt-3 space-y-3">
+                    {config.geography.regions.map((region) => {
                     const active =
                       geographySelection.type === "region" &&
                       geographySelection.ids.includes(region.id);
@@ -2225,83 +2243,84 @@ export function MissionDashboard({
                     return (
                       <div
                         key={region.id}
-                        className="rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-2"
+                        className="ml-3 w-[calc(100%-0.75rem)] rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-2"
                       >
-                            <div className="relative">
-                              <button
-                                type="button"
-                                onClick={() => toggleRegion(region.id)}
-                                className={clsx(
-                                  "w-full rounded-md border px-3 py-2 text-left transition",
-                                  active
-                                    ? "border-[var(--app-accent)] bg-[color-mix(in_srgb,var(--app-accent),transparent_86%)]"
-                                    : "border-transparent bg-transparent hover:border-[var(--app-accent)] hover:bg-[var(--app-panel-muted)]",
-                                )}
-                              >
-                                <span className="flex items-center justify-between gap-3">
-                                  <span className="text-sm font-medium text-[var(--app-fg)]">
-                                    {region.displayName}
-                                  </span>
-                                  <span className="font-mono text-xs text-[var(--app-muted)]">
-                                    {regionSignalCounts.get(region.id) ?? 0}
-                                  </span>
-                                </span>
-                                <span className="mt-1 block pr-7 text-xs leading-5 text-[var(--app-muted)]">
-                                  {region.description}
-                                </span>
-                              </button>
-
-                              <button
-                                type="button"
-                                aria-expanded={expanded}
-                                aria-label={
-                                  expanded
-                                    ? `Dölj delstater i ${region.displayName}`
-                                    : `Visa delstater i ${region.displayName}`
-                                }
-                                onClick={() => toggleRegionExpansion(region.id)}
-                                className="absolute bottom-2 right-2 z-10 inline-flex h-5 w-5 items-center justify-center rounded text-[var(--app-muted)] transition hover:bg-[var(--app-panel)] hover:text-[var(--app-fg)]"
-                              >
-                                <ChevronDown
-                                  className={clsx(
-                                    "h-3 w-3 opacity-80 transition-transform",
-                                    expanded && "rotate-180",
-                                  )}
-                                />
-                              </button>
-                            </div>
-
-                            {expanded && (
-                              <div className="mt-2 flex flex-wrap gap-1.5">
-                                {divisions.map((division) => {
-                                  const divisionActive =
-                                    geographySelection.type === "division" &&
-                                    geographySelection.ids.includes(division.id);
-
-                                  return (
-                                    <button
-                                      key={division.id}
-                                      type="button"
-                                      onClick={() => toggleDivision(division.id)}
-                                      className={clsx(
-                                        "inline-flex min-h-7 max-w-full items-center rounded-[4px] border px-2 py-1 text-left text-[11px] font-medium leading-4 transition",
-                                        divisionActive
-                                          ? "border-[var(--app-accent)] bg-[color-mix(in_srgb,var(--app-accent),transparent_84%)] text-[var(--app-accent-strong)]"
-                                          : "border-[var(--app-line)] bg-[var(--app-panel)] text-[var(--app-soft)] hover:border-[var(--app-accent)]",
-                                      )}
-                                    >
-                                      <span className="min-w-0 whitespace-nowrap">
-                                        {division.displayName}
-                                      </span>
-                                    </button>
-                                  );
-                                })}
-                              </div>
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => toggleRegion(region.id)}
+                            className={clsx(
+                              "w-full rounded-md border px-3 py-2 text-left transition",
+                              active
+                                ? "border-[var(--app-accent)] bg-[color-mix(in_srgb,var(--app-accent),transparent_86%)]"
+                                : "border-transparent bg-transparent hover:border-[var(--app-accent)] hover:bg-[var(--app-panel-muted)]",
                             )}
+                          >
+                            <span className="flex items-center justify-between gap-3">
+                              <span className="text-sm font-medium text-[var(--app-fg)]">
+                                {region.displayName}
+                              </span>
+                              <span className="font-mono text-xs text-[var(--app-muted)]">
+                                {regionSignalCounts.get(region.id) ?? 0}
+                              </span>
+                            </span>
+                            <span className="mt-1 block pr-7 text-xs leading-5 text-[var(--app-muted)]">
+                              {region.description}
+                            </span>
+                          </button>
+
+                          <button
+                            type="button"
+                            aria-expanded={expanded}
+                            aria-label={
+                              expanded
+                                ? `Dölj delstater i ${region.displayName}`
+                                : `Visa delstater i ${region.displayName}`
+                            }
+                            onClick={() => toggleRegionExpansion(region.id)}
+                            className="absolute bottom-2 right-2 z-10 inline-flex h-5 w-5 items-center justify-center rounded text-[var(--app-muted)] transition hover:bg-[var(--app-panel)] hover:text-[var(--app-fg)]"
+                          >
+                            <ChevronDown
+                              className={clsx(
+                                "h-3 w-3 opacity-80 transition-transform",
+                                expanded && "rotate-180",
+                              )}
+                            />
+                          </button>
+                        </div>
+
+                        {expanded && (
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {divisions.map((division) => {
+                              const divisionActive =
+                                geographySelection.type === "division" &&
+                                geographySelection.ids.includes(division.id);
+
+                              return (
+                                <button
+                                  key={division.id}
+                                  type="button"
+                                  onClick={() => toggleDivision(division.id)}
+                                  className={clsx(
+                                    "inline-flex min-h-5 max-w-full items-center rounded-[7px] border px-2 py-0.5 text-left text-[10px] font-medium leading-4 transition",
+                                    divisionActive
+                                      ? "border-[color-mix(in_srgb,var(--app-accent),transparent_34%)] bg-[color-mix(in_srgb,var(--app-accent),transparent_91%)] text-[var(--app-accent-strong)] shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]"
+                                      : "border-[color-mix(in_srgb,var(--app-line),transparent_10%)] bg-[color-mix(in_srgb,var(--app-panel),transparent_12%)] text-[var(--app-soft)] hover:border-[color-mix(in_srgb,var(--app-accent),transparent_56%)] hover:bg-[color-mix(in_srgb,var(--app-panel),transparent_4%)]",
+                                  )}
+                                >
+                                  <span className="min-w-0 whitespace-nowrap">
+                                    {division.displayName}
+                                  </span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
                     );
-                  })}
-                </div>
+                    })}
+                  </div>
+                )}
               </div>
 
               <div className="border-t border-[var(--app-line)] pt-5">
@@ -4321,7 +4340,10 @@ function SourceFeed({
   prioritizedIds: string[];
   onTogglePriority: (id: string, checked: boolean) => void;
 }) {
-  const [sort, setSort] = useState<SourceFeedSortState | null>(null);
+  const [sort, setSort] = useState<SourceFeedSortState>({
+    key: "relevance",
+    direction: "desc",
+  });
 
   const sortedRows = useMemo(() => {
     if (!sort) return rows;
