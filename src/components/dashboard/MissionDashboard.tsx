@@ -2088,7 +2088,8 @@ export function MissionDashboard({
                         mode.id !== "ambassador_briefing" &&
                         mode.id !== "trade_business" &&
                         mode.id !== "political_risk" &&
-                        mode.id !== "security",
+                        mode.id !== "security" &&
+                        mode.id !== "weekly_summary",
                     )
                     .map((mode) => {
                     const Icon = profileIcon[mode.id];
