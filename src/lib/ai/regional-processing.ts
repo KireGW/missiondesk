@@ -1,5 +1,6 @@
 import { swedenMexicoEmbassyConfig } from "@/lib/config/embassies/sweden-mexico";
 import { normalizeSwedishUserFacingText } from "@/lib/ai/swedish-normalization";
+import { ensureSwedishSignalTitle } from "@/lib/ai/title-guardrail";
 import { normalizeEventDate } from "@/lib/intelligence/event-dates";
 import type { RawSourceItem } from "@/lib/intelligence/models";
 import type {
@@ -309,5 +310,19 @@ export async function processRegionalSourceItemWithOpenAI({
   const text = extractResponseText(payload);
   if (!text) return null;
 
-  return sanitizeAnalysis(JSON.parse(text) as RegionalProcessingAnalysis, requiredGeographicTags);
+  const analysis = sanitizeAnalysis(
+    JSON.parse(text) as RegionalProcessingAnalysis,
+    requiredGeographicTags,
+  );
+  analysis.title_sv = await ensureSwedishSignalTitle({
+    apiKey,
+    model,
+    sourceLanguage: raw.source_language,
+    titleSv: analysis.title_sv,
+    titleOriginal: raw.title_original,
+    snippetOriginal: raw.snippet,
+    summarySv: analysis.summary_sv,
+  });
+
+  return analysis;
 }

@@ -229,6 +229,31 @@ const themeFilterOrder: IntelligenceCategory[] = [
   "culture_soft_power",
 ];
 
+const visibleThemeOrder: IntelligenceCategory[] = [
+  "domestic_politics",
+  "trade",
+  "foreign_policy",
+  "economy",
+  "security",
+  "sweden_connection",
+];
+
+const visibleThemeOwners: Record<IntelligenceCategory, IntelligenceCategory> = {
+  economy: "economy",
+  trade: "trade",
+  markets: "economy",
+  technology: "economy",
+  investment_climate: "economy",
+  energy: "economy",
+  domestic_politics: "domestic_politics",
+  security: "security",
+  foreign_policy: "foreign_policy",
+  migration: "domestic_politics",
+  sweden_connection: "sweden_connection",
+  society: "domestic_politics",
+  culture_soft_power: "foreign_policy",
+};
+
 const SIGNAL_TRACKING_DEFAULT_QUICK_SEARCHES = [
   "Volvo",
   "Kina",
@@ -756,16 +781,20 @@ const getTrackingGeographyLabel = (item: SignalTrackingResult, config: EmbassyCo
   return division?.displayName ?? item.detected_region;
 };
 
-const getOrderedThemeCategories = (config: EmbassyConfig) => {
+const getVisibleThemeGroups = (config: EmbassyConfig) => {
   const byId = new Map(config.themeCategories.map((category) => [category.id, category]));
-  const orderedIds = new Set(themeFilterOrder);
-  return [
-    ...themeFilterOrder.flatMap((id) => {
-      const category = byId.get(id);
-      return category ? [category] : [];
-    }),
-    ...config.themeCategories.filter((category) => !orderedIds.has(category.id)),
-  ];
+  const allowedVisibleIds = new Set<IntelligenceCategory>(
+    config.priorityThemes.filter((id) => id !== "investment_climate") as IntelligenceCategory[],
+  );
+  const visibleIds = visibleThemeOrder.filter((id) => allowedVisibleIds.has(id));
+
+  return visibleIds.flatMap((id) => {
+    const category = byId.get(id);
+    if (!category) return [];
+
+    const memberIds = themeFilterOrder.filter((candidate) => visibleThemeOwners[candidate] === id);
+    return [{ ...category, memberIds }];
+  });
 };
 
 const getSignalCategoryIds = (item: IntelligenceItem) => {
@@ -793,6 +822,9 @@ const getSignalThemeTags = (item: IntelligenceItem, config: EmbassyConfig) => {
     .filter(({ label }) => Boolean(label))
     .slice(0, 5);
 };
+
+const getThemeGroupMemberIds = (themeId: IntelligenceCategory) =>
+  themeFilterOrder.filter((candidate) => visibleThemeOwners[candidate] === themeId);
 
 const byScore =
   (config: EmbassyConfig, profile: ProfileMode) =>
@@ -1325,7 +1357,9 @@ export function MissionDashboard({
         selectedCategories.length === 0
           ? true
           : selectedCategories.some((selectedCategory) =>
-              getSignalCategoryIds(item).includes(selectedCategory),
+              getSignalCategoryIds(item).some((signalCategory) =>
+                getThemeGroupMemberIds(selectedCategory).includes(signalCategory),
+              ),
             ),
       );
   }, [items, selectedCategories]);
@@ -2337,7 +2371,7 @@ export function MissionDashboard({
                   )}
                 </div>
                 <div className="mt-2 flex flex-wrap gap-1.5">
-                  {getOrderedThemeCategories(config).map((category) => {
+                  {getVisibleThemeGroups(config).map((category) => {
                     const active = selectedCategories.includes(category.id);
                     const Icon = categoryIcon[category.id];
                     return (
