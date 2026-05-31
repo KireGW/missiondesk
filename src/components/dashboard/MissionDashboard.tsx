@@ -44,7 +44,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
-import { normalizeSwedishUserFacingText } from "@/lib/ai/swedish-normalization";
+import { normalizeSwedishTitle, normalizeSwedishUserFacingText } from "@/lib/ai/swedish-normalization";
 import type { SignalTrackingResult, SignalTrackingSearchResult } from "@/lib/intelligence/signal-tracking";
 import { processedRecordToIntelligenceItem } from "@/lib/intelligence/dashboard-view";
 import {
@@ -4351,6 +4351,7 @@ function IntelligenceCard({
 }) {
   const Icon = categoryIcon[item.category];
   const composite = getCompositeScore(item, config, profile);
+  const displayTitle = normalizeSwedishTitle(item.title_sv);
   const displaySummary = normalizeSwedishUserFacingText(item.summary_sv);
 
   return (
@@ -4406,7 +4407,7 @@ function IntelligenceCard({
               <span>{formatDate(item.published_at, true)}</span>
             </div>
             <h3 className="mt-2 text-base font-semibold leading-6 text-[var(--app-fg)]">
-              {item.title_sv}
+              {displayTitle}
             </h3>
             <p className="mt-1 line-clamp-2 text-sm leading-6 text-[var(--app-soft)]">
               {displaySummary}
@@ -4444,6 +4445,7 @@ function DetailPanel({
     );
   }
 
+  const displayTitle = normalizeSwedishTitle(item.title_sv);
   const displaySummary = normalizeSwedishUserFacingText(item.summary_sv);
   const displayWhyItMatters = normalizeSwedishUserFacingText(item.why_it_matters_sv);
   const displayOriginalExcerpt = normalizeSwedishUserFacingText(item.original_excerpt);
@@ -4453,7 +4455,7 @@ function DetailPanel({
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <SectionKicker icon={PanelRightOpen} label="Fördjupning" />
-          <h3 className="mt-3 text-lg font-semibold leading-7">{item.title_sv}</h3>
+          <h3 className="mt-3 text-lg font-semibold leading-7">{displayTitle}</h3>
           <p className="mt-2 text-sm leading-6 text-[var(--app-soft)]">{displaySummary}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -4700,12 +4702,13 @@ function SourceFeed({
             <tbody className="divide-y divide-[var(--app-line)]">
               {sortedRows.map((item) => {
                 const isPrioritized = prioritizedIds.includes(item.id);
+                const displayTitle = normalizeSwedishTitle(item.title_sv);
                 const displayOriginalTitle = normalizeSwedishUserFacingText(item.title_original);
 
                 return (
                   <tr key={item.id} className="hover:bg-[var(--app-panel-muted)]">
                     <td className="max-w-[420px] px-5 py-4">
-                      <p className="font-medium leading-5 text-[var(--app-fg)]">{item.title_sv}</p>
+                      <p className="font-medium leading-5 text-[var(--app-fg)]">{displayTitle}</p>
                       <p className="mt-1 text-xs leading-5 text-[var(--app-muted)]">
                         {displayOriginalTitle}
                       </p>

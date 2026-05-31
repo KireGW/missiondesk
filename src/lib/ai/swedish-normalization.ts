@@ -47,7 +47,11 @@ export function normalizeSwedishUserFacingText(value: string) {
 
 export function normalizeSwedishTitle(value: string) {
   const normalized = normalizeSwedishUserFacingText(value);
-  return normalized.replace(/^([^A-Za-zÅÄÖåäö]*)([a-zåäö])/u, (_, prefix: string, first: string) =>
+  const rewritten = normalized.replace(
+    /^moderna\s+([A-Z0-9][A-Z0-9\s\-/:]+(?:\s+inför\b.*)?)$/iu,
+    "Modernisering av $1",
+  );
+  return rewritten.replace(/^([^A-Za-zÅÄÖåäö]*)([a-zåäö])/u, (_, prefix: string, first: string) =>
     `${prefix}${first.toUpperCase()}`,
   );
 }
@@ -193,7 +197,11 @@ export function looksLikeEnglishSummaryInSwedishField(value: string) {
 }
 
 export function looksLikeSpanishSummaryInSwedishField(value: string) {
-  const normalized = normalizeSwedishUserFacingText(value).trim().toLowerCase();
+  const normalized = normalizeSwedishUserFacingText(value)
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
   if (!normalized) return false;
 
   const tokens = normalized
