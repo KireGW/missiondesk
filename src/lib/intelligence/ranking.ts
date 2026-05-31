@@ -20,7 +20,7 @@ import type {
 } from "@/lib/intelligence/models";
 import type { EmbassyConfig, IntelligenceCategory } from "@/lib/types";
 
-export const rankingVersion = "missiondesk-lightweight-ranker-v1";
+export const rankingVersion = "missiondesk-lightweight-ranker-v5-source-fit";
 
 export interface CandidateRankingOptions {
   config?: EmbassyConfig;
@@ -59,6 +59,7 @@ interface RankedDraft {
   titleFingerprint: string;
   urlFingerprint: string;
   swedenMexicoSignal: SwedenMexicoRelevanceSignal;
+  strategicSourceBoost: number;
   scores: Omit<
     NewRankedProcessingCandidate,
     | "raw_source_item_id"
@@ -367,6 +368,59 @@ function diplomaticRelevanceScore(text: string, item: RawSourceItem) {
   return clampScore(termScore(text, diplomaticTerms, 88) + sourceBoost);
 }
 
+function sourceFitBoost(
+  item: RawSourceItem,
+  signal: SwedenMexicoRelevanceSignal,
+  input: {
+    diplomatic: number;
+    category: number;
+    keyword: number;
+  },
+) {
+  const official = ["government", "institution", "advisory", "report", "event"].includes(
+    item.source_type,
+  );
+  const social = item.source_type === "social";
+  const strategicallyRelevant =
+    input.diplomatic >= 68 ||
+    input.category >= 68 ||
+    input.keyword >= 72 ||
+    signal.swedenRelevanceScore >= 45 ||
+    signal.crossRegionalScore >= 45;
+
+  let boost = 0;
+
+  if (official && strategicallyRelevant) {
+    boost += 6;
+  }
+
+  if (official && (signal.swedenRelevanceScore >= 55 || signal.crossRegionalScore >= 55)) {
+    boost += 4;
+  }
+
+  if (
+    signal.isSwedishMediaSource &&
+    signal.mexicanEntities.length > 0 &&
+    (input.diplomatic >= 60 || signal.crossRegionalScore >= 40 || signal.strategicSectors.length > 0)
+  ) {
+    boost += 8;
+  }
+
+  if (signal.isStaticSwedishInstitutionalSource && strategicallyRelevant) {
+    boost += 8;
+  }
+
+  if (
+    social &&
+    (signal.swedenRelevanceScore >= 55 || signal.crossRegionalScore >= 55) &&
+    strategicallyRelevant
+  ) {
+    boost += 4;
+  }
+
+  return clampScore(boost);
+}
+
 function noveltyScore(
   item: RawSourceItem,
   titleFp: string,
@@ -419,6 +473,7 @@ function pickCanonicalItem(cluster: RawSourceItem[]) {
 function selectionStatus(
   draft: RankedDraft,
   index: number,
+  selectedIds: Set<string>,
   options: Required<
     Pick<
       CandidateRankingOptions,
@@ -434,17 +489,17 @@ function selectionStatus(
 ): CandidateSelectionStatus {
   if (draft.duplicateOfRawSourceItemId) return "rejected";
   if (draft.scores.rank_score < options.minCandidateScore) return "rejected";
-  if (
-    draft.scores.rank_score >= options.minSelectedScore &&
-    index < Math.min(options.targetMax, options.hardCap)
-  ) {
+  if (selectedIds.has(draft.item.id)) {
     return "selected";
   }
   if (index < options.hardCap) return "candidate";
   return "deferred";
 }
 
-function selectionReason(draft: RankedDraft, status: CandidateSelectionStatus) {
+function selectionReason(
+  draft: RankedDraft,
+  status: CandidateSelectionStatus,
+) {
   const reasons = [
     `rank=${draft.scores.rank_score}`,
     `fresh=${draft.scores.freshness_score}`,
@@ -461,6 +516,10 @@ function selectionReason(draft: RankedDraft, status: CandidateSelectionStatus) {
     reasons.push(`duplicate_of=${draft.duplicateOfRawSourceItemId}`);
   }
 
+  if (draft.strategicSourceBoost > 0) {
+    reasons.push(`source_fit=${draft.strategicSourceBoost}`);
+  }
+
   if (status === "regional_hold") {
     reasons.push("regional_state_item_held_for_on_demand_processing");
   }
@@ -473,14 +532,35 @@ function selectionReason(draft: RankedDraft, status: CandidateSelectionStatus) {
   return reasons.join("; ");
 }
 
-export function rankRawSourceItems(
+function selectTopIds(
+  drafts: RankedDraft[],
+  options: Required<
+    Pick<
+      CandidateRankingOptions,
+      "targetMax" | "hardCap" | "minSelectedScore"
+    >
+  >,
+) {
+  const selectionLimit = Math.min(options.targetMax, options.hardCap);
+  return new Set(
+    drafts
+      .filter(
+    (draft) =>
+      !draft.duplicateOfRawSourceItemId &&
+      draft.scores.rank_score >= options.minSelectedScore,
+      )
+      .slice(0, selectionLimit)
+      .map((draft) => draft.item.id),
+  );
+}
+
+function buildRankedDrafts(
   items: RawSourceItem[],
   processedItems: RawSourceItem[] = [],
   options: CandidateRankingOptions = {},
-): NewRankedProcessingCandidate[] {
+): RankedDraft[] {
   const config = options.config ?? swedenMexicoEmbassyConfig;
   const now = new Date();
-  const defaults = selectionWindowForScanLimit(options.scanLimit);
   const processedTitleFingerprints = new Set(
     processedItems.map((item) => titleFingerprint(item.title_original)),
   );
@@ -529,6 +609,11 @@ export function rankRawSourceItems(
       const stalePenalty = stalenessPenalty(item, now);
       const source = item.source_priority;
       const credibility = item.credibility_score;
+      const strategicBoost = sourceFitBoost(item, swedenMexicoSignal, {
+        diplomatic,
+        category,
+        keyword,
+      });
       const duplicateOfRawSourceItemId = item.id === canonical.id ? undefined : canonical.id;
       const duplicatePenalty = duplicateOfRawSourceItemId ? 44 : 0;
 
@@ -546,7 +631,8 @@ export function rankRawSourceItems(
           crossSource * 0.08 -
           noisePenalty * 0.22 -
           stalePenalty -
-          duplicatePenalty,
+          duplicatePenalty +
+          strategicBoost,
       );
 
       drafts.push({
@@ -559,6 +645,7 @@ export function rankRawSourceItems(
         titleFingerprint: canonicalTitleFp,
         urlFingerprint: canonicalUrlFp,
         swedenMexicoSignal,
+        strategicSourceBoost: strategicBoost,
         scores: {
           rank_score: rank,
           freshness_score: fresh,
@@ -596,15 +683,29 @@ export function rankRawSourceItems(
 
   return drafts
     .sort((a, b) => b.scores.rank_score - a.scores.rank_score)
-    .map((draft, index) => {
-      const status = selectionStatus(draft, index, {
-        targetMin: options.targetMin ?? defaults.targetMin,
-        targetMax: options.targetMax ?? defaults.targetMax,
-        hardCap: options.hardCap ?? defaults.hardCap,
-        nationalOnly: options.nationalOnly ?? false,
-        allowRegionalAi: options.allowRegionalAi ?? false,
-        minSelectedScore: options.minSelectedScore ?? 58,
-        minCandidateScore: options.minCandidateScore ?? 50,
+    .map((draft) => draft);
+}
+
+function assignSelectionStatuses(
+  drafts: RankedDraft[],
+  options: CandidateRankingOptions = {},
+): NewRankedProcessingCandidate[] {
+  const now = new Date();
+  const defaults = selectionWindowForScanLimit(options.scanLimit);
+  const resolvedOptions = {
+    targetMin: options.targetMin ?? defaults.targetMin,
+    targetMax: options.targetMax ?? defaults.targetMax,
+    hardCap: options.hardCap ?? defaults.hardCap,
+    nationalOnly: options.nationalOnly ?? false,
+    allowRegionalAi: options.allowRegionalAi ?? false,
+    minSelectedScore: options.minSelectedScore ?? 58,
+    minCandidateScore: options.minCandidateScore ?? 50,
+  };
+  const selectedIds = selectTopIds(drafts, resolvedOptions);
+
+  return drafts.map((draft, index) => {
+      const status = selectionStatus(draft, index, selectedIds, {
+        ...resolvedOptions,
       });
 
       return {
@@ -627,6 +728,14 @@ export function rankRawSourceItems(
     });
 }
 
+export function rankRawSourceItems(
+  items: RawSourceItem[],
+  processedItems: RawSourceItem[] = [],
+  options: CandidateRankingOptions = {},
+): NewRankedProcessingCandidate[] {
+  return assignSelectionStatuses(buildRankedDrafts(items, processedItems, options), options);
+}
+
 export async function rankAndStoreCandidates(
   options: CandidateRankingOptions = {},
 ): Promise<CandidateRankingRunResult> {
@@ -640,7 +749,8 @@ export async function rankAndStoreCandidates(
     limit: 250,
     onlyFresh: false,
   })).map((record) => record.raw);
-  const ranked = rankRawSourceItems(rawItems, processedRawItems, options);
+  const rankedDrafts = buildRankedDrafts(rawItems, processedRawItems, options);
+  const ranked = assignSelectionStatuses(rankedDrafts, options);
   const clusters = new Map<string, NewRankedProcessingCandidate[]>();
 
   for (const candidate of ranked) {
@@ -675,18 +785,18 @@ export async function rankAndStoreCandidates(
     });
   }
 
- const stored: Awaited<ReturnType<typeof upsertRankedCandidate>>[] = [];
+  const stored: Awaited<ReturnType<typeof upsertRankedCandidate>>[] = [];
 
-for (const candidate of ranked.slice(0, options.hardCap ?? 100)) {
-  try {
-    stored.push(await upsertRankedCandidate(candidate));
-  } catch (error) {
-    console.error("[MissionDesk ranking] failed to store candidate", {
-      rawSourceItemId: candidate.raw_source_item_id,
-      error,
-    });
+  for (const candidate of ranked.slice(0, options.hardCap ?? 100)) {
+    try {
+      stored.push(await upsertRankedCandidate(candidate));
+    } catch (error) {
+      console.error("[MissionDesk ranking] failed to store candidate", {
+        rawSourceItemId: candidate.raw_source_item_id,
+        error,
+      });
+    }
   }
-}
 
   if (options.enqueueAiJobs) {
     await Promise.all(stored

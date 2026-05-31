@@ -1,6 +1,6 @@
 import { swedenMexicoEmbassyConfig } from "@/lib/config/embassies/sweden-mexico";
-import { normalizeSwedishUserFacingText } from "@/lib/ai/swedish-normalization";
-import { ensureSwedishSignalTitle } from "@/lib/ai/title-guardrail";
+import { normalizeSwedishTitle, normalizeSwedishUserFacingText } from "@/lib/ai/swedish-normalization";
+import { ensureSwedishSignalSummary, ensureSwedishSignalTitle } from "@/lib/ai/title-guardrail";
 import { normalizeEventDate } from "@/lib/intelligence/event-dates";
 import type { RawSourceItem } from "@/lib/intelligence/models";
 import type {
@@ -160,7 +160,7 @@ function sanitizeAnalysis(
   requiredGeographicTags: string[],
 ): RegionalProcessingAnalysis {
   return {
-    title_sv: normalizeSwedishUserFacingText(value.title_sv).slice(0, 140),
+    title_sv: normalizeSwedishTitle(value.title_sv).slice(0, 140),
     summary_sv: normalizeSwedishUserFacingText(value.summary_sv).slice(0, 360),
     category: categories.includes(value.category) ? value.category : "domestic_politics",
     urgency_score: clampScore(value.urgency_score),
@@ -322,6 +322,15 @@ export async function processRegionalSourceItemWithOpenAI({
     titleOriginal: raw.title_original,
     snippetOriginal: raw.snippet,
     summarySv: analysis.summary_sv,
+  });
+  analysis.summary_sv = await ensureSwedishSignalSummary({
+    apiKey,
+    model,
+    sourceLanguage: raw.source_language,
+    summarySv: analysis.summary_sv,
+    titleSv: analysis.title_sv,
+    titleOriginal: raw.title_original,
+    snippetOriginal: raw.snippet,
   });
 
   return analysis;

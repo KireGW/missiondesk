@@ -3,9 +3,11 @@ import {
   completeBackgroundJob,
   enqueueBackgroundJob,
   failBackgroundJob,
+  getBackgroundJobById,
   getProcessedItemByRawId,
   listPendingBackgroundJobs,
   listRankedCandidates,
+  updateBackgroundJobPayload,
   upsertProcessedItem,
 } from "@/lib/intelligence/repository";
 import { cacheExpiresAtFor, cacheHoursFor, isCacheFresh } from "@/lib/intelligence/cache-policy";
@@ -16,11 +18,10 @@ import {
   processNationalSourceItemWithOpenAI,
 } from "@/lib/ai/national-processing";
 import { detectGeographicDivisionIds } from "@/lib/ingestion/geography";
-import { isTemporalExtractionConfigured, storeTemporalSignalForProcessedRecord } from "@/lib/intelligence/temporal-signals";
+import { enqueueTemporalSyncJobs, startTemporalSyncWorkerInBackground } from "@/lib/intelligence/temporal-sync-worker";
 import type {
   BackgroundJob,
   NewProcessedItem,
-  ProcessedIntelligenceRecord,
   RankedCandidateRecord,
 } from "@/lib/intelligence/models";
 
@@ -31,18 +32,54 @@ export interface NationalProcessingOptions {
   cacheHours?: number;
   force?: boolean;
   reprocessStale?: boolean;
+  deferTemporalSync?: boolean;
 }
 
 export interface NationalProcessingRunResult {
   model: string;
   claimedCount: number;
   processedCount: number;
+  processedRawSourceItemIds: string[];
   skippedCount: number;
   failedCount: number;
+  outcomeCounts: NationalProcessingOutcomeCounts;
   errors: Array<{ jobId: string; message: string }>;
 }
 
+export type NationalProcessingOutcome =
+  | "processed"
+  | "cancelled"
+  | "missing_payload"
+  | "candidate_missing"
+  | "candidate_invalid"
+  | "fresh_cache_exists"
+  | "stale_cache_reused"
+  | "processing_failed";
+
+export type NationalProcessingOutcomeCounts = Record<NationalProcessingOutcome, number>;
+
 const processingJobType = "process_ranked_candidate";
+const processingCancelledMessage = "Bearbetningen avbröts av användaren.";
+
+function emptyOutcomeCounts(): NationalProcessingOutcomeCounts {
+  return {
+    processed: 0,
+    cancelled: 0,
+    missing_payload: 0,
+    candidate_missing: 0,
+    candidate_invalid: 0,
+    fresh_cache_exists: 0,
+    stale_cache_reused: 0,
+    processing_failed: 0,
+  };
+}
+
+function incrementOutcome(
+  counts: NationalProcessingOutcomeCounts,
+  outcome: NationalProcessingOutcome,
+) {
+  counts[outcome] += 1;
+}
 
 function payloadString(job: BackgroundJob, key: string) {
   const value = job.payload[key];
@@ -67,6 +104,11 @@ async function hasPendingProcessingJob(rawSourceItemId: string) {
       typeof job.payload.rawSourceItemId === "string" &&
       job.payload.rawSourceItemId === rawSourceItemId,
   );
+}
+
+async function isCancelled(jobId: string) {
+  const current = await getBackgroundJobById(jobId);
+  return current?.status === "cancelled";
 }
 
 export async function enqueueSelectedNationalProcessingJobs(
@@ -118,9 +160,13 @@ export async function enqueueSelectedNationalProcessingJobs(
 }
 
 async function findCandidate(rawSourceItemId: string) {
-  return (await listRankedCandidates({ status: "selected", limit: 250 })).find(
-    (record) => record.raw.id === rawSourceItemId,
-  );
+  return (
+    await listRankedCandidates({
+      status: "selected",
+      rawSourceItemIds: [rawSourceItemId],
+      limit: 1,
+    })
+  )[0];
 }
 
 async function processJob(
@@ -131,7 +177,12 @@ async function processJob(
 ) {
   const rawSourceItemId = payloadString(job, "rawSourceItemId");
   if (!rawSourceItemId) {
-    throw new Error("Missing rawSourceItemId in processing job payload");
+    return {
+      skipped: false,
+      failed: true,
+      outcome: "missing_payload" as const,
+      reason: "Missing rawSourceItemId in processing job payload",
+    };
   }
   const force = payloadBoolean(job, "force") ?? options.force;
   const reprocessStale =
@@ -139,21 +190,41 @@ async function processJob(
 
   const record = await findCandidate(rawSourceItemId);
   if (!record) {
-    return { skipped: true, reason: "candidate not selected or no longer available" };
+    return {
+      skipped: true,
+      failed: false,
+      outcome: "candidate_missing" as const,
+      reason: "candidate not selected or no longer available",
+    };
   }
 
   if (!isNationalCandidate(record)) {
-    return { skipped: true, reason: "candidate is duplicate or no longer selected" };
+    return {
+      skipped: true,
+      failed: false,
+      outcome: "candidate_invalid" as const,
+      reason: "candidate is duplicate or no longer selected",
+    };
   }
 
   const existing = await getProcessedItemByRawId(rawSourceItemId);
   if (existing && !force) {
     if (isCacheFresh(existing.cache_expires_at)) {
-      return { skipped: true, reason: "fresh processed cache already exists" };
+      return {
+        skipped: true,
+        failed: false,
+        outcome: "fresh_cache_exists" as const,
+        reason: "fresh processed cache already exists",
+      };
     }
 
     if (!reprocessStale) {
-      return { skipped: true, reason: "stale processed cache reused" };
+      return {
+        skipped: true,
+        failed: false,
+        outcome: "stale_cache_reused" as const,
+        reason: "stale processed cache reused",
+      };
     }
   }
 
@@ -207,28 +278,13 @@ async function processJob(
 
   const persisted = await upsertProcessedItem(processed);
 
-  if (isTemporalExtractionConfigured()) {
-    try {
-      const temporalOutcome = await storeTemporalSignalForProcessedRecord({
-        raw: record.raw,
-        processed: persisted,
-      } satisfies ProcessedIntelligenceRecord);
-
-      console.info("[temporal] synced from national processing", {
-        rawSourceItemId,
-        outcome: temporalOutcome.outcome,
-        skipReason: temporalOutcome.skipReason,
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown temporal sync error";
-      console.warn("[temporal] sync failed after national processing", {
-        rawSourceItemId,
-        error: message,
-      });
-    }
-  }
-
-  return { skipped: false };
+  return {
+    skipped: false,
+    failed: false,
+    outcome: "processed" as const,
+    reason: undefined,
+    processedRawSourceItemId: persisted.raw_source_item_id,
+  };
 }
 
 export async function runNationalProcessingWorker(
@@ -252,30 +308,85 @@ export async function runNationalProcessingWorker(
     workerId: options.workerId,
   });
   let processedCount = 0;
+  const processedRawSourceItemIds: string[] = [];
   let skippedCount = 0;
   let failedCount = 0;
+  const outcomeCounts = emptyOutcomeCounts();
   const errors: NationalProcessingRunResult["errors"] = [];
 
   for (const job of jobs) {
     try {
+      if (await isCancelled(job.id)) {
+        continue;
+      }
+
       const result = await processJob(job, {
         cacheHours: cacheHoursFor("national_dashboard", options.cacheHours),
         force: options.force ?? false,
         reprocessStale: options.reprocessStale ?? false,
       });
 
+      incrementOutcome(outcomeCounts, result.outcome);
+      await updateBackgroundJobPayload(job.id, {
+        processingOutcome: result.outcome,
+        processingReason: result.reason,
+      });
+
+      if (result.failed) {
+        failedCount += 1;
+        errors.push({ jobId: job.id, message: result.reason ?? "Unknown processing error" });
+        await failBackgroundJob(job.id, result.reason ?? "Unknown processing error");
+        continue;
+      }
+
       if (result.skipped) {
         skippedCount += 1;
       } else {
         processedCount += 1;
+        if (typeof result.processedRawSourceItemId === "string") {
+          processedRawSourceItemIds.push(result.processedRawSourceItemId);
+        }
+      }
+
+      if (await isCancelled(job.id)) {
+        skippedCount += 1;
+        incrementOutcome(outcomeCounts, "cancelled");
+        await updateBackgroundJobPayload(job.id, {
+          processingOutcome: "cancelled",
+          processingReason: processingCancelledMessage,
+        });
+        continue;
       }
 
       await completeBackgroundJob(job.id);
     } catch (error) {
+      if (await isCancelled(job.id)) {
+        skippedCount += 1;
+        incrementOutcome(outcomeCounts, "cancelled");
+        errors.push({ jobId: job.id, message: processingCancelledMessage });
+        await updateBackgroundJobPayload(job.id, {
+          processingOutcome: "cancelled",
+          processingReason: processingCancelledMessage,
+        });
+        continue;
+      }
+
       failedCount += 1;
+      incrementOutcome(outcomeCounts, "processing_failed");
       const message = error instanceof Error ? error.message : "Unknown processing error";
       errors.push({ jobId: job.id, message });
+      await updateBackgroundJobPayload(job.id, {
+        processingOutcome: "processing_failed",
+        processingReason: message,
+      });
       await failBackgroundJob(job.id, message);
+    }
+  }
+
+  if (!options.deferTemporalSync && processedRawSourceItemIds.length > 0) {
+    const queuedTemporalJobs = await enqueueTemporalSyncJobs(processedRawSourceItemIds);
+    if (queuedTemporalJobs.length > 0) {
+      startTemporalSyncWorkerInBackground();
     }
   }
 
@@ -283,8 +394,10 @@ export async function runNationalProcessingWorker(
     model: nationalProcessingModel(),
     claimedCount: jobs.length,
     processedCount,
+    processedRawSourceItemIds,
     skippedCount,
     failedCount,
+    outcomeCounts,
     errors,
   };
 }

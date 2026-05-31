@@ -143,6 +143,13 @@ interface CacheRefreshStatusPayload {
   updateStatus?: "idle" | "pending" | "running" | "completed" | "failed";
 }
 
+interface BackgroundPanelStatus {
+  active: boolean;
+  runningCount: number;
+  queuedCount: number;
+  message: string;
+}
+
 type BriefingContentBlock =
   | { kind: "section"; title: string }
   | { kind: "item"; text: string };
@@ -154,6 +161,7 @@ interface UpcomingSignalsApiPayload {
     generatedAt: string;
     onlyUpcoming: boolean;
   };
+  background?: BackgroundPanelStatus;
 }
 
 const scoreMeta: Array<{ key: ScoreKey; label: string; compact: string }> = [
@@ -889,6 +897,12 @@ export function MissionDashboard({
     "idle" | "loading" | "ready" | "error"
   >("idle");
   const [upcomingSignalsError, setUpcomingSignalsError] = useState("");
+  const [upcomingBackgroundStatus, setUpcomingBackgroundStatus] = useState<
+    BackgroundPanelStatus | undefined
+  >();
+  const [briefingBackgroundStatus, setBriefingBackgroundStatus] = useState<
+    BackgroundPanelStatus | undefined
+  >();
   const [regionalStatus, setRegionalStatus] = useState<RegionalStatus>("idle");
   const [regionalFreshness, setRegionalFreshness] = useState<string | undefined>();
   const [regionalCacheExpiresAt, setRegionalCacheExpiresAt] = useState<string | undefined>();
@@ -900,6 +914,7 @@ export function MissionDashboard({
   const [cacheRefreshStatus, setCacheRefreshStatus] = useState<
     "idle" | "queued" | "loading" | "ready" | "error"
   >("idle");
+  const [cancellingFeedUpdate, setCancellingFeedUpdate] = useState(false);
   const [cacheRefreshJobStatus, setCacheRefreshJobStatus] = useState<
     CacheRefreshStatusPayload | undefined
   >();
@@ -1104,10 +1119,12 @@ export function MissionDashboard({
     };
     const briefingPayload = (await briefingsResponse.json()) as {
       briefings: Briefing[];
+      background?: BackgroundPanelStatus;
     };
 
     setItems(processedPayload.items.map(processedRecordToIntelligenceItem));
     setBriefings(briefingPayload.briefings);
+    setBriefingBackgroundStatus(briefingPayload.background);
     setCacheTimestamp(
       briefingPayload.briefings[0]?.generated_at ??
         processedPayload.items[0]?.processed.processed_at ??
@@ -1127,6 +1144,7 @@ export function MissionDashboard({
     }
 
     let cancelled = false;
+    let timer: number | undefined;
 
     async function loadUpcomingSignals() {
       setUpcomingSignalsStatus("loading");
@@ -1151,7 +1169,13 @@ export function MissionDashboard({
         const payload = (await response.json()) as UpcomingSignalsApiPayload;
         if (cancelled) return;
         setUpcomingSignals(payload.signals);
+        setUpcomingBackgroundStatus(payload.background);
         setUpcomingSignalsStatus("ready");
+        if (payload.background?.active) {
+          timer = window.setTimeout(() => {
+            void loadUpcomingSignals();
+          }, 4000);
+        }
       } catch (error) {
         if (cancelled) return;
         setUpcomingSignalsStatus("error");
@@ -1165,6 +1189,7 @@ export function MissionDashboard({
 
     return () => {
       cancelled = true;
+      if (timer) window.clearTimeout(timer);
     };
   }, [
     cacheTimestamp,
@@ -1174,6 +1199,45 @@ export function MissionDashboard({
     showPrintPanel,
     showSignalTrackingPanel,
   ]);
+
+  useEffect(() => {
+    if (!showBriefingPanel) return;
+
+    let cancelled = false;
+    let timer: number | undefined;
+
+    async function loadBriefingPanelData() {
+      try {
+        const response = await fetch("/api/intelligence/briefings?limit=12", {
+          cache: "no-store",
+        });
+        if (!response.ok) return;
+
+        const payload = (await response.json()) as {
+          briefings: Briefing[];
+          background?: BackgroundPanelStatus;
+        };
+        if (cancelled) return;
+
+        setBriefings(payload.briefings);
+        setBriefingBackgroundStatus(payload.background);
+        if (payload.background?.active) {
+          timer = window.setTimeout(() => {
+            void loadBriefingPanelData();
+          }, 4000);
+        }
+      } catch {
+        // Briefingpanelen ska inte blinka fel bara för att bakgrundsstatus missas.
+      }
+    }
+
+    void loadBriefingPanelData();
+
+    return () => {
+      cancelled = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [showBriefingPanel]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1504,6 +1568,7 @@ export function MissionDashboard({
 
   const startNationalFeedUpdate = useCallback(async () => {
     setCacheRefreshStatus("loading");
+    setCancellingFeedUpdate(false);
     setCacheRefreshJobStatus(undefined);
     setDisplayRefreshProgress(0);
     try {
@@ -1548,6 +1613,31 @@ export function MissionDashboard({
 
     await startNationalFeedUpdate();
   }, [cacheTimestamp, lastIngestedAt, startNationalFeedUpdate]);
+
+  const handleCancelNationalRefresh = useCallback(async () => {
+    setCancellingFeedUpdate(true);
+    try {
+      const response = await fetch("/api/intelligence/cache/refresh", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cancelAll: true }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Pågående processer kunde inte avbrytas.");
+      }
+
+      const payload = (await response.json()) as CacheRefreshStatusPayload;
+      setCacheRefreshJobStatus(payload);
+      setDisplayRefreshProgress(displayedRefreshProgress(payload));
+      if (payload.lastIngestedAt) setLastIngestedAt(payload.lastIngestedAt);
+      setCacheRefreshStatus("ready");
+    } catch {
+      setCacheRefreshStatus("error");
+    } finally {
+      setCancellingFeedUpdate(false);
+    }
+  }, []);
 
   const handleFirstRunRetry = useCallback(async () => {
     setFirstRunRequestStatus("starting");
@@ -1897,8 +1987,13 @@ export function MissionDashboard({
   const hasPrimaryData = Boolean(ambassadorBriefing || topFive.length > 0);
   const statusTimestamp =
     lastIngestedAt ?? cacheRefreshJobStatus?.updateCompletedAt ?? cacheTimestamp;
+  const statusTimestampMs = statusTimestamp ? new Date(statusTimestamp).getTime() : 0;
+  const isFreshStatus =
+    Number.isFinite(statusTimestampMs) &&
+    statusTimestampMs > 0 &&
+    Date.now() - statusTimestampMs < 24 * 60 * 60 * 1000;
   const primaryStatusLine = statusTimestamp
-    ? `Färsk lägesbild · uppdaterad ${formatDate(statusTimestamp, true)} Mexico City-tid`
+    ? `${isFreshStatus ? "Färsk lägesbild" : "Lägesbild"} · uppdaterad ${formatDate(statusTimestamp, true)} Mexico City-tid`
     : "Ingen lägesbild tillgänglig";
   const shouldShowRefreshMessage = Boolean(
     cacheRefreshJobStatus &&
@@ -2011,6 +2106,23 @@ export function MissionDashboard({
                         ? "Försök igen"
                         : "Uppdatera flöde"}
               </button>
+              {(cacheRefreshStatus === "loading" ||
+                cacheRefreshStatus === "queued" ||
+                cacheRefreshJobStatus?.active) && (
+                <button
+                  type="button"
+                  onClick={() => void handleCancelNationalRefresh()}
+                  disabled={cancellingFeedUpdate}
+                  className="inline-flex items-center gap-2 rounded-md border border-[color-mix(in_srgb,var(--app-danger),transparent_45%)] bg-[color-mix(in_srgb,var(--app-danger),transparent_92%)] px-3 py-2 text-xs font-medium text-[var(--app-soft)] transition hover:border-[var(--app-danger)] hover:text-[var(--app-fg)] disabled:cursor-wait disabled:opacity-60"
+                >
+                  {cancellingFeedUpdate ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <X className="h-3.5 w-3.5" />
+                  )}
+                  Avbryt
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setShowUpdateInfo((value) => !value)}
@@ -2409,6 +2521,7 @@ export function MissionDashboard({
                 fallbackItems={topFive}
                 sourceItems={briefingSourceItems}
                 cacheTimestamp={cacheTimestamp}
+                backgroundStatus={briefingBackgroundStatus}
                 config={config}
                 onPrint={openBriefingPrintView}
               />
@@ -2519,6 +2632,7 @@ export function MissionDashboard({
                 signals={upcomingSignals}
                 status={upcomingSignalsStatus}
                 errorMessage={upcomingSignalsError}
+                backgroundStatus={upcomingBackgroundStatus}
                 config={config}
                 nowTs={viewNowTs}
               />
@@ -3037,12 +3151,14 @@ function UpcomingSignalsPanel({
   signals,
   status,
   errorMessage,
+  backgroundStatus,
   config,
   nowTs,
 }: {
   signals: TemporalSignalRecord[];
   status: "idle" | "loading" | "ready" | "error";
   errorMessage: string;
+  backgroundStatus?: BackgroundPanelStatus;
   config: EmbassyConfig;
   nowTs: number;
 }) {
@@ -3112,6 +3228,8 @@ function UpcomingSignalsPanel({
           <Pill tone="neutral">{UPCOMING_EVENTS_HORIZON_DAYS} dagars horisont</Pill>
         </div>
       </div>
+
+      <BackgroundUpdateNotice status={backgroundStatus} />
 
       {status === "loading" && !hasTemporalSignals ? (
         <div className="mt-6 rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-6 text-sm text-[var(--app-soft)]">
@@ -3942,6 +4060,7 @@ function PrimaryBriefingPanel({
   fallbackItems,
   sourceItems,
   cacheTimestamp,
+  backgroundStatus,
   config,
   onPrint,
 }: {
@@ -3949,6 +4068,7 @@ function PrimaryBriefingPanel({
   fallbackItems: IntelligenceItem[];
   sourceItems: IntelligenceItem[];
   cacheTimestamp?: string;
+  backgroundStatus?: BackgroundPanelStatus;
   config: EmbassyConfig;
   onPrint: () => void;
 }) {
@@ -3999,6 +4119,8 @@ function PrimaryBriefingPanel({
           Öppna i mötesunderlag
         </button>
       </div>
+
+      <BackgroundUpdateNotice status={backgroundStatus} />
 
       {lines && lines.length > 0 ? (
         <ol className="mt-5 space-y-3">
@@ -4138,6 +4260,29 @@ function BriefingBullet({
         </div>
       </div>
     </li>
+  );
+}
+
+function BackgroundUpdateNotice({ status }: { status?: BackgroundPanelStatus }) {
+  if (!status?.active) return null;
+
+  return (
+    <div className="mt-4 rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-3 py-2 text-xs text-[var(--app-soft)]">
+      <span className="inline-flex items-center gap-2">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        <span>{status.message}</span>
+        {status.runningCount > 0 ? (
+          <Pill tone="neutral">
+            {status.runningCount} aktiv{status.runningCount === 1 ? "" : "a"}
+          </Pill>
+        ) : null}
+        {status.queuedCount > 0 ? (
+          <Pill tone="neutral">
+            {status.queuedCount} köad{status.queuedCount === 1 ? "" : "e"}
+          </Pill>
+        ) : null}
+      </span>
+    </div>
   );
 }
 

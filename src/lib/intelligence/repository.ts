@@ -6,6 +6,7 @@ import { eventDateRange, normalizeEventDate } from "@/lib/intelligence/event-dat
 import type {
   BackgroundJob,
   BackgroundJobFilters,
+  BackgroundJobStatus,
   Briefing,
   BriefingFilters,
   IngestionUpdateState,
@@ -1630,6 +1631,48 @@ export async function requeueBackgroundJob(
   );
 
   return getBackgroundJobById(id, db);
+}
+
+export async function cancelBackgroundJobs(
+  input: {
+    types?: string[];
+    statuses?: BackgroundJobStatus[];
+    errorMessage?: string | null;
+  } = {},
+  db: MissionDeskDb = getMigratedDb(),
+) {
+  const types = input.types?.filter(Boolean) ?? [];
+  const statuses = input.statuses?.length ? input.statuses : ["pending", "running"];
+  const where: string[] = [];
+  const params: DbValue[] = [];
+
+  if (types.length > 0) {
+    where.push(`type IN (${types.map(() => "?").join(", ")})`);
+    params.push(...types);
+  }
+
+  if (statuses.length > 0) {
+    where.push(`status IN (${statuses.map(() => "?").join(", ")})`);
+    params.push(...statuses);
+  }
+
+  const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+  const row = await db
+    .prepare(`SELECT COUNT(*) AS count FROM background_jobs ${whereClause}`)
+    .get(...params) as { count?: number } | undefined;
+
+  await db.prepare(`
+    UPDATE background_jobs
+    SET
+      status = 'cancelled',
+      locked_at = NULL,
+      locked_by = NULL,
+      error_message = ?,
+      updated_at = datetime('now')
+    ${whereClause}
+  `).run(nullable(input.errorMessage ?? undefined), ...params);
+
+  return row?.count ?? 0;
 }
 
 export async function getIngestionUpdateState(

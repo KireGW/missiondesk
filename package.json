@@ -18,6 +18,8 @@
     "smoke:markets": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-market-ingestion.ts",
     "smoke:relevance": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-sweden-relevance.ts",
     "smoke:event-dates": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-event-date-validation.ts",
+    "inspect:refresh-funnel": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/inspect-refresh-funnel.ts",
+    "replay:latest-refresh-ranking": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/replay-latest-refresh-ranking.ts",
     "audit:temporal-prefilter": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/audit-temporal-prefilter.ts",
     "audit:rss": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/audit-rss-quality.ts",
     "backfill:temporal-signals": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/backfill-temporal-signals.ts",

@@ -15,6 +15,7 @@ import {
   completeBackgroundJob,
   enqueueBackgroundJob,
   failBackgroundJob,
+  getBackgroundJobById,
   getFreshBriefing,
   listProcessedItems,
   upsertBriefing,
@@ -54,6 +55,7 @@ export interface BriefingWorkerRunResult {
 }
 
 const briefingJobType = "generate_briefing";
+const briefingCancelledMessage = "Briefinggenereringen avbröts av användaren.";
 
 const defaultProfiles: Record<BriefingType, ProfileMode> = {
   morning_brief: "daily_overview",
@@ -145,6 +147,11 @@ function thresholdFor(type: BriefingType) {
   if (type === "ambassador_brief") return 54;
   if (type === "upcoming_events_advisories") return 44;
   return 48;
+}
+
+async function isCancelled(jobId: string) {
+  const current = await getBackgroundJobById(jobId);
+  return current?.status === "cancelled";
 }
 
 export async function selectBriefingItems(
@@ -382,6 +389,12 @@ export async function runBriefingGenerationWorker(
 
   for (const job of jobs) {
     try {
+      if (await isCancelled(job.id)) {
+        skippedCount += 1;
+        skipped.push({ jobId: job.id, reason: briefingCancelledMessage });
+        continue;
+      }
+
       const result = await generateBriefingFromJob(job, {
         cacheHours: cacheHoursFor("briefing", options.cacheHours),
       });
@@ -393,8 +406,20 @@ export async function runBriefingGenerationWorker(
         generatedCount += 1;
       }
 
+      if (await isCancelled(job.id)) {
+        skippedCount += 1;
+        skipped.push({ jobId: job.id, reason: briefingCancelledMessage });
+        continue;
+      }
+
       await completeBackgroundJob(job.id);
     } catch (error) {
+      if (await isCancelled(job.id)) {
+        skippedCount += 1;
+        skipped.push({ jobId: job.id, reason: briefingCancelledMessage });
+        continue;
+      }
+
       failedCount += 1;
       const message = error instanceof Error ? error.message : "Unknown briefing error";
       errors.push({ jobId: job.id, message });
@@ -411,4 +436,20 @@ export async function runBriefingGenerationWorker(
     skipped,
     errors,
   };
+}
+
+let briefingWorkerInFlight: Promise<unknown> | null = null;
+
+export function startBriefingGenerationWorkerInBackground(limit = 5, cacheHours?: number) {
+  if (briefingWorkerInFlight || !isBriefingGenerationConfigured()) return false;
+
+  briefingWorkerInFlight = runBriefingGenerationWorker({ limit, cacheHours })
+    .catch((error) => {
+      console.error("[briefing] background worker crashed", error);
+    })
+    .finally(() => {
+      briefingWorkerInFlight = null;
+    });
+
+  return true;
 }

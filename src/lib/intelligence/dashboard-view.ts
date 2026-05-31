@@ -3,7 +3,12 @@ import type {
   ProcessedIntelligenceRecord,
 } from "@/lib/intelligence/models";
 import type { IntelligenceItem } from "@/lib/types";
-import { normalizeSwedishUserFacingText } from "@/lib/ai/swedish-normalization";
+import {
+  decodeHtmlEntities,
+  looksLikeForeignSummaryInSwedishField,
+  normalizeSwedishTitle,
+  normalizeSwedishUserFacingText,
+} from "@/lib/ai/swedish-normalization";
 import { countryNameSv } from "@/lib/i18n/countries";
 import { normalizeEventDate } from "@/lib/intelligence/event-dates";
 
@@ -17,11 +22,18 @@ const scopeLabel = (record: ProcessedIntelligenceRecord) => {
 export function processedRecordToIntelligenceItem(
   record: ProcessedIntelligenceRecord,
 ): IntelligenceItem {
+  const titleSv = normalizeSwedishTitle(record.processed.title_sv);
+  const whyItMattersSv = normalizeSwedishUserFacingText(record.processed.why_it_may_matter_sv);
+  const summarySvRaw = normalizeSwedishUserFacingText(record.processed.summary_sv);
+  const summarySv = looksLikeForeignSummaryInSwedishField(summarySvRaw)
+    ? whyItMattersSv
+    : summarySvRaw;
+
   return {
     id: `processed-${record.raw.id}`,
     title_original: record.raw.title_original,
-    title_sv: normalizeSwedishUserFacingText(record.processed.title_sv),
-    summary_sv: normalizeSwedishUserFacingText(record.processed.summary_sv),
+    title_sv: titleSv,
+    summary_sv: summarySv,
     source_name: record.raw.source_name,
     source_url: record.raw.url,
     source_country: countryNameSv(record.raw.source_country) ?? record.raw.source_country,
@@ -43,12 +55,12 @@ export function processedRecordToIntelligenceItem(
       (record.processed.urgency_score + record.processed.diplomatic_relevance_score) / 2,
     ),
     profile_tags: record.processed.profile_tags,
-    why_it_matters_sv: normalizeSwedishUserFacingText(record.processed.why_it_may_matter_sv),
+    why_it_matters_sv: whyItMattersSv,
     suggested_talking_points_sv: [
       "Bedöm om signalen kräver intern uppföljning i dag.",
       "Kontrollera originalkällan före eventuell extern användning.",
     ],
-    original_excerpt: record.raw.snippet ?? record.raw.title_original,
+    original_excerpt: decodeHtmlEntities(record.raw.snippet ?? record.raw.title_original),
     event_date: normalizeEventDate(record.processed.event_date),
   };
 }

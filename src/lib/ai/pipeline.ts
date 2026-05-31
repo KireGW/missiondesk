@@ -6,8 +6,8 @@ import type {
   ProfileMode,
 } from "@/lib/types";
 import type { NormalizedSourceDocument } from "@/lib/ingestion/types";
-import { normalizeSwedishUserFacingText } from "@/lib/ai/swedish-normalization";
-import { ensureSwedishSignalTitle } from "@/lib/ai/title-guardrail";
+import { normalizeSwedishTitle, normalizeSwedishUserFacingText } from "@/lib/ai/swedish-normalization";
+import { ensureSwedishSignalSummary, ensureSwedishSignalTitle } from "@/lib/ai/title-guardrail";
 import { normalizeEventDate } from "@/lib/intelligence/event-dates";
 
 export interface DiplomaticProcessingInput {
@@ -260,7 +260,7 @@ function sanitizeAnalysis(analysis: AiArticleAnalysis): AiArticleAnalysis {
 
   return {
     ...analysis,
-    title_sv: normalizeSwedishUserFacingText(analysis.title_sv).slice(0, 140),
+    title_sv: normalizeSwedishTitle(analysis.title_sv).slice(0, 140),
     summary_sv: normalizeSwedishUserFacingText(analysis.summary_sv).slice(0, 420),
     category,
     geographic_scope: geographicScope,
@@ -381,6 +381,15 @@ export async function analyzeArticleWithOpenAI(
     titleOriginal: article.title,
     snippetOriginal: article.excerpt,
     summarySv: analysis.summary_sv,
+  });
+  analysis.summary_sv = await ensureSwedishSignalSummary({
+    apiKey,
+    model: process.env.OPENAI_MODEL ?? "gpt-5-mini",
+    sourceLanguage: article.sourceLanguage,
+    summarySv: analysis.summary_sv,
+    titleSv: analysis.title_sv,
+    titleOriginal: article.title,
+    snippetOriginal: article.excerpt,
   });
 
   return analysis;

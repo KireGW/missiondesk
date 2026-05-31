@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { earliestCacheExpiry, latestCacheTimestamp } from "@/lib/intelligence/dashboard-view";
-import { listBriefings } from "@/lib/intelligence/repository";
+import { listBackgroundJobs, listBriefings } from "@/lib/intelligence/repository";
 import type { GeographicScope, ProfileMode } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+const briefingJobType = "generate_briefing";
 
 const profiles: ProfileMode[] = [
   "daily_overview",
@@ -29,11 +30,12 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const profileParam = url.searchParams.get("profile");
   const scopeParam = url.searchParams.get("geographicScope");
+  const typeParam = url.searchParams.get("type") ?? undefined;
   const limit = Number(url.searchParams.get("limit") ?? 10);
   const onlyFresh = url.searchParams.get("fresh") !== "0";
 
   const briefings = await listBriefings({
-    type: url.searchParams.get("type") ?? undefined,
+    type: typeParam,
     profile: profiles.includes(profileParam as ProfileMode)
       ? (profileParam as ProfileMode)
       : undefined,
@@ -45,6 +47,14 @@ export async function GET(request: Request) {
     limit: Number.isFinite(limit) ? limit : 10,
   });
 
+  const backgroundJobs = (await listBackgroundJobs({ type: briefingJobType, limit: 25 })).filter((job) => {
+    if (!["pending", "running"].includes(job.status)) return false;
+    if (!typeParam) return true;
+    return job.payload.type === typeParam;
+  });
+  const runningCount = backgroundJobs.filter((job) => job.status === "running").length;
+  const queuedCount = backgroundJobs.filter((job) => job.status === "pending").length;
+
   return NextResponse.json({
     briefings,
     cache: {
@@ -52,6 +62,17 @@ export async function GET(request: Request) {
       latestGeneratedAt: latestCacheTimestamp(briefings, []),
       earliestExpiresAt: earliestCacheExpiry(briefings, []),
       onlyFresh,
+    },
+    background: {
+      active: backgroundJobs.length > 0,
+      runningCount,
+      queuedCount,
+      message:
+        runningCount > 0
+          ? "Briefing uppdateras i bakgrunden."
+          : queuedCount > 0
+            ? "Briefing köad för bakgrundsuppdatering."
+            : "",
     },
   });
 }

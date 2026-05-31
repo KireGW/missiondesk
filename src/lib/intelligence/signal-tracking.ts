@@ -1,4 +1,8 @@
 import { getMigratedDb } from "@/lib/db/postgres";
+import {
+  looksLikeForeignSummaryInSwedishField,
+  normalizeSwedishUserFacingText,
+} from "@/lib/ai/swedish-normalization";
 import { swedenMexicoEmbassyConfig } from "@/lib/config/embassies/sweden-mexico";
 import { detectGeography } from "@/lib/ingestion/geography";
 import { sanitizePublishedAt } from "@/lib/ingestion/published-at";
@@ -1071,8 +1075,10 @@ async function translateCandidates(
         if (row.index < 0 || row.index >= chunk.length) continue;
         const targetIndex = offset + row.index;
         translatedItems[targetIndex] = {
-          titleSv: row.title_sv.slice(0, 260),
-          snippetSv: row.snippet_sv?.slice(0, 420),
+          titleSv: normalizeSwedishUserFacingText(row.title_sv).slice(0, 260),
+          snippetSv: row.snippet_sv
+            ? normalizeSwedishUserFacingText(row.snippet_sv).slice(0, 420)
+            : undefined,
           ai: true,
         };
         translatedIndexes.add(targetIndex);
@@ -1160,12 +1166,29 @@ export async function searchSignalsAcrossSources({
 
   const results: SignalTrackingResult[] = finalCandidates.map((candidate, index) => {
     const processed = candidate.rawId ? processedByRawId.get(candidate.rawId) ?? null : null;
+    const processedSummary = processed?.summary_sv
+      ? normalizeSwedishUserFacingText(processed.summary_sv)
+      : undefined;
+    const translatedSnippet = translations.items[index]?.snippetSv
+      ? normalizeSwedishUserFacingText(translations.items[index]!.snippetSv!)
+      : undefined;
+    const fallbackSnippet =
+      candidate.source.language.toLowerCase().startsWith("sv") && candidate.snippetOriginal
+        ? normalizeSwedishUserFacingText(candidate.snippetOriginal)
+        : undefined;
+    const snippetSv = [processedSummary, translatedSnippet, fallbackSnippet].find(
+      (value) => value && !looksLikeForeignSummaryInSwedishField(value),
+    );
+
     return {
     id: `${candidate.source.id}:${canonicalUrl(candidate.url)}:${index}`,
     title_original: candidate.titleOriginal,
-    title_sv: processed?.title_sv ?? translations.items[index]?.titleSv ?? candidate.titleOriginal,
+    title_sv:
+      processed?.title_sv
+        ? normalizeSwedishUserFacingText(processed.title_sv)
+        : translations.items[index]?.titleSv ?? candidate.titleOriginal,
     snippet_original: candidate.snippetOriginal,
-    snippet_sv: processed?.summary_sv ?? translations.items[index]?.snippetSv,
+    snippet_sv: snippetSv,
     url: canonicalUrl(candidate.url),
     source_name: candidate.source.name,
     source_country: candidate.source.country,

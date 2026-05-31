@@ -1,11 +1,27 @@
 import { NextResponse } from "next/server";
-import { listTemporalSignals } from "@/lib/intelligence/repository";
+import { listBackgroundJobs, listTemporalSignals } from "@/lib/intelligence/repository";
 import {
   extractTemporalSignalsFromProcessedItems,
   isTemporalExtractionConfigured,
 } from "@/lib/intelligence/temporal-signals";
+import type { TemporalSignalRecord } from "@/lib/intelligence/models";
+import { temporalSyncJobType } from "@/lib/intelligence/temporal-sync-worker";
+import { detectSwedenMexicoRelevance } from "@/lib/intelligence/sweden-relevance";
 
 export const dynamic = "force-dynamic";
+
+function isMissionDeskUpcomingRelevant(record: TemporalSignalRecord) {
+  const relevance = detectSwedenMexicoRelevance(record.raw);
+  if (
+    relevance.isSwedishSource &&
+    relevance.mexicanEntities.length === 0 &&
+    relevance.crossRegionalScore < 35
+  ) {
+    return false;
+  }
+
+  return true;
+}
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -15,7 +31,7 @@ export async function GET(request: Request) {
   const minSwedenMexicoRelevance = Number(url.searchParams.get("minSwedenMexicoRelevance") ?? 35);
   const onlyUpcoming = url.searchParams.get("upcoming") !== "0";
 
-  const records = await listTemporalSignals({
+  const records = (await listTemporalSignals({
     limit: Number.isFinite(limit) ? limit : 30,
     onlyUpcoming,
     minTemporalCertainty: Number.isFinite(minTemporalCertainty) ? minTemporalCertainty : 45,
@@ -23,7 +39,15 @@ export async function GET(request: Request) {
     minSwedenMexicoRelevance: Number.isFinite(minSwedenMexicoRelevance)
       ? minSwedenMexicoRelevance
       : 35,
-  });
+  }))
+    .filter(isMissionDeskUpcomingRelevant)
+    .slice(0, Number.isFinite(limit) ? limit : 30);
+
+  const backgroundJobs = (await listBackgroundJobs({ type: temporalSyncJobType, limit: 50 })).filter((job) =>
+    ["pending", "running"].includes(job.status),
+  );
+  const runningCount = backgroundJobs.filter((job) => job.status === "running").length;
+  const queuedCount = backgroundJobs.filter((job) => job.status === "pending").length;
 
   return NextResponse.json({
     signals: records,
@@ -31,6 +55,17 @@ export async function GET(request: Request) {
       itemCount: records.length,
       generatedAt: new Date().toISOString(),
       onlyUpcoming,
+    },
+    background: {
+      active: backgroundJobs.length > 0,
+      runningCount,
+      queuedCount,
+      message:
+        runningCount > 0
+          ? "Framåtblick uppdateras i bakgrunden."
+          : queuedCount > 0
+            ? "Framåtblick köad för bakgrundsuppdatering."
+            : "",
     },
   });
 }

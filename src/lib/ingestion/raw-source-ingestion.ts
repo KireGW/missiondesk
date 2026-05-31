@@ -232,6 +232,28 @@ function signalWithTimeout(timeoutMs: number) {
   };
 }
 
+async function withHardTimeout<T>(
+  timeoutMs: number,
+  operation: () => Promise<T>,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+
+  try {
+    return await Promise.race([
+      operation(),
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new Error(`Source ingestion timed out after ${timeoutMs}ms`);
+          error.name = "AbortError";
+          reject(error);
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function dedupeDocuments(source: IngestibleSourceDefinition, documents: RawSourceDocument[]) {
   const seen = new Set<string>();
   return documents.filter((document) => {
@@ -305,16 +327,81 @@ async function ingestSource(
   const timeout = signalWithTimeout(timeoutMs);
 
   try {
-    const limit = source.maxItemsPerRun ?? options.limitPerSource ?? 25;
-    const preserveRawContent = options.preserveRawContent ?? source.preserveRawContent;
-    let documents: RawSourceDocument[] = [];
-    let sourceErrors: Array<{ message: string; url?: string }> = [];
-    let websiteStats: WebsiteFetchStats | undefined;
+    return await withHardTimeout(timeoutMs, async () => {
+      const limit = source.maxItemsPerRun ?? options.limitPerSource ?? 25;
+      const preserveRawContent = options.preserveRawContent ?? source.preserveRawContent;
+      let documents: RawSourceDocument[] = [];
+      let sourceErrors: Array<{ message: string; url?: string }> = [];
+      let websiteStats: WebsiteFetchStats | undefined;
 
-    if (retrievalMethod === "rss") {
-      const adapter = ingestionAdapters.find((candidate) => candidate.type === "rss");
+      if (retrievalMethod === "rss") {
+        const adapter = ingestionAdapters.find((candidate) => candidate.type === "rss");
 
-      if (!adapter) {
+        if (!adapter) {
+          return {
+            sourceId: source.id,
+            sourceName: source.name,
+            retrievalMethod,
+            fetchedCount: 0,
+            storedCount: 0,
+            skippedCount: 0,
+            items: [],
+            errors: [{ message: "No RSS ingestion adapter registered" }],
+          };
+        }
+
+        documents = await adapter.fetch(source, {
+          embassy: config,
+          limit,
+          preserveRawContent,
+          signal: timeout.signal,
+        });
+      } else if (retrievalMethod === "market") {
+        const recentItems = await listRawSourceItems({
+          sourceName: source.name,
+          limit: 10,
+        });
+        const result = await fetchMarketSource(source, {
+          preserveRawContent,
+          recentItems,
+          signal: timeout.signal,
+        });
+        documents = result.documents;
+        sourceErrors = result.errors;
+      } else if (retrievalMethod === "website") {
+        const result = await fetchWebsiteSource(source, {
+          limit,
+          preserveRawContent,
+          signal: timeout.signal,
+          isKnownUrl: async (url) => Boolean(await getRawSourceItemByUrl(canonicalUrl(url))),
+        });
+        documents = result.documents;
+        sourceErrors = result.errors;
+        websiteStats = result.stats;
+      } else if (retrievalMethod === "social_api") {
+        const adapter = ingestionAdapters.find((candidate) => candidate.type === "social");
+
+        if (!adapter) {
+          return {
+            sourceId: source.id,
+            sourceName: source.name,
+            retrievalMethod,
+            fetchedCount: 0,
+            storedCount: 0,
+            skippedCount: 0,
+            items: [],
+            errors: [{ message: "No social ingestion adapter registered" }],
+          };
+        }
+
+        documents = await adapter.fetch(source, {
+          embassy: config,
+          limit,
+          preserveRawContent,
+          since: options.since,
+          signal: timeout.signal,
+        });
+      } else {
         return {
           sourceId: source.id,
           sourceName: source.name,
@@ -323,113 +410,50 @@ async function ingestSource(
           storedCount: 0,
           skippedCount: 0,
           items: [],
-          errors: [{ message: "No RSS ingestion adapter registered" }],
+          errors: [{ message: `No ${retrievalMethod} ingestion adapter registered` }],
         };
       }
 
-      documents = await adapter.fetch(source, {
-        embassy: config,
-        limit,
-        preserveRawContent,
-        signal: timeout.signal,
-      });
-    } else if (retrievalMethod === "market") {
-      const recentItems = await listRawSourceItems({
-        sourceName: source.name,
-        limit: 10,
-      });
-      const result = await fetchMarketSource(source, {
-        preserveRawContent,
-        recentItems,
-        signal: timeout.signal,
-      });
-      documents = result.documents;
-      sourceErrors = result.errors;
-    } else if (retrievalMethod === "website") {
-      const result = await fetchWebsiteSource(source, {
-        limit,
-        preserveRawContent,
-        signal: timeout.signal,
-        isKnownUrl: async (url) => Boolean(await getRawSourceItemByUrl(canonicalUrl(url))),
-      });
-      documents = result.documents;
-      sourceErrors = result.errors;
-      websiteStats = result.stats;
-    } else if (retrievalMethod === "social_api") {
-      const adapter = ingestionAdapters.find((candidate) => candidate.type === "social");
+      const uniqueDocuments = dedupeDocuments(source, documents);
+      const storedItems: RawSourceItem[] = [];
+      let skippedCount = 0;
 
-      if (!adapter) {
-        return {
-          sourceId: source.id,
-          sourceName: source.name,
-          retrievalMethod,
-          fetchedCount: 0,
-          storedCount: 0,
-          skippedCount: 0,
-          items: [],
-          errors: [{ message: "No social ingestion adapter registered" }],
-        };
+      for (const document of uniqueDocuments) {
+        if (!isDocumentAfterSince(document, options.since)) {
+          skippedCount += 1;
+          continue;
+        }
+
+        const rawItem = toRawSourceItem(source, document, config);
+        if (!rawItem) {
+          skippedCount += 1;
+          continue;
+        }
+
+        const rawItemId = createRawSourceItemId(rawItem);
+        const existing = isMarketSource(source)
+          ? await getRawSourceItemById(rawItemId)
+          : (await getRawSourceItemById(rawItemId)) ?? (await getRawSourceItemByUrl(rawItem.url));
+        if (existing) {
+          skippedCount += 1;
+          continue;
+        }
+
+        storedItems.push(await upsertRawSourceItem(rawItem));
       }
 
-      documents = await adapter.fetch(source, {
-        embassy: config,
-        limit,
-        preserveRawContent,
-        since: options.since,
-        signal: timeout.signal,
-      });
-    } else {
       return {
         sourceId: source.id,
         sourceName: source.name,
         retrievalMethod,
-        fetchedCount: 0,
-        storedCount: 0,
-        skippedCount: 0,
-        items: [],
-        errors: [{ message: `No ${retrievalMethod} ingestion adapter registered` }],
+        fetchedCount: uniqueDocuments.length,
+        storedCount: storedItems.length,
+        skippedCount,
+        items: storedItems,
+        errors: sourceErrors,
+        websiteStats,
       };
-    }
-
-    const uniqueDocuments = dedupeDocuments(source, documents);
-    const storedItems: RawSourceItem[] = [];
-    let skippedCount = 0;
-
-    for (const document of uniqueDocuments) {
-      if (!isDocumentAfterSince(document, options.since)) {
-        skippedCount += 1;
-        continue;
-      }
-
-      const rawItem = toRawSourceItem(source, document, config);
-      if (!rawItem) {
-        skippedCount += 1;
-        continue;
-      }
-
-      const rawItemId = createRawSourceItemId(rawItem);
-      const existing = isMarketSource(source)
-        ? await getRawSourceItemById(rawItemId)
-        : (await getRawSourceItemById(rawItemId)) ?? (await getRawSourceItemByUrl(rawItem.url));
-      if (existing) {
-        skippedCount += 1;
-        continue;
-      }
-
-      storedItems.push(await upsertRawSourceItem(rawItem));
-    }
-
-    return {
-      sourceId: source.id,
-      sourceName: source.name,
-      retrievalMethod,
-      fetchedCount: uniqueDocuments.length,
-      storedCount: storedItems.length,
-      skippedCount,
-      items: storedItems,
-      errors: sourceErrors,
-      websiteStats,
-    };
+    });
   } catch (error) {
     return {
       sourceId: source.id,
