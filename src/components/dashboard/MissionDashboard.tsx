@@ -652,6 +652,41 @@ const normalizeForGrouping = (value: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const isOfficialSourceType = (value?: string) =>
+  ["government", "institution", "advisory"].includes((value ?? "").toLowerCase());
+
+const hasMexicoAnchor = (item: IntelligenceItem, config: EmbassyConfig) => {
+  const administrativeDivisionIds = new Set(
+    config.geography.administrativeDivisions.map((division) => division.id),
+  );
+  const hasRealGeographicDivision = item.geographic_tags.some((tag) =>
+    administrativeDivisionIds.has(tag),
+  );
+  if (hasRealGeographicDivision) return true;
+
+  const context = normalizeForGrouping(
+    [
+      item.title_sv,
+      item.summary_sv,
+      item.why_it_matters_sv,
+      item.original_excerpt,
+      item.region,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+
+  return /\bmexik(?:o|ansk|anska|anskt)\b|\bmexico\b|\bsve ?mex\b|\blatinamerika\b|\blatin america\b/.test(
+    context,
+  );
+};
+
+const compressCompositeScore = (score: number) => {
+  if (score <= 72) return score;
+  if (score <= 90) return 72 + (score - 72) * 0.8;
+  return 86.4 + (score - 90) * 0.48;
+};
+
 const weeklyDatePattern =
   /\b(20\d{2}-\d{2}-\d{2}|\d{1,2}[\/\-]\d{1,2}[\/\-](?:20)?\d{2}|\d{1,2}\s+(?:januari|februari|mars|april|maj|juni|juli|augusti|september|oktober|november|december|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre|january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{4})\b/i;
 
@@ -740,8 +775,18 @@ const getCompositeScore = (
   }, 0);
   const categoryWeight = profileDefinition?.categoryWeights[item.category] ?? 1;
   const profileBoost = item.profile_tags.includes(profile) ? 1.13 : 0.96;
+  let composite = (baseScore / scoreMeta.length) * categoryWeight * profileBoost;
 
-  return Math.round((baseScore / scoreMeta.length) * categoryWeight * profileBoost);
+  const isSwedishOfficialWithoutMexicoAnchor =
+    normalizeForGrouping(item.source_country).includes("sverige") &&
+    isOfficialSourceType(item.subregion) &&
+    !hasMexicoAnchor(item, config);
+
+  if (isSwedishOfficialWithoutMexicoAnchor) {
+    composite *= 0.88;
+  }
+
+  return Math.round(Math.max(0, Math.min(99, compressCompositeScore(composite))));
 };
 
 const getRegionDivisionIds = (config: EmbassyConfig, regionId: string) =>
@@ -3975,6 +4020,7 @@ function parseBriefingBlocks(content?: string) {
   if (!content) return [] as BriefingContentBlock[];
 
   return normalizeSwedishUserFacingText(content)
+    .replace(/\s+[•●▪◦]\s+/g, "\n• ")
     .split("\n")
     .map((line) =>
       line
@@ -4305,6 +4351,7 @@ function IntelligenceCard({
 }) {
   const Icon = categoryIcon[item.category];
   const composite = getCompositeScore(item, config, profile);
+  const displaySummary = normalizeSwedishUserFacingText(item.summary_sv);
 
   return (
     <div
@@ -4362,7 +4409,7 @@ function IntelligenceCard({
               {item.title_sv}
             </h3>
             <p className="mt-1 line-clamp-2 text-sm leading-6 text-[var(--app-soft)]">
-              {item.summary_sv}
+              {displaySummary}
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               <Pill tone="accent">{priorityLabel(composite)}</Pill>
@@ -4397,13 +4444,17 @@ function DetailPanel({
     );
   }
 
+  const displaySummary = normalizeSwedishUserFacingText(item.summary_sv);
+  const displayWhyItMatters = normalizeSwedishUserFacingText(item.why_it_matters_sv);
+  const displayOriginalExcerpt = normalizeSwedishUserFacingText(item.original_excerpt);
+
   return (
     <div className="rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-muted)] p-5">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <SectionKicker icon={PanelRightOpen} label="Fördjupning" />
           <h3 className="mt-3 text-lg font-semibold leading-7">{item.title_sv}</h3>
-          <p className="mt-2 text-sm leading-6 text-[var(--app-soft)]">{item.summary_sv}</p>
+          <p className="mt-2 text-sm leading-6 text-[var(--app-soft)]">{displaySummary}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Pill tone="neutral">{priorityLabel(composite)}</Pill>
@@ -4426,7 +4477,7 @@ function DetailPanel({
       </div>
 
       <div className="mt-5 space-y-4">
-        <AnalysisBlock title="Betydelse" body={item.why_it_matters_sv} />
+        <AnalysisBlock title="Betydelse" body={displayWhyItMatters} />
         {item.risk_sv && <AnalysisBlock title="Risk" body={item.risk_sv} tone="danger" />}
         {item.opportunity_sv && (
           <AnalysisBlock title="Möjlighet" body={item.opportunity_sv} tone="positive" />
@@ -4456,7 +4507,7 @@ function DetailPanel({
             {item.title_original}
           </p>
           <p className="mt-2 text-xs leading-5 text-[var(--app-muted)]">
-            Utdrag: {item.original_excerpt}
+            Utdrag: {displayOriginalExcerpt}
           </p>
           <a
             href={item.source_url}
@@ -4649,13 +4700,14 @@ function SourceFeed({
             <tbody className="divide-y divide-[var(--app-line)]">
               {sortedRows.map((item) => {
                 const isPrioritized = prioritizedIds.includes(item.id);
+                const displayOriginalTitle = normalizeSwedishUserFacingText(item.title_original);
 
                 return (
                   <tr key={item.id} className="hover:bg-[var(--app-panel-muted)]">
                     <td className="max-w-[420px] px-5 py-4">
                       <p className="font-medium leading-5 text-[var(--app-fg)]">{item.title_sv}</p>
                       <p className="mt-1 text-xs leading-5 text-[var(--app-muted)]">
-                        {item.title_original}
+                        {displayOriginalTitle}
                       </p>
                     </td>
                     <td className="group px-5 py-4">

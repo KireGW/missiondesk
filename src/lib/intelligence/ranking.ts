@@ -20,7 +20,7 @@ import type {
 } from "@/lib/intelligence/models";
 import type { EmbassyConfig, IntelligenceCategory } from "@/lib/types";
 
-export const rankingVersion = "missiondesk-lightweight-ranker-v5-source-fit";
+export const rankingVersion = "missiondesk-lightweight-ranker-v6-source-fit";
 
 export interface CandidateRankingOptions {
   config?: EmbassyConfig;
@@ -381,6 +381,11 @@ function sourceFitBoost(
     item.source_type,
   );
   const social = item.source_type === "social";
+  const swedishOfficialWithoutMexicoAnchor =
+    signal.isSwedishSource &&
+    official &&
+    signal.mexicanEntities.length === 0 &&
+    signal.crossRegionalScore < 35;
   const strategicallyRelevant =
     input.diplomatic >= 68 ||
     input.category >= 68 ||
@@ -391,10 +396,14 @@ function sourceFitBoost(
   let boost = 0;
 
   if (official && strategicallyRelevant) {
-    boost += 6;
+    boost += swedishOfficialWithoutMexicoAnchor ? 2 : 6;
   }
 
-  if (official && (signal.swedenRelevanceScore >= 55 || signal.crossRegionalScore >= 55)) {
+  if (
+    official &&
+    !swedishOfficialWithoutMexicoAnchor &&
+    (signal.swedenRelevanceScore >= 55 || signal.crossRegionalScore >= 55)
+  ) {
     boost += 4;
   }
 
@@ -406,7 +415,11 @@ function sourceFitBoost(
     boost += 8;
   }
 
-  if (signal.isStaticSwedishInstitutionalSource && strategicallyRelevant) {
+  if (
+    signal.isStaticSwedishInstitutionalSource &&
+    strategicallyRelevant &&
+    (signal.mexicanEntities.length > 0 || signal.crossRegionalScore >= 35)
+  ) {
     boost += 8;
   }
 
