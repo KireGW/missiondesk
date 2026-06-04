@@ -22,6 +22,7 @@ import {
   getBackgroundJobById,
   getIngestionUpdateState,
   listBackgroundJobs,
+  requeueBackgroundJob,
   updateIngestionUpdateState,
   updateBackgroundJobPayload,
 } from "@/lib/intelligence/repository";
@@ -40,7 +41,13 @@ type RefreshScope = "national" | "briefings" | "all";
 const manualRefreshJobType = "manual_source_refresh";
 const processingJobType = "process_ranked_candidate";
 const briefingJobType = "generate_briefing";
-const STALE_MANUAL_REFRESH_MS = 15 * 60 * 1000;
+const STALE_MANUAL_REFRESH_MS_DEFAULT = 4 * 60 * 1000;
+const STALE_MANUAL_REFRESH_MS_BY_PHASE: Record<string, number> = {
+  queued: 90 * 1000,
+  ingesting_sources: 4 * 60 * 1000,
+  ranking_candidates: 3 * 60 * 1000,
+  processing_items: 8 * 60 * 1000,
+};
 const MANUAL_REFRESH_REVISIT_WINDOW_HOURS = 48;
 const manualRefreshCancelledMessage = "Uppdateringen avbröts av användaren.";
 const refreshSteps = [
@@ -49,8 +56,6 @@ const refreshSteps = [
   "Bearbetar nya relevanta signaler…",
   "Uppdaterar briefing vid behov…",
 ];
-
-let manualRefreshInFlight: Promise<unknown> | null = null;
 
 type RefreshFunnelCounts = {
   scannedSources: number;
@@ -89,6 +94,55 @@ type ProcessingOutcomeCounts = {
   fresh_cache_exists: number;
   stale_cache_reused: number;
   processing_failed: number;
+};
+
+type ManualRefreshBackgroundWork = {
+  processedCount: number;
+  processedRawSourceItemIds: string[];
+  cacheHours?: number;
+  observability: Awaited<ReturnType<typeof buildRefreshObservability>>;
+  processingOutcomeCounts: ProcessingOutcomeCounts;
+};
+
+type ManualRefreshRunResult = {
+  backgroundWork?: ManualRefreshBackgroundWork;
+};
+
+type PersistedIngestionItemRef = { id: string };
+
+type PersistedIngestionSourceResult = {
+  sourceId: string;
+  sourceName: string;
+  retrievalMethod: string;
+  fetchedCount: number;
+  storedCount: number;
+  skippedCount: number;
+  errorCount: number;
+  items: PersistedIngestionItemRef[];
+};
+
+type PersistedIngestionSummary = {
+  sourceCount: number;
+  fetchedCount: number;
+  storedCount: number;
+  skippedCount: number;
+  errorCount: number;
+  results: PersistedIngestionSourceResult[];
+};
+
+type PersistedRankingCandidate = {
+  raw_source_item_id: string;
+  selection_status: string;
+};
+
+type PersistedRankingSummary = {
+  scannedCount: number;
+  selectedCount: number;
+  candidateCount: number;
+  rejectedCount: number;
+  deferredCount: number;
+  regionalHoldCount: number;
+  candidates: PersistedRankingCandidate[];
 };
 
 function emptyFunnelCounts(): RefreshFunnelCounts {
@@ -217,9 +271,37 @@ function manualRefreshSince(lastIngestedAt?: string | null) {
 
 async function buildRefreshObservability(input: {
   sources: SourceDefinition[];
-  ingestion: Awaited<ReturnType<typeof ingestRawSourceItems>>;
-  ranking?: Awaited<ReturnType<typeof rankAndStoreCandidates>>;
-  processingJobs?: Array<{ payload: Record<string, unknown> }>;
+  ingestion: {
+    sourceCount: number;
+    fetchedCount: number;
+    storedCount: number;
+    skippedCount: number;
+    errors: Array<unknown>;
+    results: Array<{
+      sourceId: string;
+      sourceName: string;
+      retrievalMethod: string;
+      fetchedCount: number;
+      storedCount: number;
+      skippedCount: number;
+      errors: Array<unknown>;
+      items: Array<{ id: string }>;
+    }>;
+  };
+  ranking?: {
+    scannedCount: number;
+    selectedCount: number;
+    candidateCount: number;
+    rejectedCount: number;
+    deferredCount: number;
+    regionalHoldCount: number;
+    candidates: Array<{
+      raw_source_item_id: string;
+      selection_status: string;
+    }>;
+  };
+  processingJobs?: Array<{ payload: { rawSourceItemId?: string } }>;
+  processedRawIds?: string[];
 }) {
   const sourceMap = new Map(input.sources.map((source) => [source.id, source]));
   const stageBySource = new Map<string, RefreshSourceStageMetrics>();
@@ -326,12 +408,17 @@ async function buildRefreshObservability(input: {
     }
   }
 
-  const processedStates = await Promise.all(
-    selectedRawIds.map(async (rawId) => ({
-      rawId,
-      processed: Boolean(await getProcessedItemByRawId(rawId)),
-    })),
-  );
+  const processedStates = input.processedRawIds
+    ? selectedRawIds.map((rawId) => ({
+        rawId,
+        processed: input.processedRawIds?.includes(rawId) ?? false,
+      }))
+    : await Promise.all(
+        selectedRawIds.map(async (rawId) => ({
+          rawId,
+          processed: Boolean(await getProcessedItemByRawId(rawId)),
+        })),
+      );
   const processedByRawId = new Map(processedStates.map((item) => [item.rawId, item.processed]));
 
   for (const result of input.ingestion.results) {
@@ -369,29 +456,114 @@ async function buildRefreshObservability(input: {
   };
 }
 
+function persistIngestionSummary(
+  ingestion: Awaited<ReturnType<typeof ingestRawSourceItems>>,
+): PersistedIngestionSummary {
+  return {
+    sourceCount: ingestion.sourceCount,
+    fetchedCount: ingestion.fetchedCount,
+    storedCount: ingestion.storedCount,
+    skippedCount: ingestion.skippedCount,
+    errorCount: ingestion.errors.length,
+    results: ingestion.results.map((result) => ({
+      sourceId: result.sourceId,
+      sourceName: result.sourceName,
+      retrievalMethod: result.retrievalMethod,
+      fetchedCount: result.fetchedCount,
+      storedCount: result.storedCount,
+      skippedCount: result.skippedCount,
+      errorCount: result.errors.length,
+      items: result.items.map((item) => ({ id: item.id })),
+    })),
+  };
+}
+
+function hydrateIngestionSummary(summary: PersistedIngestionSummary) {
+  return {
+    sourceCount: summary.sourceCount,
+    fetchedCount: summary.fetchedCount,
+    storedCount: summary.storedCount,
+    skippedCount: summary.skippedCount,
+    errors: Array.from({ length: summary.errorCount }, () => null),
+    results: summary.results.map((result) => ({
+      sourceId: result.sourceId,
+      sourceName: result.sourceName,
+      retrievalMethod: result.retrievalMethod,
+      fetchedCount: result.fetchedCount,
+      storedCount: result.storedCount,
+      skippedCount: result.skippedCount,
+      errors: Array.from({ length: result.errorCount }, () => null),
+      items: result.items.map((item) => ({ id: item.id })),
+    })),
+  };
+}
+
+function emptyIngestionSummary(): PersistedIngestionSummary {
+  return {
+    sourceCount: 0,
+    fetchedCount: 0,
+    storedCount: 0,
+    skippedCount: 0,
+    errorCount: 0,
+    results: [],
+  };
+}
+
+function mergeIngestionSummary(
+  current: PersistedIngestionSummary,
+  incoming: PersistedIngestionSummary,
+): PersistedIngestionSummary {
+  return {
+    sourceCount: current.sourceCount + incoming.sourceCount,
+    fetchedCount: current.fetchedCount + incoming.fetchedCount,
+    storedCount: current.storedCount + incoming.storedCount,
+    skippedCount: current.skippedCount + incoming.skippedCount,
+    errorCount: current.errorCount + incoming.errorCount,
+    results: [...current.results, ...incoming.results],
+  };
+}
+
+function persistRankingSummary(
+  ranking: Awaited<ReturnType<typeof rankAndStoreCandidates>>,
+): PersistedRankingSummary {
+  return {
+    scannedCount: ranking.scannedCount,
+    selectedCount: ranking.selectedCount,
+    candidateCount: ranking.candidateCount,
+    rejectedCount: ranking.rejectedCount,
+    deferredCount: ranking.deferredCount,
+    regionalHoldCount: ranking.regionalHoldCount,
+    candidates: ranking.candidates.map((candidate) => ({
+      raw_source_item_id: candidate.raw_source_item_id,
+      selection_status: candidate.selection_status,
+    })),
+  };
+}
+
+function uniqueStringValues(values: string[]) {
+  return [...new Set(values.filter((value) => typeof value === "string" && value.length > 0))];
+}
+
 async function activeManualRefreshJob() {
   const jobs = await listBackgroundJobs({ type: manualRefreshJobType, limit: 10 });
   const now = Date.now();
 
   for (const job of jobs) {
     if (job.status !== "running") continue;
+    const phase = payloadString(job, "phase", "queued");
+    const staleAfterMs =
+      STALE_MANUAL_REFRESH_MS_BY_PHASE[phase] ?? STALE_MANUAL_REFRESH_MS_DEFAULT;
     const lockedAt = job.locked_at ? new Date(job.locked_at).getTime() : 0;
     const updatedAt = job.updated_at ? new Date(job.updated_at).getTime() : 0;
     const lastActivityAt = Math.max(lockedAt, updatedAt);
-    if (lastActivityAt > 0 && now - lastActivityAt > STALE_MANUAL_REFRESH_MS) {
-      await logManualRefresh(job.id, "manual source rescan marked stale", {
-        staleAfterMs: STALE_MANUAL_REFRESH_MS,
+    if (lastActivityAt > 0 && now - lastActivityAt > staleAfterMs) {
+      await logManualRefresh(job.id, "manual source rescan marked stale and requeued", {
+        staleAfterMs,
+        phase,
       });
-      await updateIngestionUpdateState({
-        status: "failed",
-        started_at: payloadString(job, "startedAt", job.created_at),
-        completed_at: new Date().toISOString(),
-        error_message: "Uppdateringen fastnade och markerades som avbruten. Försök igen.",
+      await requeueBackgroundJob(job.id, {
+        errorMessage: "Manual source refresh step became stale and was requeued.",
       });
-      await failBackgroundJob(
-        job.id,
-        "Manual source refresh became stale before completing.",
-      );
     }
   }
 
@@ -420,6 +592,48 @@ function payloadString(job: BackgroundJob | null | undefined, key: string, fallb
   return typeof value === "string" ? value : fallback;
 }
 
+function payloadStringArray(job: BackgroundJob | null | undefined, key: string) {
+  const value = job?.payload[key];
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string" && item.length > 0)
+    : [];
+}
+
+function payloadIngestionSummary(job: BackgroundJob | null | undefined) {
+  const value = job?.payload.ingestionSummary;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return emptyIngestionSummary();
+  }
+
+  const summary = value as PersistedIngestionSummary;
+  return {
+    sourceCount: typeof summary.sourceCount === "number" ? summary.sourceCount : 0,
+    fetchedCount: typeof summary.fetchedCount === "number" ? summary.fetchedCount : 0,
+    storedCount: typeof summary.storedCount === "number" ? summary.storedCount : 0,
+    skippedCount: typeof summary.skippedCount === "number" ? summary.skippedCount : 0,
+    errorCount: typeof summary.errorCount === "number" ? summary.errorCount : 0,
+    results: Array.isArray(summary.results) ? summary.results : [],
+  };
+}
+
+function payloadRankingSummary(job: BackgroundJob | null | undefined) {
+  const value = job?.payload.rankingSummary;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const summary = value as PersistedRankingSummary;
+  return {
+    scannedCount: typeof summary.scannedCount === "number" ? summary.scannedCount : 0,
+    selectedCount: typeof summary.selectedCount === "number" ? summary.selectedCount : 0,
+    candidateCount: typeof summary.candidateCount === "number" ? summary.candidateCount : 0,
+    rejectedCount: typeof summary.rejectedCount === "number" ? summary.rejectedCount : 0,
+    deferredCount: typeof summary.deferredCount === "number" ? summary.deferredCount : 0,
+    regionalHoldCount: typeof summary.regionalHoldCount === "number" ? summary.regionalHoldCount : 0,
+    candidates: Array.isArray(summary.candidates) ? summary.candidates : [],
+  };
+}
+
 function payloadLogs(job: BackgroundJob | null | undefined) {
   const value = job?.payload.logs;
   return Array.isArray(value) ? value.slice(-20) : [];
@@ -434,7 +648,10 @@ function manualRefreshFailureMessage(job: BackgroundJob | undefined, stateErrorM
     return manualRefreshCancelledMessage;
   }
 
-  if (job?.error_message === "Manual source refresh became stale before completing.") {
+  if (
+    job?.error_message === "Manual source refresh became stale before completing." ||
+    job?.error_message === "Manual source refresh step became stale and was requeued."
+  ) {
     const phase = payloadString(job, "phase", "");
     if (phase === "ingesting_sources") {
       return "Uppdateringen fastnade under källskanningen och markerades som avbruten. Försök igen.";
@@ -448,6 +665,9 @@ function manualRefreshFailureMessage(job: BackgroundJob | undefined, stateErrorM
 async function statusFromRefreshJob(job: BackgroundJob | undefined) {
   const state = await getIngestionUpdateState();
   const active = Boolean(job && ["pending", "running"].includes(job.status));
+  const phase = payloadString(job, "phase", active ? "queued" : "");
+  const processedCount = payloadNumber(job, "processedCount", 0);
+  const processingJobs = payloadNumber(job, "processingJobs", 0);
   const progressPercent =
     job?.status === "completed"
       ? 100
@@ -463,6 +683,8 @@ async function statusFromRefreshJob(job: BackgroundJob | undefined) {
         ? payloadNumber(job, "processedCount") > 0
           ? `Uppdatering klar. ${payloadNumber(job, "processedCount")} nya signaler bearbetades.`
           : "Uppdatering klar. Inga nya relevanta signaler hittades."
+        : phase === "processing_items" && processingJobs > 0
+          ? `${payloadString(job, "phaseLabel", refreshSteps[2])} (${processedCount}/${processingJobs})`
         : payloadString(job, "phaseLabel", active ? refreshSteps[0] : "Ingen uppdatering körs.");
 
   return {
@@ -534,105 +756,239 @@ async function ensureManualRefreshNotCancelled(jobId: string) {
   }
 }
 
-async function runManualFullRescan(options: {
-  jobId: string;
-  limit: number;
-  cacheHours?: number;
-  limitPerSource?: number;
-}) {
-  const sources = (await getSources()).filter((source) => source.enabled);
-  const startedAt = new Date().toISOString();
-  const previousState = await getIngestionUpdateState();
-  const since = manualRefreshSince(previousState?.last_ingested_at);
+function ingestionChunkProgressPercent(completedSources: number, totalSources: number) {
+  const sourceProgress = totalSources > 0 ? completedSources / totalSources : 0;
+  return completedSources >= totalSources
+    ? 34
+    : Math.min(33, 12 + Math.floor(sourceProgress * 21));
+}
+
+function processingProgressPercent(
+  queuedCount: number,
+  completedCount: number,
+) {
+  const ratio = queuedCount > 0 ? Math.min(1, completedCount / queuedCount) : 1;
+  return 68 + Math.floor(ratio * 26);
+}
+
+function shouldContinueBackgroundWork(job: BackgroundJob | undefined) {
+  return Boolean(job && ["pending", "running"].includes(job.status));
+}
+
+async function finishManualRefreshJob(
+  jobId: string,
+  input: {
+    startedAt: string;
+    processedCount: number;
+    processedRawSourceItemIds: string[];
+    cacheHours?: number;
+    observability: Awaited<ReturnType<typeof buildRefreshObservability>>;
+    processingOutcomeCounts: ProcessingOutcomeCounts;
+  },
+) {
+  const completedAt = new Date().toISOString();
+  await updateManualRefreshPhase(jobId, "completed", 100, 3, {
+    processedCount: input.processedCount,
+    completedAt,
+    lastIngestedAt: completedAt,
+    observability: input.observability,
+    processingOutcomeCounts: input.processingOutcomeCounts,
+  });
   await updateIngestionUpdateState({
-    status: "running",
-    started_at: startedAt,
-    completed_at: null,
+    status: "completed",
+    started_at: input.startedAt,
+    completed_at: completedAt,
     error_message: null,
+    last_ingested_at: completedAt,
   });
-  await logManualRefresh(options.jobId, "manual source rescan started");
-  await updateManualRefreshPhase(options.jobId, "ingesting_sources", 12, 0);
+  await completeBackgroundJob(jobId);
 
-  const ingestion = await ingestRawSourceItems({
-    limitPerSource: options.limitPerSource ?? 12,
-    concurrency: 4,
-    preserveRawContent: true,
-    sourceTimeoutMs: 25_000,
-    since,
-    onSourceProgress: async (progress) => {
-      await ensureManualRefreshNotCancelled(options.jobId);
-      const { completedSources, totalSources, latestResult, totals } = progress;
-      const sourceProgress = totalSources > 0 ? completedSources / totalSources : 0;
-      const progressPercent =
-        completedSources >= totalSources
-          ? 34
-          : Math.min(33, 12 + Math.floor(sourceProgress * 21));
-      await updateManualRefreshPhase(options.jobId, "ingesting_sources", progressPercent, 0, {
-        sourceCount: totalSources,
-        completedSourceCount: completedSources,
-        latestSourceName: latestResult.sourceName,
-        latestSourceMethod: latestResult.retrievalMethod,
-        fetchedCount: totals.fetchedCount,
-        rawInsertedCount: totals.storedCount,
-        skippedCount: totals.skippedCount,
-        ingestionErrorCount: totals.errorCount,
-      });
-    },
-  });
-
-  await logManualRefresh(options.jobId, "source rescan finished", {
-    sourceCount: ingestion.sourceCount,
-    fetchedCount: ingestion.fetchedCount,
-    storedCount: ingestion.storedCount,
-    skippedCount: ingestion.skippedCount,
-    errorCount: ingestion.errors.length,
-    since,
-    revisitWindowHours: MANUAL_REFRESH_REVISIT_WINDOW_HOURS,
-  });
-  await updateManualRefreshPhase(options.jobId, "ingesting_sources", 34, 0, {
-    sourceCount: ingestion.sourceCount,
-    completedSourceCount: ingestion.sourceCount,
-    fetchedCount: ingestion.fetchedCount,
-    rawInsertedCount: ingestion.storedCount,
-    skippedCount: ingestion.skippedCount,
-    ingestionErrorCount: ingestion.errors.length,
-  });
-  await ensureManualRefreshNotCancelled(options.jobId);
-
-  const newRawSourceItemIds = ingestion.results.flatMap((result) =>
-    result.items.map((item) => item.id),
-  );
-
-  if (newRawSourceItemIds.length === 0) {
-    const completedAt = new Date().toISOString();
-    const observability = await buildRefreshObservability({
-      sources,
-      ingestion,
-    });
-    await logManualRefresh(options.jobId, "no newly discovered source items; ranking and AI skipped", {
-      observability: observability.totals,
-    });
-    await updateManualRefreshPhase(options.jobId, "completed", 100, 3, {
+  if (input.processedRawSourceItemIds.length === 0) {
+    await logManualRefresh(jobId, "manual source rescan completed", {
       processedCount: 0,
-      completedAt,
-      lastIngestedAt: completedAt,
-      observability,
-    });
-    await updateIngestionUpdateState({
-      status: "completed",
-      started_at: startedAt,
-      completed_at: completedAt,
-      error_message: null,
-      last_ingested_at: completedAt,
-    });
-    await logManualRefresh(options.jobId, "manual source rescan completed", {
-      processedCount: 0,
-      newRawSourceItemCount: 0,
+      observability: input.observability.totals,
     });
     return;
   }
 
-  await updateManualRefreshPhase(options.jobId, "ranking_candidates", 46, 1);
+  try {
+    const temporalSyncJobs = await enqueueTemporalSyncJobs(input.processedRawSourceItemIds);
+    if (temporalSyncJobs.length > 0) {
+      startTemporalSyncWorkerInBackground();
+    }
+
+    const briefingJobs = await enqueueDefaultBriefingJobs({
+      force: true,
+      cacheHours: input.cacheHours,
+    });
+    startBriefingGenerationWorkerInBackground(5, input.cacheHours);
+
+    await updateBackgroundJobPayload(jobId, {
+      briefingQueuedCount: briefingJobs.length,
+      temporalSyncQueuedCount: temporalSyncJobs.length,
+      backgroundStatusDetached: true,
+    });
+    await logManualRefresh(jobId, "background updates queued", {
+      processedCount: input.processedCount,
+      briefingQueuedCount: briefingJobs.length,
+      temporalSyncQueuedCount: temporalSyncJobs.length,
+    });
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Okänt fel när bakgrundsuppdateringar köades.";
+    await updateBackgroundJobPayload(jobId, {
+      backgroundQueueError: message,
+      backgroundStatusDetached: true,
+    });
+    await logManualRefresh(jobId, "background updates queue failed", {
+      error: message,
+    });
+  }
+}
+
+async function advanceManualRefreshIngestion(job: BackgroundJob) {
+  const allSources = (await getSources()).filter((source) => source.enabled);
+  const sourceIds =
+    payloadStringArray(job, "sourceIds").length > 0
+      ? payloadStringArray(job, "sourceIds")
+      : allSources.map((source) => source.id);
+  const sourceChunkSize = payloadNumber(job, "sourceChunkSize", 8);
+  const sourceCursor = payloadNumber(job, "sourceCursor", 0);
+  const startedAt = payloadString(job, "startedAt", job.created_at);
+  const previousState = await getIngestionUpdateState();
+  const since =
+    payloadString(job, "since", "") || manualRefreshSince(previousState?.last_ingested_at);
+
+  if (sourceCursor === 0) {
+    await updateIngestionUpdateState({
+      status: "running",
+      started_at: startedAt,
+      completed_at: null,
+      error_message: null,
+    });
+    await logManualRefresh(job.id, "manual source rescan started");
+  }
+
+  const chunkSourceIds = sourceIds.slice(sourceCursor, sourceCursor + sourceChunkSize);
+  const totalSources = sourceIds.length;
+  await updateManualRefreshPhase(
+    job.id,
+    "ingesting_sources",
+    ingestionChunkProgressPercent(sourceCursor, totalSources),
+    0,
+    {
+      sourceCount: totalSources,
+      completedSourceCount: sourceCursor,
+      sourceIds,
+      sourceCursor,
+      sourceChunkSize,
+      since,
+    },
+  );
+
+  const chunkIngestion = await ingestRawSourceItems({
+    sourceIds: chunkSourceIds,
+    limitPerSource: payloadNumber(job, "limitPerSource", 12),
+    concurrency: 4,
+    preserveRawContent: true,
+    sourceTimeoutMs: 25_000,
+    since: since || undefined,
+    onSourceProgress: async (progress) => {
+      await ensureManualRefreshNotCancelled(job.id);
+      const completedSourceCount = sourceCursor + progress.completedSources;
+      await updateManualRefreshPhase(
+        job.id,
+        "ingesting_sources",
+        ingestionChunkProgressPercent(completedSourceCount, totalSources),
+        0,
+        {
+          sourceCount: totalSources,
+          completedSourceCount,
+          latestSourceName: progress.latestResult.sourceName,
+          latestSourceMethod: progress.latestResult.retrievalMethod,
+          fetchedCount: progress.totals.fetchedCount,
+          rawInsertedCount: progress.totals.storedCount,
+          skippedCount: progress.totals.skippedCount,
+          ingestionErrorCount: progress.totals.errorCount,
+        },
+      );
+    },
+  });
+
+  const mergedSummary = mergeIngestionSummary(
+    payloadIngestionSummary(job),
+    persistIngestionSummary(chunkIngestion),
+  );
+  const newRawSourceItemIds = uniqueStringValues([
+    ...payloadStringArray(job, "newRawSourceItemIds"),
+    ...chunkIngestion.results.flatMap((result) => result.items.map((item) => item.id)),
+  ]);
+  const nextSourceCursor = sourceCursor + chunkSourceIds.length;
+
+  await logManualRefresh(job.id, "source ingestion chunk finished", {
+    completedSourceCount: nextSourceCursor,
+    totalSources,
+    fetchedCount: mergedSummary.fetchedCount,
+    storedCount: mergedSummary.storedCount,
+    skippedCount: mergedSummary.skippedCount,
+    errorCount: mergedSummary.errorCount,
+    revisitWindowHours: MANUAL_REFRESH_REVISIT_WINDOW_HOURS,
+  });
+
+  if (nextSourceCursor < totalSources) {
+    await updateBackgroundJobPayload(job.id, {
+      ingestionSummary: mergedSummary,
+      newRawSourceItemIds,
+      sourceIds,
+      sourceCursor: nextSourceCursor,
+      since,
+      sourceChunkSize,
+      fetchedCount: mergedSummary.fetchedCount,
+      rawInsertedCount: mergedSummary.storedCount,
+      skippedCount: mergedSummary.skippedCount,
+      ingestionErrorCount: mergedSummary.errorCount,
+    });
+    await requeueBackgroundJob(job.id);
+    return;
+  }
+
+  const sources = allSources.filter((source) => sourceIds.includes(source.id));
+  if (newRawSourceItemIds.length === 0) {
+    const observability = await buildRefreshObservability({
+      sources,
+      ingestion: hydrateIngestionSummary(mergedSummary),
+      processedRawIds: [],
+    });
+    await logManualRefresh(job.id, "no newly discovered source items; ranking and AI skipped", {
+      observability: observability.totals,
+    });
+    await finishManualRefreshJob(job.id, {
+      startedAt,
+      processedCount: 0,
+      processedRawSourceItemIds: [],
+      cacheHours: payloadOptionalNumber(job, "cacheHours"),
+      observability,
+      processingOutcomeCounts: emptyProcessingOutcomeCounts(),
+    });
+    return;
+  }
+
+  await updateBackgroundJobPayload(job.id, {
+    ingestionSummary: mergedSummary,
+    newRawSourceItemIds,
+    sourceIds,
+    sourceCursor: nextSourceCursor,
+    since,
+    sourceChunkSize,
+  });
+  await updateManualRefreshPhase(job.id, "ranking_candidates", 46, 1);
+  await requeueBackgroundJob(job.id);
+}
+
+async function advanceManualRefreshRanking(job: BackgroundJob) {
+  const newRawSourceItemIds = payloadStringArray(job, "newRawSourceItemIds");
   const ranking = await rankAndStoreCandidates({
     rawSourceItemIds: newRawSourceItemIds,
     scanLimit: 500,
@@ -645,88 +1001,134 @@ async function runManualFullRescan(options: {
     nationalOnly: true,
     enqueueAiJobs: false,
   });
+  const rankingSummary = persistRankingSummary(ranking);
 
-  await logManualRefresh(options.jobId, "ranking finished", {
-    scannedCount: ranking.scannedCount,
-    selectedCount: ranking.selectedCount,
-    candidateCount: ranking.candidateCount,
-    regionalHoldCount: ranking.regionalHoldCount,
-    observability: {
-      rankedCount: ranking.candidates.length,
-      selectedCount: ranking.selectedCount,
-      candidateCount: ranking.candidateCount,
-      rejectedCount: ranking.rejectedCount,
-      deferredCount: ranking.deferredCount,
-    },
-  });
-  await updateManualRefreshPhase(options.jobId, "ranking_candidates", 58, 1, {
+  await logManualRefresh(job.id, "ranking finished", {
     scannedCount: ranking.scannedCount,
     selectedCount: ranking.selectedCount,
     candidateCount: ranking.candidateCount,
     regionalHoldCount: ranking.regionalHoldCount,
   });
-  await ensureManualRefreshNotCancelled(options.jobId);
+  await updateManualRefreshPhase(job.id, "ranking_candidates", 58, 1, {
+    scannedCount: ranking.scannedCount,
+    selectedCount: ranking.selectedCount,
+    candidateCount: ranking.candidateCount,
+    regionalHoldCount: ranking.regionalHoldCount,
+  });
+  await ensureManualRefreshNotCancelled(job.id);
 
   const processingJobs = await enqueueSelectedNationalProcessingJobs({
-    limit: options.limit,
+    limit: payloadNumber(job, "limit", 100),
     force: false,
     reprocessStale: false,
     rawSourceItemIds: newRawSourceItemIds,
   });
-  const processingObservability = await buildRefreshObservability({
+  const processingQueuedRawIds = uniqueStringValues(
+    processingJobs
+      .map((processingJob) => processingJob.payload.rawSourceItemId)
+      .filter((value): value is string => typeof value === "string"),
+  );
+  const sources = (await getSources()).filter((source) =>
+    payloadStringArray(job, "sourceIds").includes(source.id),
+  );
+  const observability = await buildRefreshObservability({
     sources,
-    ingestion,
-    ranking,
-    processingJobs,
-  });
-  await logManualRefresh(options.jobId, "national processing jobs queued", {
-    count: processingJobs.length,
-    observability: processingObservability.totals,
-  });
-  await updateManualRefreshPhase(options.jobId, "processing_items", 68, 2, {
-    processingJobs: processingJobs.length,
-    observability: processingObservability,
+    ingestion: hydrateIngestionSummary(payloadIngestionSummary(job)),
+    ranking: rankingSummary,
+    processingJobs: processingQueuedRawIds.map((rawSourceItemId) => ({
+      payload: { rawSourceItemId },
+    })),
+    processedRawIds: [],
   });
 
-  let processedCount = 0;
-  const processedRawSourceItemIds: string[] = [];
-  let processingFailedCount = 0;
+  await logManualRefresh(job.id, "national processing jobs queued", {
+    count: processingJobs.length,
+    observability: observability.totals,
+  });
+
+  await updateBackgroundJobPayload(job.id, {
+    rankingSummary,
+    processingQueuedRawIds,
+    processingJobs: processingJobs.length,
+    observability,
+  });
+
+  if (processingJobs.length === 0) {
+    await finishManualRefreshJob(job.id, {
+      startedAt: payloadString(job, "startedAt", job.created_at),
+      processedCount: 0,
+      processedRawSourceItemIds: [],
+      cacheHours: payloadOptionalNumber(job, "cacheHours"),
+      observability,
+      processingOutcomeCounts: emptyProcessingOutcomeCounts(),
+    });
+    return;
+  }
+
+  await updateManualRefreshPhase(job.id, "processing_items", 68, 2, {
+    processingJobs: processingJobs.length,
+    observability,
+  });
+  await requeueBackgroundJob(job.id);
+}
+
+async function advanceManualRefreshProcessing(job: BackgroundJob) {
+  const result = await runNationalProcessingWorker({
+    limit: 12,
+    force: false,
+    deferTemporalSync: true,
+  });
+
+  const processedRawSourceItemIds = uniqueStringValues([
+    ...payloadStringArray(job, "processedRawSourceItemIds"),
+    ...result.processedRawSourceItemIds,
+  ]);
+  const processingFailedCount =
+    payloadNumber(job, "processingFailedCount", 0) + result.failedCount;
   const processingOutcomeCounts = emptyProcessingOutcomeCounts();
-  const processingErrors: string[] = [];
-  for (let batch = 0; batch < 20; batch += 1) {
-    await ensureManualRefreshNotCancelled(options.jobId);
-    const result = await runNationalProcessingWorker({
-      limit: 12,
-      force: false,
-      deferTemporalSync: true,
-    });
-    processedCount += result.processedCount;
-    processedRawSourceItemIds.push(...result.processedRawSourceItemIds);
-    processingFailedCount += result.failedCount;
-    mergeProcessingOutcomeCounts(processingOutcomeCounts, result.outcomeCounts);
-    processingErrors.push(...result.errors.map((error) => error.message));
-    await logManualRefresh(options.jobId, "national processing batch finished", {
-      batch: batch + 1,
-      claimedCount: result.claimedCount,
-      processedCount: result.processedCount,
-      skippedCount: result.skippedCount,
-      failedCount: result.failedCount,
-      outcomeCounts: result.outcomeCounts,
-    });
-    await updateManualRefreshPhase(options.jobId, "processing_items", 78, 2, {
+  mergeProcessingOutcomeCounts(
+    processingOutcomeCounts,
+    job.payload.processingOutcomeCounts as Partial<ProcessingOutcomeCounts> ?? {},
+  );
+  mergeProcessingOutcomeCounts(processingOutcomeCounts, result.outcomeCounts);
+  const processingErrors = uniqueStringValues([
+    ...payloadStringArray(job, "processingErrors"),
+    ...result.errors.map((error) => error.message),
+  ]).slice(0, 10);
+  const processedCount = processedRawSourceItemIds.length;
+  const processingJobs = payloadNumber(job, "processingJobs", 0);
+
+  await logManualRefresh(job.id, "national processing batch finished", {
+    claimedCount: result.claimedCount,
+    processedCount: result.processedCount,
+    skippedCount: result.skippedCount,
+    failedCount: result.failedCount,
+    outcomeCounts: result.outcomeCounts,
+  });
+
+  await updateBackgroundJobPayload(job.id, {
+    processedCount,
+    processedRawSourceItemIds,
+    processingFailedCount,
+    processingOutcomeCounts,
+    processingErrors,
+  });
+  await updateManualRefreshPhase(
+    job.id,
+    "processing_items",
+    processingProgressPercent(processingJobs, processedCount),
+    2,
+    {
       processedCount,
       processingFailedCount,
       processingOutcomeCounts,
-    });
-    if (result.claimedCount === 0) break;
+    },
+  );
+
+  if (result.claimedCount > 0) {
+    await requeueBackgroundJob(job.id);
+    return;
   }
-  await ensureManualRefreshNotCancelled(options.jobId);
-  const refreshedObservability = await buildRefreshObservability({
-    sources,
-    ingestion,
-    ranking,
-    processingJobs,
-  });
 
   if (processedCount === 0 && processingFailedCount > 0) {
     throw new Error(
@@ -735,125 +1137,91 @@ async function runManualFullRescan(options: {
     );
   }
 
-  if (processedCount === 0) {
-    const completedAt = new Date().toISOString();
-    await logManualRefresh(options.jobId, "no new processed items; briefing regeneration skipped", {
-      observability: refreshedObservability.totals,
-    });
-    await updateManualRefreshPhase(options.jobId, "completed", 100, 3, {
-      processedCount,
-      completedAt,
-      lastIngestedAt: completedAt,
-      observability: refreshedObservability,
-      processingOutcomeCounts,
-    });
-    await updateIngestionUpdateState({
-      status: "completed",
-      started_at: startedAt,
-      completed_at: completedAt,
-      error_message: null,
-      last_ingested_at: completedAt,
-    });
-    await logManualRefresh(options.jobId, "manual source rescan completed");
-    return;
-  }
-
-  const temporalSyncJobs = await enqueueTemporalSyncJobs(processedRawSourceItemIds);
-  if (temporalSyncJobs.length > 0) {
-    startTemporalSyncWorkerInBackground();
-  }
-
-  await updateManualRefreshPhase(options.jobId, "generating_briefings", 84, 3, {
-    processedCount,
-    observability: refreshedObservability,
-    processingOutcomeCounts,
-  });
-  const briefingJobs = await enqueueDefaultBriefingJobs({
-    force: true,
-    cacheHours: options.cacheHours,
-  });
-  startBriefingGenerationWorkerInBackground(5, options.cacheHours);
-  await logManualRefresh(options.jobId, "briefing jobs queued", {
-    count: briefingJobs.length,
-    temporalSyncJobs: temporalSyncJobs.length,
+  const sources = (await getSources()).filter((source) =>
+    payloadStringArray(job, "sourceIds").includes(source.id),
+  );
+  const observability = await buildRefreshObservability({
+    sources,
+    ingestion: hydrateIngestionSummary(payloadIngestionSummary(job)),
+    ranking: payloadRankingSummary(job),
+    processingJobs: payloadStringArray(job, "processingQueuedRawIds").map((rawSourceItemId) => ({
+      payload: { rawSourceItemId },
+    })),
+    processedRawIds: processedRawSourceItemIds,
   });
 
-  const completedAt = new Date().toISOString();
-  await updateManualRefreshPhase(options.jobId, "completed", 100, 3, {
+  await finishManualRefreshJob(job.id, {
+    startedAt: payloadString(job, "startedAt", job.created_at),
     processedCount,
-    briefingQueuedCount: briefingJobs.length,
-    completedAt,
-    lastIngestedAt: completedAt,
-    observability: refreshedObservability,
-    processingOutcomeCounts,
-  });
-  await updateIngestionUpdateState({
-    status: "completed",
-    started_at: startedAt,
-    completed_at: completedAt,
-    error_message: null,
-    last_ingested_at: completedAt,
-  });
-  await logManualRefresh(options.jobId, "manual source rescan completed", {
-    processedCount,
-    briefingQueuedCount: briefingJobs.length,
-    temporalSyncQueuedCount: temporalSyncJobs.length,
+    processedRawSourceItemIds,
+    cacheHours: payloadOptionalNumber(job, "cacheHours"),
+    observability,
     processingOutcomeCounts,
   });
 }
 
-async function runManualRefreshWorker(limit = 1) {
-  const jobs = await claimBackgroundJobs({ type: manualRefreshJobType, limit });
+async function advanceManualRefreshJob(job: BackgroundJob) {
+  try {
+    await ensureManualRefreshNotCancelled(job.id);
+    const phase = payloadString(job, "phase", "queued");
 
-  for (const job of jobs) {
-    try {
-      await runManualFullRescan({
-        jobId: job.id,
-        limit: payloadNumber(job, "limit", 100),
-        cacheHours: payloadOptionalNumber(job, "cacheHours"),
-        limitPerSource: payloadNumber(job, "limitPerSource", 12),
-      });
-      const current = await getBackgroundJobById(job.id);
-      if (current?.status === "cancelled") {
-        continue;
-      }
-      await completeBackgroundJob(job.id);
-    } catch (error) {
-      const current = await getBackgroundJobById(job.id);
-      if (current?.status === "cancelled") {
-        continue;
-      }
-      const message = error instanceof Error ? error.message : "Okänt uppdateringsfel";
-      await logManualRefresh(job.id, "manual source rescan failed", { error: message });
-      const startedAt = payloadString(job, "startedAt", undefined);
-      await updateIngestionUpdateState({
-        status: "failed",
-        started_at: startedAt ?? job.created_at,
-        completed_at: new Date().toISOString(),
-        error_message: message,
-      });
-      await failBackgroundJob(job.id, message);
+    if (phase === "queued" || phase === "ingesting_sources") {
+      await advanceManualRefreshIngestion(job);
+      return;
     }
-  }
 
-  return jobs.length;
+    if (phase === "ranking_candidates") {
+      await advanceManualRefreshRanking(job);
+      return;
+    }
+
+    if (phase === "processing_items") {
+      await advanceManualRefreshProcessing(job);
+      return;
+    }
+
+    throw new Error(`Okänd refresh-fas: ${phase}`);
+  } catch (error) {
+    const current = await getBackgroundJobById(job.id);
+    if (current?.status === "cancelled") {
+      return;
+    }
+    const message = error instanceof Error ? error.message : "Okänt uppdateringsfel";
+    await logManualRefresh(job.id, "manual source rescan failed", { error: message });
+    const startedAt = payloadString(job, "startedAt", job.created_at);
+    await updateIngestionUpdateState({
+      status: "failed",
+      started_at: startedAt,
+      completed_at: new Date().toISOString(),
+      error_message: message,
+    });
+    await failBackgroundJob(job.id, message);
+  }
 }
 
-function startManualRefreshWorkerInBackground() {
-  if (manualRefreshInFlight) return false;
+async function advanceManualRefreshWorker(maxSteps = 1) {
+  let steps = 0;
 
-  manualRefreshInFlight = runManualRefreshWorker(1)
-    .catch((error) => {
-      console.error("[MissionDesk refresh] worker crashed", error);
-    })
-    .finally(() => {
-      manualRefreshInFlight = null;
-    });
+  while (steps < maxSteps) {
+    const jobs = await claimBackgroundJobs({ type: manualRefreshJobType, limit: 1 });
+    const job = jobs[0];
+    if (!job) break;
+    await advanceManualRefreshJob(job);
+    steps += 1;
+  }
 
-  return true;
+  return steps;
 }
 
 export async function GET() {
+  const activeJob = await activeManualRefreshJob();
+  if (activeJob?.status === "pending") {
+    try {
+      await advanceManualRefreshWorker(1);
+    } catch (error) {
+      console.error("[MissionDesk refresh] synchronous status advance failed", error);
+    }
+  }
   return NextResponse.json(await statusFromRefreshJob(await latestManualRefreshJob()));
 }
 
@@ -930,7 +1298,6 @@ export async function POST(request: Request) {
 
     const activeJob = await activeManualRefreshJob();
     if (activeJob) {
-      startManualRefreshWorkerInBackground();
       return NextResponse.json({
         ...(await statusFromRefreshJob(activeJob)),
         started: false,
@@ -949,7 +1316,7 @@ export async function POST(request: Request) {
     const job = await enqueueBackgroundJob({
       type: manualRefreshJobType,
       priority: 95,
-      max_attempts: 1,
+      max_attempts: 3,
       payload: {
         phase: "queued",
         phaseLabel: refreshSteps[0],
@@ -959,16 +1326,24 @@ export async function POST(request: Request) {
         cacheHours: body.cacheHours,
         limitPerSource: body.limitPerSource ?? 12,
         sourceCount: activeSourceCount,
+        sourceIds: (await getSources())
+          .filter((source) => source.enabled)
+          .map((source) => source.id),
+        sourceCursor: 0,
+        sourceChunkSize: 8,
+        newRawSourceItemIds: [],
+        processedRawSourceItemIds: [],
+        processingFailedCount: 0,
+        processingOutcomeCounts: emptyProcessingOutcomeCounts(),
+        processingErrors: [],
         startedAt,
         logs: [],
       },
     });
 
-    const started = startManualRefreshWorkerInBackground();
-
     return NextResponse.json({
       ...(await statusFromRefreshJob(job)),
-      started,
+      started: true,
       alreadyRunning: false,
     });
   }

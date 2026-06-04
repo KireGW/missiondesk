@@ -10,6 +10,24 @@ import { detectSwedenMexicoRelevance } from "@/lib/intelligence/sweden-relevance
 
 export const dynamic = "force-dynamic";
 
+function looksLikeScenarioBasedRisk(record: TemporalSignalRecord) {
+  if (record.signal.temporal_context !== "future_risk") return false;
+
+  const text = [record.signal.source_sentence, record.signal.normalized_summary, record.processed.summary_sv]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  const hasScenarioCue =
+    /\b(scenario|scenarie|escenario|forecast|prognos|bedomer|bedömer|kan|riskerar)\b/.test(text);
+  const hasConcreteTrigger =
+    /\b(beslut|omrostning|omröstning|deadline|mote|möte|forhandling|förhandling|takes effect|ikraft|lansering|besok|besök|summit|toppmote|toppmöte)\b/.test(
+      text,
+    );
+
+  return record.signal.extracted_date_type === "implicit" && hasScenarioCue && !hasConcreteTrigger;
+}
+
 function isMissionDeskUpcomingRelevant(record: TemporalSignalRecord) {
   const relevance = detectSwedenMexicoRelevance(record.raw);
   if (
@@ -17,6 +35,10 @@ function isMissionDeskUpcomingRelevant(record: TemporalSignalRecord) {
     relevance.mexicanEntities.length === 0 &&
     relevance.crossRegionalScore < 35
   ) {
+    return false;
+  }
+
+  if (looksLikeScenarioBasedRisk(record)) {
     return false;
   }
 

@@ -128,6 +128,10 @@ export function isNationalProcessingConfigured() {
   return Boolean(process.env.OPENAI_API_KEY);
 }
 
+function supportsLowDeliberationReasoning(model: string) {
+  return model.startsWith("gpt-5");
+}
+
 function clampScore(value: number) {
   if (!Number.isFinite(value)) return 50;
   return Math.max(0, Math.min(100, Math.round(value)));
@@ -226,6 +230,9 @@ export async function processNationalSourceItemWithOpenAI(
     body: JSON.stringify({
       model,
       max_output_tokens: 480,
+      ...(supportsLowDeliberationReasoning(model)
+        ? { reasoning: { effort: "minimal" as const } }
+        : {}),
       input: [
         {
           role: "system",

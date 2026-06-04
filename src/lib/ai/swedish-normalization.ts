@@ -28,6 +28,10 @@ export function decodeHtmlEntities(value: string) {
 
 export function normalizeSwedishUserFacingText(value: string) {
   return decodeHtmlEntities(value)
+    .replace(/\barancelstrategier\b/gi, "tullstrategier")
+    .replace(/\barancelstrategi\b/gi, "tullstrategi")
+    .replace(/\baranceles\b/gi, "tullar")
+    .replace(/\barancel\b/gi, "tull")
     .replace(/\bbrist på mördarskott minskar med\s+(\d+)\s*%/gi, "Antalet mord minskar med $1 %")
     .replace(/\bmördarskott\b/gi, "mord")
     .replace(/\bremodellering\b/gi, "renovering")
@@ -47,10 +51,20 @@ export function normalizeSwedishUserFacingText(value: string) {
 
 export function normalizeSwedishTitle(value: string) {
   const normalized = normalizeSwedishUserFacingText(value);
-  const rewritten = normalized.replace(
-    /^moderna\s+([A-Z0-9][A-Z0-9\s\-/:]+(?:\s+inför\b.*)?)$/iu,
-    "Modernisering av $1",
-  );
+  const rewritten = normalized
+    .replace(
+      /^mexiko förlorade investeringar på\s+(.+)$/iu,
+      "Mexiko riskerar att förlora investeringar på $1",
+    )
+    .replace(
+      /^moderna\s+([A-Z0-9][A-Z0-9\s\-/:]+(?:\s+inför\b.*)?)$/iu,
+      "Modernisering av $1",
+    )
+    .replace(
+      /^alkoholhaltig input i morelos:\s*/iu,
+      "Operation Enjambre i Morelos: ",
+    )
+    .replace(/\bkommunalråd gripet\b/giu, "kommunalråd gripen");
   return rewritten.replace(/^([^A-Za-zÅÄÖåäö]*)([a-zåäö])/u, (_, prefix: string, first: string) =>
     `${prefix}${first.toUpperCase()}`,
   );

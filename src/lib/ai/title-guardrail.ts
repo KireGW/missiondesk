@@ -35,6 +35,10 @@ interface EnsureSwedishSummaryOptions {
   snippetOriginal?: string | null;
 }
 
+function supportsLowDeliberationReasoning(model: string) {
+  return model.startsWith("gpt-5");
+}
+
 function extractResponseText(payload: ResponsesApiResult) {
   if (payload.output_text) return payload.output_text;
 
@@ -63,6 +67,9 @@ async function translateShortTitleToSwedish({
     body: JSON.stringify({
       model,
       max_output_tokens: 120,
+      ...(supportsLowDeliberationReasoning(model)
+        ? { reasoning: { effort: "minimal" as const } }
+        : {}),
       input: [
         {
           role: "system",
@@ -143,6 +150,9 @@ async function translateShortSummaryToSwedish({
     body: JSON.stringify({
       model,
       max_output_tokens: 180,
+      ...(supportsLowDeliberationReasoning(model)
+        ? { reasoning: { effort: "minimal" as const } }
+        : {}),
       input: [
         {
           role: "system",

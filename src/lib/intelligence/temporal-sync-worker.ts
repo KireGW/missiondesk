@@ -27,6 +27,10 @@ export interface TemporalSyncWorkerRunResult {
   errors: Array<{ jobId: string; message: string }>;
 }
 
+export interface TemporalSyncDrainResult extends TemporalSyncWorkerRunResult {
+  batchesRun: number;
+}
+
 function payloadString(job: BackgroundJob, key: string) {
   const value = job.payload[key];
   return typeof value === "string" ? value : undefined;
@@ -175,12 +179,44 @@ export async function runTemporalSyncWorker(
   };
 }
 
+export async function runTemporalSyncWorkerUntilIdle(
+  options: TemporalSyncWorkerOptions = {},
+): Promise<TemporalSyncDrainResult> {
+  let claimedCount = 0;
+  let processedCount = 0;
+  let skippedCount = 0;
+  let failedCount = 0;
+  let batchesRun = 0;
+  const errors: Array<{ jobId: string; message: string }> = [];
+
+  while (true) {
+    const result = await runTemporalSyncWorker(options);
+    batchesRun += 1;
+    claimedCount += result.claimedCount;
+    processedCount += result.processedCount;
+    skippedCount += result.skippedCount;
+    failedCount += result.failedCount;
+    errors.push(...result.errors);
+
+    if (result.claimedCount === 0) break;
+  }
+
+  return {
+    claimedCount,
+    processedCount,
+    skippedCount,
+    failedCount,
+    errors,
+    batchesRun,
+  };
+}
+
 let temporalSyncInFlight: Promise<unknown> | null = null;
 
 export function startTemporalSyncWorkerInBackground(limit = 8) {
   if (temporalSyncInFlight || !isTemporalExtractionConfigured()) return false;
 
-  temporalSyncInFlight = runTemporalSyncWorker({ limit })
+  temporalSyncInFlight = runTemporalSyncWorkerUntilIdle({ limit })
     .catch((error) => {
       console.error("[temporal] background worker crashed", error);
     })

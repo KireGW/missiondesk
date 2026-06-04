@@ -652,6 +652,121 @@ const normalizeForGrouping = (value: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const topicalStopwords = new Set([
+  "a",
+  "an",
+  "and",
+  "att",
+  "av",
+  "con",
+  "de",
+  "del",
+  "den",
+  "det",
+  "el",
+  "en",
+  "for",
+  "fran",
+  "för",
+  "har",
+  "i",
+  "inför",
+  "la",
+  "las",
+  "los",
+  "med",
+  "mot",
+  "och",
+  "om",
+  "para",
+  "por",
+  "som",
+  "the",
+  "till",
+  "un",
+  "una",
+]);
+
+const canonicalizeTopicalToken = (token: string) => {
+  if (/^(modernis\w*|renover\w*|remodel\w*|modernizacion|modernisering)$/.test(token)) {
+    return "modernisering";
+  }
+  if (/^(vm|mundial|worldcup)$/.test(token)) {
+    return "vm";
+  }
+  if (/^(fas|fase|phase|primera)$/.test(token)) {
+    return "fas";
+  }
+  if (/^(humo|smoke|rok|rök)$/.test(token)) {
+    return "rok";
+  }
+  return token;
+};
+
+const uniqueTokens = (value: string) => [...new Set(value.split(" ").filter(Boolean))];
+
+const signalTopicTokens = (item: IntelligenceItem, mode: "title" | "context" = "context") => {
+  const source =
+    mode === "title"
+      ? [item.title_sv, item.title_original].filter(Boolean).join(" ")
+      : [item.title_sv, item.title_original, item.summary_sv, item.original_excerpt]
+          .filter(Boolean)
+          .join(" ");
+
+  return uniqueTokens(normalizeForGrouping(source)).filter(
+    (token) => token.length >= 3 && !topicalStopwords.has(token),
+  ).map(canonicalizeTopicalToken);
+};
+
+const countSharedTokens = (left: string[], right: string[]) => {
+  if (left.length === 0 || right.length === 0) return 0;
+  const rightSet = new Set(right);
+  return left.reduce((count, token) => (rightSet.has(token) ? count + 1 : count), 0);
+};
+
+const signalsLookNearDuplicate = (left: IntelligenceItem, right: IntelligenceItem) => {
+  if (left.id === right.id || left.category !== right.category) return false;
+
+  const publishedGapMs = Math.abs(
+    new Date(left.published_at).getTime() - new Date(right.published_at).getTime(),
+  );
+  if (publishedGapMs > 1000 * 60 * 60 * 72) return false;
+
+  const leftTitleTokens = signalTopicTokens(left, "title");
+  const rightTitleTokens = signalTopicTokens(right, "title");
+  const leftContextTokens = signalTopicTokens(left, "context");
+  const rightContextTokens = signalTopicTokens(right, "context");
+  const sharedTitleTokens = countSharedTokens(leftTitleTokens, rightTitleTokens);
+  const sharedContextTokens = countSharedTokens(leftContextTokens, rightContextTokens);
+  const titleOverlap =
+    sharedTitleTokens / Math.max(1, Math.min(leftTitleTokens.length, rightTitleTokens.length));
+  const contextOverlap =
+    sharedContextTokens / Math.max(1, Math.min(leftContextTokens.length, rightContextTokens.length));
+  const overlappingGeography = left.geographic_tags.some((tag) => right.geographic_tags.includes(tag));
+  const sharesAicmAnchor = leftTitleTokens.includes("aicm") && rightTitleTokens.includes("aicm");
+  const sharesModernizationAnchor =
+    leftContextTokens.includes("modernisering") && rightContextTokens.includes("modernisering");
+  const sharesVmAnchor =
+    (leftContextTokens.includes("vm") && rightContextTokens.includes("vm")) ||
+    (leftContextTokens.includes("2026") && rightContextTokens.includes("2026"));
+
+  if (sharesAicmAnchor && sharesModernizationAnchor && sharesVmAnchor) return true;
+  if (titleOverlap >= 0.62) return true;
+  if (sharedTitleTokens >= 3 && contextOverlap >= 0.45) return true;
+  if (overlappingGeography && sharedTitleTokens >= 2 && contextOverlap >= 0.52) return true;
+  return false;
+};
+
+const dedupeTopSignals = (items: IntelligenceItem[], limit: number) => {
+  const selected: IntelligenceItem[] = [];
+  for (const item of items) {
+    if (selected.some((candidate) => signalsLookNearDuplicate(candidate, item))) continue;
+    selected.push(item);
+    if (selected.length >= limit) break;
+  }
+  return selected;
+};
+
 const isOfficialSourceType = (value?: string) =>
   ["government", "institution", "advisory"].includes((value ?? "").toLowerCase());
 
@@ -1298,6 +1413,21 @@ export function MissionDashboard({
         if (payload.lastIngestedAt) setLastIngestedAt(payload.lastIngestedAt);
         if (payload.active) {
           setCacheRefreshStatus("queued");
+          return;
+        }
+
+        if (payload.job?.status === "cancelled") {
+          setCacheRefreshStatus("ready");
+          return;
+        }
+
+        if (payload.job?.status === "failed") {
+          setCacheRefreshStatus("error");
+          return;
+        }
+
+        if (payload.job?.status === "completed") {
+          setCacheRefreshStatus("ready");
         }
       } catch {
         // Status polling is non-critical; cached dashboard data still renders.
@@ -1371,6 +1501,11 @@ export function MissionDashboard({
 
           if (payload.active) {
             setCacheRefreshStatus("queued");
+            return;
+          }
+
+          if (payload.job?.status === "cancelled") {
+            setCacheRefreshStatus("ready");
             return;
           }
 
@@ -1499,9 +1634,10 @@ export function MissionDashboard({
     .map((id) => filteredItems.find((item) => item.id === id))
     .filter((item): item is IntelligenceItem => Boolean(item));
   const automaticPriorityItems = highSignalItems.length > 0 ? highSignalItems : filteredItems;
-  const automaticTopItems = automaticPriorityItems
-    .slice(0, 5)
-    .filter((item) => !suppressedPriorityIds.includes(item.id));
+  const automaticTopItems = dedupeTopSignals(
+    automaticPriorityItems.filter((item) => !suppressedPriorityIds.includes(item.id)),
+    5,
+  );
   const priorityItems = [
     ...manualPriorityItems,
     ...automaticTopItems.filter((item) => !manualPriorityIds.includes(item.id)),
@@ -2037,6 +2173,13 @@ export function MissionDashboard({
     Number.isFinite(statusTimestampMs) &&
     statusTimestampMs > 0 &&
     Date.now() - statusTimestampMs < 24 * 60 * 60 * 1000;
+  const refreshCompletedAtMs = cacheRefreshJobStatus?.updateCompletedAt
+    ? new Date(cacheRefreshJobStatus.updateCompletedAt).getTime()
+    : 0;
+  const showRecentRefreshCompletionMessage =
+    Number.isFinite(refreshCompletedAtMs) &&
+    refreshCompletedAtMs > 0 &&
+    Date.now() - refreshCompletedAtMs < 24 * 60 * 60 * 1000;
   const primaryStatusLine = statusTimestamp
     ? `${isFreshStatus ? "Färsk lägesbild" : "Lägesbild"} · uppdaterad ${formatDate(statusTimestamp, true)} Mexico City-tid`
     : "Ingen lägesbild tillgänglig";
@@ -2045,7 +2188,7 @@ export function MissionDashboard({
       (
         ((cacheRefreshStatus === "loading" || cacheRefreshStatus === "queued") &&
           cacheRefreshJobStatus.active) ||
-        cacheRefreshStatus === "ready" ||
+        (cacheRefreshStatus === "ready" && showRecentRefreshCompletionMessage) ||
         cacheRefreshStatus === "error"
       ),
   );
@@ -4262,6 +4405,10 @@ function BriefingBullet({
   config: EmbassyConfig;
 }) {
   const [mainText, implicationText] = line.split(/\bBetydelse:\s*/i);
+  const displayMainText = normalizeSwedishUserFacingText(mainText.trim());
+  const displayImplicationText = implicationText
+    ? normalizeSwedishUserFacingText(implicationText.trim())
+    : "";
   const fallbackMeta = item ? null : fallbackBriefingMeta(mainText.trim());
   const Icon = item ? categoryIcon[item.category] : fallbackMeta?.Icon ?? ClipboardList;
   const iconTone = item
@@ -4293,13 +4440,13 @@ function BriefingBullet({
             )}
           </div>
           <p className="mt-1.5 text-sm font-medium leading-6 text-[var(--app-fg)]">
-            {mainText.trim()}
+            {displayMainText}
           </p>
-          {implicationText?.trim() && (
+          {displayImplicationText && (
             <div className="mt-2 border-t border-[var(--app-line)] pt-2">
               <p className="text-sm leading-6 text-[var(--app-soft)]">
                 <span className="font-medium text-[var(--app-fg)]">Betydelse: </span>
-                {implicationText.trim()}
+                {displayImplicationText}
               </p>
             </div>
           )}
@@ -4703,14 +4850,16 @@ function SourceFeed({
               {sortedRows.map((item) => {
                 const isPrioritized = prioritizedIds.includes(item.id);
                 const displayTitle = normalizeSwedishTitle(item.title_sv);
-                const displayOriginalTitle = normalizeSwedishUserFacingText(item.title_original);
+                const displaySourceLine = normalizeSwedishUserFacingText(
+                  item.summary_sv || item.original_excerpt || item.title_original,
+                );
 
                 return (
                   <tr key={item.id} className="hover:bg-[var(--app-panel-muted)]">
                     <td className="max-w-[420px] px-5 py-4">
                       <p className="font-medium leading-5 text-[var(--app-fg)]">{displayTitle}</p>
                       <p className="mt-1 text-xs leading-5 text-[var(--app-muted)]">
-                        {displayOriginalTitle}
+                        {displaySourceLine}
                       </p>
                     </td>
                     <td className="group px-5 py-4">
