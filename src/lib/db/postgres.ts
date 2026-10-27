@@ -100,6 +100,31 @@ export function getMigratedDb(): MissionDeskDb {
   };
 }
 
+// Publication reads must not apply the engine's lazy migrations or expose write methods.
+export function getReadOnlyDb(): MissionDeskDb {
+  async function read<T extends QueryResultRow>(sql: string, params: DbParam[]) {
+    if (!/^\s*SELECT\b/i.test(sql)) throw new Error("Only publication SELECT queries are allowed.");
+    return (await getPool().query<T>(translateSql(sql), params)).rows;
+  }
+  async function denyWrite(): Promise<never> {
+    throw new Error("The publication connection is read-only.");
+  }
+  return {
+    prepare(sql) {
+      return {
+        run: denyWrite,
+        async get<T extends QueryResultRow = QueryResultRow>(...params: DbParam[]) {
+          return (await read<T>(sql, params))[0];
+        },
+        async all<T extends QueryResultRow = QueryResultRow>(...params: DbParam[]) {
+          return read<T>(sql, params);
+        },
+      };
+    },
+    exec: denyWrite,
+  };
+}
+
 export async function runMigrations() {
   if (!migrationsApplied) {
     migrationsApplied = applyMigrations();

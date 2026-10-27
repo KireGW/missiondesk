@@ -6,6 +6,7 @@ import { ingestionAdapters } from "@/lib/ingestion/registry";
 import { fetchWebsiteSource, type WebsiteFetchStats } from "@/lib/ingestion/website";
 import { getSources } from "@/lib/sources/store";
 import { matchesSourceContentScope } from "@/lib/sources/content-scope";
+import { recordSourcesCheckedAt } from "@/lib/intelligence/dashboard-status-store";
 import type {
   IngestibleSourceDefinition,
   RawSourceDocument,
@@ -625,9 +626,18 @@ export async function ingestRawSourceItems(
 
   console.info("[MissionDesk ingestion] website retrieval summary", websiteStats);
 
+  const completedAt = new Date().toISOString();
+  // Single-source and chunked scans must not mark the entire feed as checked.
+  if (
+    !options.sources && !options.sourceIds?.length &&
+    results.some((result) => result.errors.length === 0 || result.fetchedCount > 0)
+  ) {
+    await recordSourcesCheckedAt(completedAt);
+  }
+
   return {
     startedAt,
-    completedAt: new Date().toISOString(),
+    completedAt,
     totalSourceCount: candidateSources.length,
     rssActiveSourceCount,
     websiteActiveSourceCount,

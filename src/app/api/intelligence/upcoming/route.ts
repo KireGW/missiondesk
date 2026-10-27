@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { legacyEngineBoundary } from "@/lib/product/api-boundary";
 import { listBackgroundJobs, listTemporalSignals } from "@/lib/intelligence/repository";
 import {
   extractTemporalSignalsFromProcessedItems,
@@ -46,6 +47,8 @@ function isMissionDeskUpcomingRelevant(record: TemporalSignalRecord) {
 }
 
 export async function GET(request: Request) {
+  const blocked = legacyEngineBoundary();
+  if (blocked) return blocked;
   const url = new URL(request.url);
   const limit = Number(url.searchParams.get("limit") ?? 30);
   const minTemporalCertainty = Number(url.searchParams.get("minTemporalCertainty") ?? 45);
@@ -93,6 +96,8 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const blocked = legacyEngineBoundary();
+  if (blocked) return blocked;
   const body = (await request.json().catch(() => ({}))) as {
     scanLimit?: number;
     attemptLimit?: number;

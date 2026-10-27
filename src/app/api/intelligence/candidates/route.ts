@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { legacyEngineBoundary } from "@/lib/product/api-boundary";
 import { listRankedCandidates } from "@/lib/intelligence/repository";
 import type { CandidateSelectionStatus } from "@/lib/intelligence/models";
 
@@ -13,6 +14,8 @@ const statuses: CandidateSelectionStatus[] = [
 ];
 
 export async function GET(request: Request) {
+  const blocked = legacyEngineBoundary();
+  if (blocked) return blocked;
   const url = new URL(request.url);
   const statusParam = url.searchParams.get("status");
   const limitParam = Number(url.searchParams.get("limit") ?? 100);

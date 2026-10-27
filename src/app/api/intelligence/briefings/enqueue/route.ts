@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { legacyEngineBoundary } from "@/lib/product/api-boundary";
 import {
   enqueueBriefingGenerationJob,
   enqueueDefaultBriefingJobs,
@@ -9,6 +10,8 @@ import type { GeographicScope, ProfileMode } from "@/lib/types";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  const blocked = legacyEngineBoundary();
+  if (blocked) return blocked;
   const body = (await request.json().catch(() => ({}))) as {
     type?: BriefingType;
     profile?: ProfileMode;

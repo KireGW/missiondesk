@@ -134,6 +134,59 @@ Liveflöden går via:
 
 ## Roadmap
 
+### Fristående Personkonton: Avstängt Grundlager
+
+Samma kodbas har nu två driftlägen. `MISSIONDESK_ACCESS_MODE` saknad eller `legacy` behåller dagens installation. `personal` är ett separat, uttryckligen aktiverat läge för personliga konton. Okända värden stänger åtkomsten i stället för att öppna motorn. Detta är ett första grundlager, inte en färdig kommersiell lansering.
+
+- `src/lib/product/` äger abonnemang, inloggningsgräns, publiceringsurval och kostnadsreservationer. Inga ändringar görs i källadaptrar, ranking, AI-prompter eller arbetarnas beteende. Publiceringsflödet använder en separat läsande databasanslutning som inte kör motorns lazy migrations.
+- Personlig inloggning förbereds med Auth0:s officiella Next.js-SDK och krypterade sessionskakor. Ingen ambassad-SSO eller intern systemintegration används. E-postadressen måste vara verifierad. Identitet kommer från SDK-sessionen; plan och budget kommer från serverns databas, aldrig från klientens uppgifter.
+- Gratis har inledningsvis högst 30 redan bearbetade nyhetssignaler från senaste sju dygnen, ur fem uttryckligen valda publika nyhetskällor. Det är provisoriska produktgränser, inte en fastställd prislista. Endast detta publiceringsurval delas i en 15-minuters servercache. Konton, sökfrågor och privata uppgifter cacheas inte gemensamt.
+- Sökning i personläget sker lokalt i det levererade urvalet. Visa senaste läser samma cache. Inga nya LLM-anrop, dolda AI-framtagna sökord, sociala anrop, regionala analyser eller automatiska förstagångsjobb startas. Globala briefingar publiceras inte eftersom deras underlag kan innehålla sociala eller andra ej godkända källor. Mötesurval och sökhistorik sparas tills vidare bara i aktuell vy, inte i delad lokal lagring.
+- Alla befintliga motor- och käll-API:er avvisar anrop i personläget, även för Premium. Konton får inte ändra den gemensamma källistan, starta eller avbryta globala jobb. Den befintliga dashboarden återanvänds med en separat läsväg.
+- Premiums plan anger 30 sociala konton, högst 20 poster per konto och en körning per UTC-dygn, per abonnemang. **Betalda personfunktioner är inte aktiverade än.** Den befintliga sociala adapterns gräns på fem poster har inte ändrats. Planens avsedda funktioner ska inte förväxlas med tillgängliga funktioner i denna fas.
+- `product_accounts` och `product_usage` är separata, additiva tabeller. Nya konton är Gratis och har noll extern budget. Premium kräver en giltig, tidsbegränsad serverlagrad tilldelning. Kostnadsreservationer använder kontolås i en databastransaktion, unika operationsnycklar, separata månadsbudgetar för LLM/socialt och daglig social kvot. Belopp lagras i miljondelar USD; detta är ett underlag för uppskattad förbrukning, inte automatisk avläsning av leverantörsfakturor.
+
+#### Säker Aktiveringsordning
+
+1. Behåll den befintliga installationen i `legacy`. Skapa en separat skyddad preview för `personal`, med en preview-databas eller databasgren. Testa inte nya kontomigrationer direkt mot produktion.
+2. Konfigurera en Auth0 Regular Web Application för personliga konton. Sätt `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_SECRET` (64 slumpmässiga hextecken) och ett uttryckligt `APP_BASE_URL`. Registrera exakt `<APP_BASE_URL>/auth/callback` och basadressen som tillåten utloggningsadress. Aktivera e-postverifiering och lämpligt missbruksskydd/MFA hos inloggningsleverantören. Inga hemligheter ska vara `NEXT_PUBLIC_*`.
+3. Kontrollera preview-databasens adress separat. För det lokala testet används `personal:migrate` enligt nedan, med separat approll och tillfällig administratörsåtkomst till testgrenen. Det generella `product:migrate -- --apply` får bara köras med en uttryckligen konfigurerad och verifierad preview-anslutning, aldrig genom att enbart ändra driftläget ovanpå originalets `.env.local`. Migrationen körs aldrig av den befintliga motorns lazy migrations och gör bara nya produkttabeller.
+4. Testa riktig registrering, verifiering, inloggning, utloggning, avstängt konto och åtskilda användare mot preview. Saknad authkonfiguration ska ge 503, inte återgång till ett öppet motorläge.
+5. Före kommersiell öppning: skydda den gamla motorns driftadress och dess administrations-/jobb-API:er separat. Att personläget är skyddat säkrar inte en annan publik `legacy`-installation. Använd lägsta nödvändiga databasbehörigheter och fastställ dataskydd, gallring, kontoradering och källornas publiceringsrättigheter.
+6. Innan Premiums externa anrop öppnas: bygg kontospecifika bevakningslistor och varaktig daglig körning, koppla reservation/avstämning till **varje** leverantörsanrop inklusive retries och profilläsningar, samt inför prisversioner, globalt kostnadstak, trafikbegränsningar och leverantörsavstämning. Reservera en konservativ övre kostnadsgräns innan arbete; släpp bara reservationer för arbete som säkert inte startat. Oklara/felade leverantörsanrop kan fortfarande vara debiterade. X:s licens för det faktiska användningsfallet måste vara bekräftad.
+7. Betalning, automatisk abonnemangsaktivering, språk-/landval, kontoradering och isolerade serverlagrade personliga inställningar återstår. Ingen privatinformation eller nytt artikelunderlag har skickats till en extern tjänst vid implementationstesterna.
+
+Återgång i en **intern/skyddad** installation: sätt `MISSIONDESK_ACCESS_MODE=legacy`. Ingen radering eller återställning av produkttabeller behövs. Använd inte detta som en nödöppning av en publik personinstallation.
+
+`npm run smoke:product` testar alla befintliga API-handlers mot personläge och felstavat driftläge, legacy-kompatibilitet, sessionsgräns, publiceringsurval, socialt bortfilter, lokal sökning, kvoter och samtidiga budgetreservationer med simulerad databas/radlås. Inga produktionsdata, betalda API-anrop eller riktiga identitetsleverantörer används. Riktiga Postgres-transaktioner och hela inloggningsflödet måste också verifieras i preview före aktivering.
+
+#### Separat Lokal Testmiljö
+
+Auth0 konfigureras med en egen Regular Web Application, `MissionDesk Personal Dev`, och exakt `http://localhost:3001/auth/callback`. Originalets `.env.local` används inte för testets autentisering. `scripts/setup-auth0-personal.mjs <tenant-domain>` använder en redan godkänd officiell Auth0 CLI (sätt vid behov `AUTH0_CLI_PATH`), återanvänder endast en app med rätt testmarkör och skriver nycklar direkt till `.env.personal.local` med behörighet 0600. Befintliga Auth0-appar ändras inte. Inga nycklar skrivs till terminalen.
+
+`npm run smoke:auth0-setup` verifierar den riktiga leverantörens discovery, authorization-code-omdirigering, PKCE, nonce, callback, kakflaggor och avvisning av en förfalskad session. Det är **inte** ett genomfört användartest av registrering, inloggning eller utloggning. E-post och Google kan användas om de är aktiverade på testappen. Ej verifierad e-post ger en separat verifieringsvy utan att något appkonto eller nyhetsunderlag lämnas ut.
+
+För databasdelen ska `.env.personal.local` innehålla den nya Neon-testgrenens `DATABASE_URL` och `MISSIONDESK_TEST_BRANCH_ID`. Den separata anslutningen måste verifieras mot Neons grenmetadata. Kopiera inte originalets databasadress. `scripts/personal-test-env.mjs` vägrar använda samma endpoint som originalet, även om den ena adressen är poolad. Den kräver också testmarkör, gren-id, rätt lokala port och skyddad nyckelfil. Betalda LLM-/X-nycklar och Gateway/OIDC-nycklar nollställs i testprocessen.
+
+När båda anslutningarna är verifierade:
+
+```bash
+npm run personal:check
+MISSIONDESK_NEON_CONFIG_DIR="$HOME/.config/missiondesk-neon" MISSIONDESK_NEON_PROFILE=personal-test npm run personal:migrate
+npm run personal:smoke
+npm run personal:dev
+```
+
+Testappen använder port 3001 och `.next-personal/`, så den delar varken port eller byggcache med vanliga `npm run dev`. Sessionskakan heter `missiondesk_session`, inte det generiska Auth0-standardnamnet. `personal:smoke` använder riktiga Postgres-transaktioner och egna tillfälliga kontofiksturer på den verifierade testgrenen, testar kontoisolering och samtidiga kvoter och kontrollerar att motorns radantal inte ändras. Bara de skapade testkontona städas efteråt. Inga leverantörsanrop med API-kostnad utförs.
+
+Testmigreringen hämtar tillfällig administratörsåtkomst till just testgrenen via den redan autentiserade Neon-profilen. Appens egen roll får endast läsa motortabellerna samt hantera konton och förbrukning. Administratörsanslutningen sparas inte i appens miljöfil. Databastestet verifierar även att approllen inte får skapa schemaobjekt eller ändra källor och jobb.
+
+Lokal verifiering 2026-10-27: den isolerade grenen `missiondesk-personal-test-2026-10-27` är skapad med minsta compute (0,25 CU) och automatisk utgång 2026-11-03 kl. 15:22 Mexico City-tid. Detta är en tillfällig testdatabas, inte lagring för produktionskonton. Kontotabellerna är installerade. Appen använder SQL-rollen `missiondesk_personal_app`, utan det administratörsarv som Neon ger CLI-skapade roller. Riktiga databastester godkänner publiceringsflöde (26 nyheter vid kontrollen), kontoisolering, budgetlås, daglig kvot och att motorns tabeller inte ändras. Den oanvända CLI-skapade installationsrollen har tagits bort. `.env.local` och produktionsmiljön är oförändrade.
+
+Användaren har bekräftat riktig inloggning och att nyhetsflödet visas. En anonymiserad databaskontroll bekräftar ett aktivt Gratis-konto med noll LLM-/socialbudget och inga förbrukningsposter. Manuell utloggning och nekad återkomst till flödet återstår att bekräfta. Separat e-post/lösenordsregistrering och verifieringsmejl är inte verifierade av denna bekräftelse; HTTP-omdirigeringar och simulerad sessions-/e-postkontroll är testade.
+
+`npm run smoke:personal-env` testar skyddsräckena utan nätverk eller databas. Använd inte äldre Neon OAuth-återkopplingslänkar: CLI:ns korta väntetid gör dem ogiltiga när den lokala mottagaren stängts. Slutför i stället aktuell CLI-inloggning direkt i en vanlig lokal terminal.
+
 ### Lägeskontroll 2026-10-27
 
 ### Genomfört I Produktion
@@ -156,6 +209,14 @@ Kvarstående driftarbete: ersätt lösa bakgrundslöften och webbläsardriven re
 Signalspårning har en separat, förvalt avmarkerad ruta: **Sök i kopplade sociala medier-konton**. Bara ett uttryckligt val inkluderar sparade sociala medier-poster och hämtar nya från aktiva, kopplade konton. Servern blockerar sociala anrop även när webb-/RSS-sökning är på; den äldre automatiska X-flaggan aktiverar inte längre social sökning. Sociala medier och utökad webb-/RSS-sökning kan väljas oberoende av varandra. Inforutan beskriver de tre kryssrutorna, sparad svensk text och möjliga API-/AI-kostnader, inklusive separat AI-framtagning av sökordens språkvarianter.
 
 `npm run smoke:signal-tracking` verifierar tio scenarier med simulerad databas och simulerade nätverkssvar, utan betalda API-anrop. Dessa efterföljande ändringar ingick inte i produktionsversionen ovan.
+
+### Lägesbildens Tidsstämplar
+
+Grundvyn visar bara **Senast uppdaterad**, följt av den senaste tiden för källkontroll, signalbearbetning eller briefinguppdatering, alltid i Mexico City-tid. De separata tiderna och daterade antal från senaste slutförda flödeskörning finns endast i inforutan. Det korta kvittot efter en körning visas bara i 30 sekunder och återkommer inte vid senare omladdning. Färskhetsmarkeringen följer fortfarande källkontrollen, inte en nyare AI-bearbetning.
+
+Bearbetnings- och briefingtid hämtas från de senaste sparade händelserna i databasen, oavsett om jobbet kördes normalt eller som manuell revision. Fullständiga källkontroller registreras separat i befintlig `ingestion_update_state`; enstaka källor, pågående delbatcher och helt misslyckade kontroller gör inte hela flödet färskare. Äldre installationer använder tills vidare den tidigare sparade flödestiden som källtid. Apppublicering påverkar inga datatider.
+
+`GET /api/intelligence/status` ger en liten, läsande sammanställning utan artikeltext eller start av bakgrundsjobb. Den kontrolleras högst en gång per minut medan sidan är synlig samt när fliken återfår fokus. `npm run smoke:dashboard-status` testar tidszon, oberoende tider, kvittots utgång och fullständiga respektive begränsade källkontroller med simulerade underlag.
 
 ### Förkontroll
 

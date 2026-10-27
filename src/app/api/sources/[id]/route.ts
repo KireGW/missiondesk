@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { legacyEngineBoundary } from "@/lib/product/api-boundary";
 import { getSources, saveSources } from "@/lib/sources/store";
 import type { SourceDefinition } from "@/lib/types";
 
@@ -7,6 +8,8 @@ interface RouteContext {
 }
 
 export async function PATCH(request: Request, context: RouteContext) {
+  const blocked = legacyEngineBoundary();
+  if (blocked) return blocked;
   const { id } = await context.params;
   const patch = (await request.json()) as Partial<SourceDefinition>;
   const sources = await getSources();
@@ -25,6 +28,8 @@ export async function PATCH(request: Request, context: RouteContext) {
 }
 
 export async function DELETE(_request: Request, context: RouteContext) {
+  const blocked = legacyEngineBoundary();
+  if (blocked) return blocked;
   const { id } = await context.params;
   const sources = await getSources();
   const nextSources = sources.filter((source) => source.id !== id);

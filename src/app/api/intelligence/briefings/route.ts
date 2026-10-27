@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { legacyEngineBoundary } from "@/lib/product/api-boundary";
 import { earliestCacheExpiry, latestCacheTimestamp } from "@/lib/intelligence/dashboard-view";
 import { listBackgroundJobs, listBriefings } from "@/lib/intelligence/repository";
 import type { GeographicScope, ProfileMode } from "@/lib/types";
@@ -27,6 +28,8 @@ const scopes: GeographicScope[] = [
 ];
 
 export async function GET(request: Request) {
+  const blocked = legacyEngineBoundary();
+  if (blocked) return blocked;
   const url = new URL(request.url);
   const profileParam = url.searchParams.get("profile");
   const scopeParam = url.searchParams.get("geographicScope");

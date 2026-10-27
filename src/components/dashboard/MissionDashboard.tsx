@@ -46,7 +46,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { normalizeSwedishTitle, normalizeSwedishUserFacingText } from "@/lib/ai/swedish-normalization";
 import type { SignalTrackingResult, SignalTrackingSearchResult } from "@/lib/intelligence/signal-tracking";
-import { processedRecordToIntelligenceItem } from "@/lib/intelligence/dashboard-view";
+import { latestCacheTimestamp, processedRecordToIntelligenceItem } from "@/lib/intelligence/dashboard-view";
+import {
+  formatUpdateTimestamp,
+  isSourceCheckFresh,
+  latestDashboardUpdateAt,
+  REFRESH_RECEIPT_MS,
+  showRefreshReceipt,
+  type DashboardUpdateStatus,
+} from "@/lib/intelligence/dashboard-status";
 import { getMissionRelevanceScore } from "@/lib/intelligence/relevance-score";
 import {
   eventDateRange,
@@ -54,6 +62,8 @@ import {
   UPCOMING_EVENTS_HORIZON_DAYS,
 } from "@/lib/intelligence/event-dates";
 import { countryNameSv } from "@/lib/i18n/countries";
+import type { PersonalDashboardAccess } from "@/lib/product/plans";
+import { searchPersonalSignals, type PersonalFeed } from "@/lib/product/feed";
 import type {
   BackgroundJob,
   Briefing,
@@ -74,7 +84,8 @@ interface MissionDashboardProps {
   initialCacheTimestamp?: string;
   initialCacheExpiresAt?: string;
   activeSourceCount: number;
-  lastIngestedAt?: string;
+  initialUpdateStatus: DashboardUpdateStatus;
+  personalAccess?: PersonalDashboardAccess;
 }
 
 const DEFAULT_PROFILE: ProfileMode = "daily_overview";
@@ -141,6 +152,7 @@ interface CacheRefreshStatusPayload {
   updateCompletedAt?: string;
   updateErrorMessage?: string;
   updateStatus?: "idle" | "pending" | "running" | "completed" | "failed";
+  updates?: DashboardUpdateStatus;
 }
 
 interface BackgroundPanelStatus {
@@ -921,13 +933,17 @@ export function MissionDashboard({
   initialCacheTimestamp,
   initialCacheExpiresAt,
   activeSourceCount,
-  lastIngestedAt: initialLastIngestedAt,
+  initialUpdateStatus,
+  personalAccess,
 }: MissionDashboardProps) {
+  const personalMode = Boolean(personalAccess);
   const [items, setItems] = useState<IntelligenceItem[]>(initialItems);
   const [briefings, setBriefings] = useState<Briefing[]>(initialBriefings);
   const [briefingSupportItems, setBriefingSupportItems] = useState<IntelligenceItem[]>([]);
   const [cacheTimestamp, setCacheTimestamp] = useState(initialCacheTimestamp);
   const [cacheExpiresAt, setCacheExpiresAt] = useState(initialCacheExpiresAt);
+  const [updateStatus, setUpdateStatus] = useState(initialUpdateStatus);
+  const [statusNowTs, setStatusNowTs] = useState(() => Date.now());
   const [secondaryStatus, setSecondaryStatus] = useState<"idle" | "loading" | "ready" | "error">(
     initialItems.length > 0 || initialBriefings.length > 0 ? "ready" : "idle",
   );
@@ -957,7 +973,7 @@ export function MissionDashboard({
   const [trackingStepIndex, setTrackingStepIndex] = useState(0);
   const [trackingPayload, setTrackingPayload] = useState<SignalTrackingSearchResult | null>(null);
   const [trackingError, setTrackingError] = useState("");
-  const [trackingAiEnabled, setTrackingAiEnabled] = useState(true);
+  const [trackingAiEnabled, setTrackingAiEnabled] = useState(!personalMode);
   const [trackingIncludeWebRss, setTrackingIncludeWebRss] = useState(false);
   const [trackingIncludeSocialMedia, setTrackingIncludeSocialMedia] = useState(false);
   const [trackingQuickSearches, setTrackingQuickSearches] = useState<string[]>([
@@ -995,7 +1011,7 @@ export function MissionDashboard({
     CacheRefreshStatusPayload | undefined
   >();
   const [displayRefreshProgress, setDisplayRefreshProgress] = useState(0);
-  const [lastIngestedAt, setLastIngestedAt] = useState(initialLastIngestedAt);
+  const lastIngestedAt = updateStatus.sourcesCheckedAt;
   const [pendingFeedUpdateConfirmation, setPendingFeedUpdateConfirmation] = useState(false);
   const [showUpdateInfo, setShowUpdateInfo] = useState(false);
   const [firstRunStatus, setFirstRunStatus] = useState<FirstRunStatusPayload | undefined>();
@@ -1005,12 +1021,58 @@ export function MissionDashboard({
   const regionalRequestCounter = useRef(0);
   const updateInfoRef = useRef<HTMLDivElement | null>(null);
   const trackingProgressTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const initiallyNeedsFirstRun = initialItems.length === 0 && initialBriefings.length === 0;
+  const initiallyNeedsFirstRun = !personalMode && initialItems.length === 0 && initialBriefings.length === 0;
   const hasCachedIntelligence = items.length > 0 || briefings.length > 0;
   const showFirstRunPanel = initiallyNeedsFirstRun && !hasCachedIntelligence;
   const isUpcomingEventsProfile = profile === "upcoming_events";
 
+  const applyRefreshStatus = useCallback((payload: CacheRefreshStatusPayload) => {
+    setCacheRefreshJobStatus(payload);
+    setDisplayRefreshProgress(displayedRefreshProgress(payload));
+    if (payload.updates) setUpdateStatus(payload.updates);
+    setStatusNowTs(Date.now());
+  }, []);
+
+  const loadUpdateStatus = useCallback(async () => {
+    if (personalMode) return;
+    try {
+      const response = await fetch("/api/intelligence/status", { cache: "no-store" });
+      if (!response.ok) return;
+      setUpdateStatus(await response.json() as DashboardUpdateStatus);
+      setStatusNowTs(Date.now());
+    } catch {
+      // Keep the last known times when the read-only status check is unavailable.
+    }
+  }, [personalMode]);
+
   useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === "visible") void loadUpdateStatus();
+    };
+    const timer = window.setInterval(() => {
+      setStatusNowTs(Date.now());
+      refresh();
+    }, 60_000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, [loadUpdateStatus]);
+
+  useEffect(() => {
+    if (cacheRefreshJobStatus?.active) return;
+    const completedAt = cacheRefreshJobStatus?.updateCompletedAt;
+    const remaining = new Date(completedAt ?? "").getTime() + REFRESH_RECEIPT_MS - Date.now();
+    if (!Number.isFinite(remaining) || remaining <= 0) return;
+    const timer = window.setTimeout(() => setStatusNowTs(Date.now()), remaining + 1);
+    return () => window.clearTimeout(timer);
+  }, [cacheRefreshJobStatus?.active, cacheRefreshJobStatus?.updateCompletedAt]);
+
+  useEffect(() => {
+    if (personalMode) return;
     const stored = window.localStorage.getItem("missiondesk.activeView");
     if (!stored) return;
     const restore = window.setTimeout(() => {
@@ -1048,9 +1110,10 @@ export function MissionDashboard({
     }
     }, 0);
     return () => window.clearTimeout(restore);
-  }, [config.profileModes]);
+  }, [config.profileModes, personalMode]);
 
   useEffect(() => {
+    if (personalMode) return;
     const stored = window.localStorage.getItem("missiondesk.signalTracking.quickSearches");
     if (!stored) return;
     try {
@@ -1091,16 +1154,18 @@ export function MissionDashboard({
     } catch {
       // Ignore malformed local preference state.
     }
-  }, []);
+  }, [personalMode]);
 
   useEffect(() => {
+    if (personalMode) return;
     window.localStorage.setItem(
       "missiondesk.signalTracking.quickSearches",
       JSON.stringify(trackingQuickSearches.slice(0, 8)),
     );
-  }, [trackingQuickSearches]);
+  }, [personalMode, trackingQuickSearches]);
 
   useEffect(() => {
+    if (personalMode) return;
     const state: ActiveViewState = showSignalTrackingPanel
       ? { kind: "tracking" }
       : showPrintPanel
@@ -1109,7 +1174,7 @@ export function MissionDashboard({
           ? { kind: "briefing" }
           : { kind: "profile", profile };
     window.localStorage.setItem("missiondesk.activeView", JSON.stringify(state));
-  }, [profile, showBriefingPanel, showPrintPanel, showSignalTrackingPanel]);
+  }, [personalMode, profile, showBriefingPanel, showPrintPanel, showSignalTrackingPanel]);
 
   const regionalRequestIds = useMemo(() => {
     if (geographySelection.type === "national") return [];
@@ -1118,6 +1183,7 @@ export function MissionDashboard({
 
   const loadRegionalIntelligence = useCallback(
     async (regionIds: string[], force = false) => {
+      if (personalMode) return;
       const requestId = regionalRequestCounter.current + 1;
       regionalRequestCounter.current = requestId;
 
@@ -1180,10 +1246,21 @@ export function MissionDashboard({
       const notConfigured = responses.every((response) => response.status === "not_configured");
       setRegionalStatus(notConfigured ? "not_configured" : hasItems ? "ready" : "empty");
     },
-    [],
+    [personalMode],
   );
 
   const loadCachedDashboardData = useCallback(async () => {
+    if (personalMode) {
+      const response = await fetch("/api/personal/feed", { cache: "no-store" });
+      if (!response.ok) throw new Error("Flödet kunde inte läsas in.");
+      const feed = await response.json() as PersonalFeed;
+      setItems(feed.items);
+      setBriefings(feed.briefings);
+      setCacheTimestamp(feed.updatedAt);
+      setUpdateStatus(feed.updates);
+      setStatusNowTs(Date.now());
+      return;
+    }
     const [processedResponse, briefingsResponse] = await Promise.all([
       fetch("/api/intelligence/processed?limit=200&includeReferences=1", { cache: "no-store" }),
       fetch("/api/intelligence/briefings?limit=12", { cache: "no-store" }),
@@ -1205,9 +1282,7 @@ export function MissionDashboard({
     setBriefings(briefingPayload.briefings);
     setBriefingBackgroundStatus(briefingPayload.background);
     setCacheTimestamp(
-      briefingPayload.briefings[0]?.generated_at ??
-        processedPayload.items[0]?.processed.processed_at ??
-        initialCacheTimestamp,
+      latestCacheTimestamp(briefingPayload.briefings, processedPayload.items) ?? initialCacheTimestamp,
     );
     setCacheExpiresAt(
       earliestIso([
@@ -1215,10 +1290,10 @@ export function MissionDashboard({
         ...processedPayload.items.map((item) => item.processed.cache_expires_at),
       ]) ?? initialCacheExpiresAt,
     );
-  }, [initialCacheExpiresAt, initialCacheTimestamp]);
+  }, [personalMode, initialCacheExpiresAt, initialCacheTimestamp]);
 
   useEffect(() => {
-    if (!isUpcomingEventsProfile || showBriefingPanel || showPrintPanel || showSignalTrackingPanel) {
+    if (personalMode || !isUpcomingEventsProfile || showBriefingPanel || showPrintPanel || showSignalTrackingPanel) {
       return;
     }
 
@@ -1271,6 +1346,7 @@ export function MissionDashboard({
       if (timer) window.clearTimeout(timer);
     };
   }, [
+    personalMode,
     cacheTimestamp,
     isUpcomingEventsProfile,
     lastIngestedAt,
@@ -1280,7 +1356,7 @@ export function MissionDashboard({
   ]);
 
   useEffect(() => {
-    if (!showBriefingPanel) return;
+    if (personalMode || !showBriefingPanel) return;
 
     let cancelled = false;
     let timer: number | undefined;
@@ -1316,20 +1392,19 @@ export function MissionDashboard({
       cancelled = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [showBriefingPanel]);
+  }, [personalMode, showBriefingPanel]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadRefreshStatus() {
+      if (personalMode) return;
       try {
         const response = await fetch("/api/intelligence/cache/refresh", { cache: "no-store" });
         if (!response.ok) return;
         const payload = (await response.json()) as CacheRefreshStatusPayload;
         if (cancelled) return;
-        setCacheRefreshJobStatus(payload);
-        setDisplayRefreshProgress(displayedRefreshProgress(payload));
-        if (payload.lastIngestedAt) setLastIngestedAt(payload.lastIngestedAt);
+        applyRefreshStatus(payload);
         if (payload.active) {
           setCacheRefreshStatus("queued");
           return;
@@ -1374,7 +1449,7 @@ export function MissionDashboard({
     return () => {
       cancelled = true;
     };
-  }, [initiallyNeedsFirstRun, loadCachedDashboardData]);
+  }, [personalMode, applyRefreshStatus, initiallyNeedsFirstRun, loadCachedDashboardData]);
 
   useEffect(() => {
     if (!initiallyNeedsFirstRun || !firstRunStatus?.active) return;
@@ -1416,9 +1491,7 @@ export function MissionDashboard({
         })
         .then((payload) => {
           if (cancelled) return;
-          setCacheRefreshJobStatus(payload);
-          setDisplayRefreshProgress(displayedRefreshProgress(payload));
-          if (payload.lastIngestedAt) setLastIngestedAt(payload.lastIngestedAt);
+          applyRefreshStatus(payload);
 
           if (payload.active) {
             setCacheRefreshStatus("queued");
@@ -1449,7 +1522,7 @@ export function MissionDashboard({
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, [cacheRefreshStatus, loadCachedDashboardData]);
+  }, [applyRefreshStatus, cacheRefreshStatus, loadCachedDashboardData]);
 
   useEffect(() => {
     if (!cacheRefreshJobStatus?.active) {
@@ -1671,6 +1744,16 @@ export function MissionDashboard({
   }, [loadRegionalIntelligence, regionalRequestIds]);
 
   const startNationalFeedUpdate = useCallback(async () => {
+    if (personalMode) {
+      setCacheRefreshStatus("loading");
+      try {
+        await loadCachedDashboardData();
+        setCacheRefreshStatus("ready");
+      } catch {
+        setCacheRefreshStatus("error");
+      }
+      return;
+    }
     setCacheRefreshStatus("loading");
     setCancellingFeedUpdate(false);
     setCacheRefreshJobStatus(undefined);
@@ -1693,22 +1776,15 @@ export function MissionDashboard({
       }
 
       const payload = (await response.json()) as CacheRefreshStatusPayload;
-      setCacheRefreshJobStatus(payload);
-      setDisplayRefreshProgress(displayedRefreshProgress(payload));
-      if (payload.lastIngestedAt) setLastIngestedAt(payload.lastIngestedAt);
+      applyRefreshStatus(payload);
       setCacheRefreshStatus("queued");
     } catch {
       setCacheRefreshStatus("error");
     }
-  }, []);
+  }, [personalMode, loadCachedDashboardData, applyRefreshStatus]);
 
   const handleNationalCacheRefresh = useCallback(async () => {
-    const freshnessSource = lastIngestedAt ?? cacheTimestamp;
-    const lastIngestedTime = freshnessSource ? new Date(freshnessSource).getTime() : 0;
-    const shouldConfirm =
-      Number.isFinite(lastIngestedTime) &&
-      lastIngestedTime > 0 &&
-      Date.now() - lastIngestedTime < 24 * 60 * 60 * 1000;
+    const shouldConfirm = isSourceCheckFresh(lastIngestedAt, Date.now());
 
     if (shouldConfirm) {
       setPendingFeedUpdateConfirmation(true);
@@ -1716,7 +1792,7 @@ export function MissionDashboard({
     }
 
     await startNationalFeedUpdate();
-  }, [cacheTimestamp, lastIngestedAt, startNationalFeedUpdate]);
+  }, [lastIngestedAt, startNationalFeedUpdate]);
 
   const handleCancelNationalRefresh = useCallback(async () => {
     setCancellingFeedUpdate(true);
@@ -1732,16 +1808,14 @@ export function MissionDashboard({
       }
 
       const payload = (await response.json()) as CacheRefreshStatusPayload;
-      setCacheRefreshJobStatus(payload);
-      setDisplayRefreshProgress(displayedRefreshProgress(payload));
-      if (payload.lastIngestedAt) setLastIngestedAt(payload.lastIngestedAt);
+      applyRefreshStatus(payload);
       setCacheRefreshStatus("ready");
     } catch {
       setCacheRefreshStatus("error");
     } finally {
       setCancellingFeedUpdate(false);
     }
-  }, []);
+  }, [applyRefreshStatus]);
 
   const handleFirstRunRetry = useCallback(async () => {
     setFirstRunRequestStatus("starting");
@@ -1799,6 +1873,14 @@ export function MissionDashboard({
     async (queryOverride?: string, mode: "local" | "deep" = "local") => {
       const query = (queryOverride ?? trackingQuery).trim();
       if (query.length < 2) return;
+      if (personalMode) {
+        setTrackingQuery(query);
+        setTrackingPayload(searchPersonalSignals(items, query));
+        setTrackingStatus("ready");
+        setTrackingError("");
+        rememberTrackingSearch(query);
+        return;
+      }
 
       setTrackingQuery(query);
       setTrackingStatus("loading");
@@ -1875,6 +1957,8 @@ export function MissionDashboard({
       }
     },
     [
+      personalMode,
+      items,
       rememberTrackingSearch,
       trackingAiEnabled,
       trackingIncludeWebRss,
@@ -2031,7 +2115,7 @@ export function MissionDashboard({
   }, [ambassadorBriefing, briefingSupportItems, items]);
 
   useEffect(() => {
-    if (!showBriefingPanel || !ambassadorBriefing || ambassadorBriefing.source_item_ids.length === 0) {
+    if (personalMode || !showBriefingPanel || !ambassadorBriefing || ambassadorBriefing.source_item_ids.length === 0) {
       return;
     }
 
@@ -2077,7 +2161,7 @@ export function MissionDashboard({
     return () => {
       cancelled = true;
     };
-  }, [ambassadorBriefing, items, showBriefingPanel]);
+  }, [personalMode, ambassadorBriefing, items, showBriefingPanel]);
 
   const openBriefingPrintView = () => {
     const seedItems = briefingSourceItems.length > 0 ? briefingSourceItems : topFive.slice(0, 5);
@@ -2087,24 +2171,16 @@ export function MissionDashboard({
     setShowSignalTrackingPanel(false);
   };
 
-  const hasPrimaryData = Boolean(ambassadorBriefing || topFive.length > 0);
-  const statusTimestamp =
-    lastIngestedAt ?? cacheRefreshJobStatus?.updateCompletedAt ?? cacheTimestamp;
-  const statusTimestampMs = statusTimestamp ? new Date(statusTimestamp).getTime() : 0;
-  const isFreshStatus =
-    Number.isFinite(statusTimestampMs) &&
-    statusTimestampMs > 0 &&
-    viewNowTs - statusTimestampMs < 24 * 60 * 60 * 1000;
-  const refreshCompletedAtMs = cacheRefreshJobStatus?.updateCompletedAt
-    ? new Date(cacheRefreshJobStatus.updateCompletedAt).getTime()
-    : 0;
-  const showRecentRefreshCompletionMessage =
-    Number.isFinite(refreshCompletedAtMs) &&
-    refreshCompletedAtMs > 0 &&
-    viewNowTs - refreshCompletedAtMs < 24 * 60 * 60 * 1000;
-  const primaryStatusLine = statusTimestamp
-    ? `${isFreshStatus ? "Färsk lägesbild" : "Lägesbild"} · uppdaterad ${formatDate(statusTimestamp, true)} Mexico City-tid`
-    : "Ingen lägesbild tillgänglig";
+  const lastUpdatedAt = latestDashboardUpdateAt(updateStatus);
+  const isFreshStatus = isSourceCheckFresh(personalMode ? lastUpdatedAt : updateStatus.sourcesCheckedAt, statusNowTs);
+  const sourceCheckLabel = personalMode
+    ? "Senaste publicerade uppdatering"
+    : !updateStatus.sourcesCheckedAt
+    ? "Ingen samlad källkontroll registrerad"
+    : isFreshStatus ? "Källor kontrollerade inom senaste dygnet" : "Källkontrollen är äldre än ett dygn";
+  const showRecentRefreshCompletionMessage = showRefreshReceipt(
+    cacheRefreshJobStatus?.updateCompletedAt, statusNowTs,
+  );
   const shouldShowRefreshMessage = Boolean(
     cacheRefreshJobStatus &&
       (
@@ -2125,7 +2201,7 @@ export function MissionDashboard({
             </div>
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2 text-xs uppercase tracking-[0.16em] text-[var(--app-muted)]">
-                <span>Sveriges ambassad</span>
+                <span>{personalMode ? "Omvärldsbevakning" : "Sveriges ambassad"}</span>
                 <span className="h-1 w-1 rounded-full bg-[var(--app-gold)]" />
                 <span>{config.city}</span>
               </div>
@@ -2140,15 +2216,15 @@ export function MissionDashboard({
 
           <div className="flex flex-wrap items-center justify-start gap-2 lg:max-w-[520px] lg:justify-end">
             <a
-              href="/sources"
+              href={personalMode ? "/account" : "/sources"}
               className="flex min-h-12 min-w-[92px] flex-col justify-between rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-2.5 py-1.5 text-left transition hover:border-[var(--app-accent)] hover:text-[var(--app-fg)]"
-              aria-label="Öppna källhanteraren"
+              aria-label={personalMode ? "Mitt konto" : "Öppna källhanteraren"}
             >
               <span className="flex items-center justify-between gap-2 text-[11px] leading-none text-[var(--app-fg)]">
-                {activeSourceCount} {activeSourceCount === 1 ? "källa" : "källor"}
+                {personalAccess ? personalAccess.label : `${activeSourceCount} ${activeSourceCount === 1 ? "källa" : "källor"}`}
                 <Database className="h-3 w-3 text-[var(--app-muted)]" />
               </span>
-              <span className="text-[11px] leading-4 text-[var(--app-muted)]">Hantera</span>
+              <span className="text-[11px] leading-4 text-[var(--app-muted)]">{personalMode ? "Mitt konto" : "Hantera"}</span>
             </a>
             <button
               type="button"
@@ -2168,17 +2244,23 @@ export function MissionDashboard({
         </header>
 
         <section className="surface flex flex-col gap-3 rounded-lg px-4 py-3 text-sm text-[var(--app-soft)] md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-3">
+          <div className="flex min-w-0 items-center gap-3">
             <span
+              role="img"
+              aria-label={sourceCheckLabel}
+              title={sourceCheckLabel}
               className={clsx(
                 "h-2.5 w-2.5 shrink-0 rounded-full",
-                hasPrimaryData && "bg-[var(--app-positive)]",
-                !hasPrimaryData && "bg-[var(--app-warning)]",
+                isFreshStatus ? "bg-[var(--app-positive)]" : "bg-[var(--app-warning)]",
               )}
             />
-            <span>{primaryStatusLine}</span>
+            <span>
+              Senast uppdaterad: {lastUpdatedAt ? (
+                <><time dateTime={lastUpdatedAt}>{formatUpdateTimestamp(lastUpdatedAt)}</time> Mexico City-tid</>
+              ) : "Ej registrerat"}
+            </span>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-3">
             {shouldShowRefreshMessage && cacheRefreshJobStatus && (
               <span
                 className={clsx(
@@ -2188,7 +2270,7 @@ export function MissionDashboard({
                     : "text-[var(--app-muted)]",
                 )}
               >
-                {cacheRefreshJobStatus.message}
+                {cacheRefreshJobStatus.job?.status === "completed" ? "Uppdatering klar." : cacheRefreshJobStatus.message}
                 {cacheRefreshJobStatus.active ? ` · ${displayRefreshProgress}%` : ""}
               </span>
             )}
@@ -2211,12 +2293,12 @@ export function MissionDashboard({
                   : cacheRefreshStatus === "queued"
                     ? "Uppdaterar lägesbild..."
                     : cacheRefreshStatus === "ready"
-                      ? "Uppdatera flöde"
+                      ? personalMode ? "Visa senaste" : "Uppdatera flöde"
                       : cacheRefreshStatus === "error"
                         ? "Försök igen"
-                        : "Uppdatera flöde"}
+                        : personalMode ? "Visa senaste" : "Uppdatera flöde"}
               </button>
-              {(cacheRefreshStatus === "loading" ||
+              {!personalMode && (cacheRefreshStatus === "loading" ||
                 cacheRefreshStatus === "queued" ||
                 cacheRefreshJobStatus?.active) && (
                 <button
@@ -2243,22 +2325,38 @@ export function MissionDashboard({
                 <Info className="h-5 w-5" />
               </button>
               {showUpdateInfo && (
-                <div className="absolute right-0 top-10 z-30 w-80 rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-strong)] p-4 text-xs leading-5 text-[var(--app-fg)] shadow-xl">
+                <div className="absolute right-0 top-10 z-30 max-h-[60vh] w-80 max-w-[calc(100vw-3rem)] overflow-y-auto rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-strong)] p-4 text-xs leading-5 text-[var(--app-fg)] shadow-xl">
                   <p className="font-medium text-[var(--app-fg)]">Om uppdateringar</p>
+                  {personalMode ? <p className="mt-2">Tiden avser senaste bearbetningen i det publicerade nyhetsurvalet. Visa senaste läser sparat material och startar ingen ny källhämtning eller AI-bearbetning.</p> : <>
                   <p className="mt-2">
-                    MissionDesk återanvänder redan bearbetade signaler och analyserar bara
-                    nytillkommet material när flödet uppdateras.
+                    Senast uppdaterad följer den senaste källkontrollen, signalbearbetningen
+                    eller uppdateringen av en briefing.
+                  </p>
+                  <dl className="mt-2 space-y-2">
+                    <div><dt className="text-[var(--app-muted)]">Källor kontrollerade</dt><dd>{formatUpdateTimestamp(updateStatus.sourcesCheckedAt)}</dd></div>
+                    <div><dt className="text-[var(--app-muted)]">Signaler bearbetade</dt><dd>{formatUpdateTimestamp(updateStatus.signalsProcessedAt)}</dd></div>
+                    <div><dt className="text-[var(--app-muted)]">Briefingar uppdaterade</dt><dd>{formatUpdateTimestamp(updateStatus.briefingsGeneratedAt)}</dd></div>
+                  </dl>
+                  <p className="mt-2 text-[var(--app-muted)]">Alla tider avser Mexico City.</p>
+                  {updateStatus.lastRefresh && (
+                    <div className="mt-3 border-t border-[var(--app-line)] pt-3">
+                      <p className="font-medium">Senaste slutförda flödeskörning</p>
+                      <p>{formatUpdateTimestamp(updateStatus.lastRefresh.completedAt)}</p>
+                      <p>{updateStatus.lastRefresh.newSourceItemCount} nya källposter · {updateStatus.lastRefresh.processedCount} bearbetade signaler</p>
+                    </div>
+                  )}
+                  <p className="mt-2">
+                    Färskhetsmarkeringen gäller källkontrollen. Ombearbetning och nya briefingar
+                    uppdaterar sina egna tider, men gör inte källunderlaget nyare.
                   </p>
                   <p className="mt-2">
-                    En körning tar normalt 3-10 minuter beroende på antal nya källposter och
-                    hur mycket som behöver sammanfattas.
+                    Uppdatera flöde kontrollerar källorna och bearbetar nytillkommet material.
+                    En körning tar normalt 3-10 minuter och kan medföra API- och AI-kostnader.
                   </p>
-                  <p className="mt-4">
-                    Detta kan medföra ytterligare AI-kostnader.
+                  <p className="mt-2">
+                    En daglig källkontroll rekommenderas normalt.
                   </p>
-                  <p className="mt-3">
-                    En daglig uppdatering rekommenderas normalt.
-                  </p>
+                  </>}
                 </div>
               )}
             </div>
@@ -2657,6 +2755,7 @@ export function MissionDashboard({
                 loadingMode={trackingLoadingMode}
                 loadingProgress={trackingProgress}
                 loadingStepIndex={trackingStepIndex}
+                readOnly={personalMode}
               />
             )}
 
@@ -2664,8 +2763,9 @@ export function MissionDashboard({
               <CustomPrintPanel
                 items={printItems}
                 config={config}
+                personalMode={personalMode}
                 onRemove={(id) => togglePrintItem(id, false)}
-                onOpenSignals={activateSignalView}
+                onOpenSignals={() => activateSignalView()}
               />
             )}
 
@@ -2772,6 +2872,8 @@ export function MissionDashboard({
                 profile={profile}
                 prioritizedIds={prioritizedIds}
                 onTogglePriority={toggleManualPriority}
+                printItemIds={printItemIds}
+                onTogglePrint={togglePrintItem}
               />
             )}
           </div>
@@ -2784,11 +2886,13 @@ export function MissionDashboard({
 function CustomPrintPanel({
   items,
   config,
+  personalMode = false,
   onRemove,
   onOpenSignals,
 }: {
   items: IntelligenceItem[];
   config: EmbassyConfig;
+  personalMode?: boolean;
   onRemove: (id: string) => void;
   onOpenSignals: () => void;
 }) {
@@ -2807,7 +2911,7 @@ function CustomPrintPanel({
             Mötesunderlag
           </h2>
           <p className="missiondesk-print-meta mt-1 text-sm">
-            Sveriges ambassad · {config.city}
+            {personalMode ? "MissionDesk" : "Sveriges ambassad"} · {config.city}
           </p>
           <p className="missiondesk-print-generated text-sm">
             Utskriven {formatDate(printGeneratedAt, true)}
@@ -2818,7 +2922,7 @@ function CustomPrintPanel({
               Mötesunderlag
             </h2>
             <p className="mt-1 text-sm text-[var(--app-muted)]">
-              MissionDesk · Sveriges ambassad · {config.city}
+              MissionDesk · {personalMode ? "Omvärldsbevakning" : "Sveriges ambassad"} · {config.city}
             </p>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--app-soft)]">
               Valda signaler sammanställs för briefing och utskrift.
@@ -2928,10 +3032,8 @@ function CustomPrintPanel({
                     onClick={onOpenSignals}
                     className="font-medium text-[var(--app-accent)] underline-offset-4 hover:underline"
                   >
-                    Öppna en prioriterad signal
-                  </button>{" "}
-                  och välj &quot;Ta med i mötesunderlag&quot; i fördjupningsvyn för att skapa
-                  ett eget underlag.
+                    Aktuella signaler
+                  </button>
                 </span>
               </span>
             }
@@ -2961,6 +3063,7 @@ function SignalTrackingPanel({
   loadingMode,
   loadingProgress,
   loadingStepIndex,
+  readOnly = false,
 }: {
   query: string;
   onQueryChange: (value: string) => void;
@@ -2980,6 +3083,7 @@ function SignalTrackingPanel({
   loadingMode: "local" | "deep";
   loadingProgress: number;
   loadingStepIndex: number;
+  readOnly?: boolean;
 }) {
   const results = payload?.results ?? [];
   const [showTrackingInfo, setShowTrackingInfo] = useState(false);
@@ -3026,6 +3130,7 @@ function SignalTrackingPanel({
                     <p className="mt-2">
                       Sökningen utgår från redan sparade signaler.
                     </p>
+                    {readOnly ? <p className="mt-2">Söker endast i ditt publicerade nyhetsurval. Inga nya AI- eller sociala API-anrop görs. Utökad sökning är ännu inte aktiverad för personliga konton.</p> : <>
                     <p className="mt-2">
                       <strong>AI-bearbetning</strong> översätter rubriker och korta utdrag för upp till 16 träffar till svenska. Kan medföra AI-kostnad. Avmarkerad: ingen ny AI-bearbetning av träffarna, men sparad svensk text kan fortfarande visas.
                     </p>
@@ -3038,12 +3143,13 @@ function SignalTrackingPanel({
                     <p className="mt-2">
                       Språkvarianter för sökord kan tas fram med AI även när AI-bearbetning är av.
                     </p>
+                    </>}
                   </div>
                 )}
               </div>
             </div>
             <h2 className="mt-3 text-2xl font-semibold tracking-normal">
-              Riktad sökning i källor
+              {readOnly ? "Sök i sparade signaler" : "Riktad sökning i källor"}
             </h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-[var(--app-soft)]">
               Sök efter aktörer, teman eller händelser i MissionDesks källor.
@@ -3092,6 +3198,7 @@ function SignalTrackingPanel({
             <input
               type="checkbox"
               checked={aiEnabled}
+              disabled={readOnly}
               onChange={(event) => onAiEnabledChange(event.target.checked)}
               className="h-3.5 w-3.5 accent-[var(--app-accent)]"
             />
@@ -3101,6 +3208,7 @@ function SignalTrackingPanel({
             <input
               type="checkbox"
               checked={includeWebRss}
+              disabled={readOnly}
               onChange={(event) => onIncludeWebRssChange(event.target.checked)}
               className="h-3.5 w-3.5 accent-[var(--app-accent)]"
             />
@@ -3110,7 +3218,7 @@ function SignalTrackingPanel({
             <input
               type="checkbox"
               checked={includeSocialMedia}
-              disabled={status === "loading"}
+              disabled={readOnly || status === "loading"}
               onChange={(event) => onIncludeSocialMediaChange(event.target.checked)}
               className="h-3.5 w-3.5 shrink-0 accent-[var(--app-accent)]"
             />
@@ -4651,6 +4759,8 @@ function SourceFeed({
   profile,
   prioritizedIds,
   onTogglePriority,
+  printItemIds,
+  onTogglePrint,
 }: {
   rows: IntelligenceItem[];
   query: string;
@@ -4659,6 +4769,8 @@ function SourceFeed({
   profile: ProfileMode;
   prioritizedIds: string[];
   onTogglePriority: (id: string, checked: boolean) => void;
+  printItemIds: string[];
+  onTogglePrint: (id: string, checked: boolean) => void;
 }) {
   const [sort, setSort] = useState<SourceFeedSortState>({
     key: "relevance",
@@ -4802,6 +4914,7 @@ function SourceFeed({
             <tbody className="divide-y divide-[var(--app-line)]">
               {sortedRows.map((item) => {
                 const isPrioritized = prioritizedIds.includes(item.id);
+                const isPrintSelected = printItemIds.includes(item.id);
                 const displayTitle = normalizeSwedishTitle(item.title_sv);
                 const displaySourceLine = normalizeSwedishUserFacingText(
                   item.summary_sv || item.original_excerpt || item.title_original,
@@ -4850,22 +4963,42 @@ function SourceFeed({
                       </span>
                     </td>
                     <td className="px-5 py-4">
-                      <label
-                        className={clsx(
-                          "inline-flex items-center gap-2 rounded-md border px-3 py-2 text-xs font-medium transition",
-                          isPrioritized
-                            ? "border-[color-mix(in_srgb,var(--app-accent),transparent_35%)] bg-[color-mix(in_srgb,var(--app-accent),transparent_84%)] text-[var(--app-accent-strong)]"
-                            : "border-[var(--app-line)] bg-[var(--app-panel-muted)] text-[var(--app-soft)] hover:border-[var(--app-accent)]",
+                      <div className="flex min-w-[144px] flex-col gap-2">
+                        <label
+                          className={clsx(
+                            "inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-xs font-medium transition",
+                            isPrioritized
+                              ? "border-[color-mix(in_srgb,var(--app-accent),transparent_35%)] bg-[color-mix(in_srgb,var(--app-accent),transparent_84%)] text-[var(--app-accent-strong)]"
+                              : "border-[var(--app-line)] bg-[var(--app-panel-muted)] text-[var(--app-soft)] hover:border-[var(--app-accent)]",
+                          )}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isPrioritized}
+                            onChange={(event) => onTogglePriority(item.id, event.target.checked)}
+                            className="h-3.5 w-3.5 shrink-0 accent-[var(--app-accent)]"
+                          />
+                          Prioritera
+                        </label>
+                        {contentKind === "news" && (
+                          <label
+                            className={clsx(
+                              "inline-flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-xs font-medium transition",
+                              isPrintSelected
+                                ? "border-[color-mix(in_srgb,var(--app-gold),transparent_35%)] bg-[color-mix(in_srgb,var(--app-gold),transparent_86%)] text-[var(--app-gold)]"
+                                : "border-[var(--app-line)] bg-[var(--app-panel-muted)] text-[var(--app-soft)] hover:border-[var(--app-accent)]",
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isPrintSelected}
+                              onChange={(event) => onTogglePrint(item.id, event.target.checked)}
+                              className="h-3.5 w-3.5 shrink-0 accent-[var(--app-gold)]"
+                            />
+                            Mötesunderlag
+                          </label>
                         )}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isPrioritized}
-                          onChange={(event) => onTogglePriority(item.id, event.target.checked)}
-                          className="h-3.5 w-3.5 accent-[var(--app-accent)]"
-                        />
-                        Prioritera
-                      </label>
+                      </div>
                     </td>
                   </tr>
                 );

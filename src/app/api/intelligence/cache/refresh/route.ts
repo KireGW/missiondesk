@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { legacyEngineBoundary } from "@/lib/product/api-boundary";
 import {
   enqueueDefaultBriefingJobs,
   startBriefingGenerationWorkerInBackground,
@@ -32,6 +33,7 @@ import { getSources } from "@/lib/sources/store";
 import { firstRunJobType } from "@/lib/intelligence/first-run";
 import type { BackgroundJob } from "@/lib/intelligence/models";
 import type { SourceDefinition } from "@/lib/types";
+import { getDashboardUpdateStatus, recordSourcesCheckedAt } from "@/lib/intelligence/dashboard-status-store";
 import { getProcessedItemByRawId } from "@/lib/intelligence/repository";
 
 export const dynamic = "force-dynamic";
@@ -700,6 +702,7 @@ async function statusFromRefreshJob(job: BackgroundJob | undefined) {
     updateCompletedAt: state?.completed_at,
     updateErrorMessage: state?.error_message,
     updateStatus: state?.status ?? "idle",
+    updates: await getDashboardUpdateStatus(),
   };
 }
 
@@ -955,6 +958,9 @@ async function advanceManualRefreshIngestion(job: BackgroundJob) {
   }
 
   const sources = allSources.filter((source) => sourceIds.includes(source.id));
+  if (sources.length > 0 && (mergedSummary.fetchedCount > 0 || mergedSummary.errorCount === 0)) {
+    await recordSourcesCheckedAt(chunkIngestion.completedAt);
+  }
   if (newRawSourceItemIds.length === 0) {
     const observability = await buildRefreshObservability({
       sources,
@@ -1214,6 +1220,8 @@ async function advanceManualRefreshWorker(maxSteps = 1) {
 }
 
 export async function GET() {
+  const blocked = legacyEngineBoundary();
+  if (blocked) return blocked;
   const activeJob = await activeManualRefreshJob();
   if (activeJob?.status === "pending") {
     try {
@@ -1226,6 +1234,8 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const blocked = legacyEngineBoundary();
+  if (blocked) return blocked;
   const body = (await request.json().catch(() => ({}))) as {
     scope?: RefreshScope;
     force?: boolean;

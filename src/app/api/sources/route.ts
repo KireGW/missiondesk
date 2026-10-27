@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { legacyEngineBoundary } from "@/lib/product/api-boundary";
 import { getSources, saveSources, sourceIdFromName } from "@/lib/sources/store";
 import type { IntelligenceCategory, SourceDefinition, SourceType } from "@/lib/types";
 
@@ -10,10 +11,14 @@ function normalizeCategories(value: unknown): IntelligenceCategory[] {
 }
 
 export async function GET() {
+  const blocked = legacyEngineBoundary();
+  if (blocked) return blocked;
   return NextResponse.json({ sources: await getSources() });
 }
 
 export async function POST(request: Request) {
+  const blocked = legacyEngineBoundary();
+  if (blocked) return blocked;
   const body = (await request.json()) as Partial<SourceDefinition>;
   const sources = await getSources();
   const id = body.id || sourceIdFromName(body.name ?? "");

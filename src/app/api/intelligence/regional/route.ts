@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
+import { legacyEngineBoundary } from "@/lib/product/api-boundary";
 import { processRegionalIntelligenceOnDemand } from "@/lib/intelligence/regional-processing";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
+  const blocked = legacyEngineBoundary();
+  if (blocked) return blocked;
   const url = new URL(request.url);
   const regionId = url.searchParams.get("region")?.trim();
   const force = url.searchParams.get("force") === "1";

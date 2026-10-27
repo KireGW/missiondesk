@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
+import { legacyEngineBoundary } from "@/lib/product/api-boundary";
 import { searchSignalsAcrossSources } from "@/lib/intelligence/signal-tracking";
 
 export async function POST(request: Request) {
+  const blocked = legacyEngineBoundary();
+  if (blocked) return blocked;
   try {
     const body = (await request.json().catch(() => ({}))) as {
       query?: string;

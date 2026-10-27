@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { legacyEngineBoundary } from "@/lib/product/api-boundary";
 import { earliestCacheExpiry, latestCacheTimestamp } from "@/lib/intelligence/dashboard-view";
 import { signalDisplaySince } from "@/lib/intelligence/cache-policy";
 import { listProcessedItems } from "@/lib/intelligence/repository";
@@ -34,6 +35,8 @@ const profiles: ProfileMode[] = [
 ];
 
 export async function GET(request: Request) {
+  const blocked = legacyEngineBoundary();
+  if (blocked) return blocked;
   const url = new URL(request.url);
   const categoryParam = url.searchParams.get("category");
   const profileParam = url.searchParams.get("profile");
