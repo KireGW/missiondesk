@@ -182,6 +182,9 @@ try {
     async middleware() { return new Response("auth-handler"); }
   } } });
   mock.module(new URL("../src/lib/product/account.ts", import.meta.url), { namedExports: { getPersonalAccount: async () => personalAccount } });
+  mock.module(new URL("../src/lib/product/preferences-store.ts", import.meta.url), { namedExports: {
+    getPersonalPreferences: async () => ({ homeCountry: "SE", targetCountry: "MX", language: "sv" }),
+  } });
 
   // Every existing handler must reject personal mode before parsing bodies or calling the engine.
   let handlers = 0;

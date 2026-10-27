@@ -29,7 +29,9 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
     ".next-personal/types/**/*.ts",
-    ".next-personal/dev/types/**/*.ts"
+    ".next-personal/dev/types/**/*.ts",
+    ".next-personal-build/types/**/*.ts",
+    ".next-personal-build/dev/types/**/*.ts"
   ],
   "exclude": ["node_modules"]
 }

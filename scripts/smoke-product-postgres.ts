@@ -15,6 +15,7 @@ mock.module("next/cache", { namedExports: { unstable_cache: (read: unknown) => r
 const { getProductPool, reserveUsage, settleUsage, releaseUnstartedUsage, UsageDenied } = await import("../src/lib/product/store");
 const { readPersonalFeed } = await import("../src/lib/product/feed-store");
 const { closeDb } = await import("../src/lib/db/postgres");
+const { getPersonalPreferences, savePersonalPreferences } = await import("../src/lib/product/preferences-store");
 const db = getProductPool();
 const ids: string[] = [];
 const engineTables = ["raw_source_items", "processed_items", "briefings", "background_jobs"];
@@ -51,6 +52,16 @@ try {
   const free = await fixture("free");
   await assert.rejects(reserveUsage({ accountId: free, operationKey: "free-test", service: "llm", reservedMicros: 1 }), UsageDenied);
   const account = await fixture();
+  assert.deepEqual(await getPersonalPreferences(free), { homeCountry: "SE", targetCountry: "MX", language: "sv" });
+  const profile = { homeCountry: "NO", targetCountry: "MX", language: "nb" };
+  assert.equal(await savePersonalPreferences(free, profile), true);
+  assert.deepEqual(await getPersonalPreferences(free), profile);
+  assert.deepEqual(await getPersonalPreferences(account), { homeCountry: "SE", targetCountry: "MX", language: "sv" }, "Preferences must not cross accounts");
+  assert.equal(await savePersonalPreferences(free, { ...profile, plan: "premium" }), false);
+  assert.equal((await db.query("SELECT plan FROM product_accounts WHERE id = $1", [free])).rows[0].plan, "free");
+  await db.query("UPDATE product_accounts SET status = 'suspended' WHERE id = $1", [account]);
+  assert.equal(await savePersonalPreferences(account, profile), false);
+  await db.query("UPDATE product_accounts SET status = 'active' WHERE id = $1", [account]);
   const request = { accountId: account, operationKey: "first", service: "llm" as const, reservedMicros: 60 };
   const results = await Promise.allSettled([
     reserveUsage(request), reserveUsage({ ...request, operationKey: "second" }),

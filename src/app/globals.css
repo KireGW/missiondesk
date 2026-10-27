@@ -97,6 +97,10 @@ a {
   backdrop-filter: blur(18px);
 }
 
+.missiondesk.personal-desk {
+  background: var(--app-bg);
+}
+
 .surface-strong {
   border: 1px solid var(--app-line);
   background: var(--app-panel-strong);

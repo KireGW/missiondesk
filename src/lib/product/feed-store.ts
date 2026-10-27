@@ -5,18 +5,16 @@ import { listProcessedItems } from "@/lib/intelligence/repository";
 import { latestCacheTimestamp, processedRecordsToIntelligenceItems } from "@/lib/intelligence/dashboard-view";
 import { productPlans, type PlanId } from "@/lib/product/plans";
 import type { PersonalFeed } from "@/lib/product/feed";
-import { swedenMexicoEmbassyConfig } from "@/lib/config/embassies/sweden-mexico";
+import { mexicoPublication } from "@/lib/product/profiles";
 
 // Explicit public-news publication set, not a copy of every source in the engine.
-export const personalFeedSourceIds = [
-  "el-universal-national", "el-financiero", "la-jornada-politica", "expansion-mexico", "bbc-latin-america",
-] as const;
+export const personalFeedSourceIds = mexicoPublication.sourceIds;
 
 export async function readPersonalFeed(planId: PlanId, db: MissionDeskDb = getReadOnlyDb()): Promise<PersonalFeed> {
   const plan = productPlans[planId];
   const sources = defaultSources.filter((source) => personalFeedSourceIds.some((id) => id === source.id));
   const since = new Date(Date.now() - plan.archiveDays * 86_400_000).toISOString();
-  const countryNames = [swedenMexicoEmbassyConfig.country.toLowerCase(), swedenMexicoEmbassyConfig.countryCode.toLowerCase(), "mexico", "méxico"];
+  const countryNames = mexicoPublication.countryAliases;
   const allowed = await db.prepare(`
     SELECT r.id FROM processed_items p
     JOIN raw_source_items r ON r.id = p.raw_source_item_id

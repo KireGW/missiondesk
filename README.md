@@ -134,7 +134,7 @@ Liveflöden går via:
 
 ## Roadmap
 
-### Fristående Personkonton: Avstängt Grundlager
+### Fristående Personkonton: Lokal Pilot
 
 Samma kodbas har nu två driftlägen. `MISSIONDESK_ACCESS_MODE` saknad eller `legacy` behåller dagens installation. `personal` är ett separat, uttryckligen aktiverat läge för personliga konton. Okända värden stänger åtkomsten i stället för att öppna motorn. Detta är ett första grundlager, inte en färdig kommersiell lansering.
 
@@ -142,7 +142,7 @@ Samma kodbas har nu två driftlägen. `MISSIONDESK_ACCESS_MODE` saknad eller `le
 - Personlig inloggning förbereds med Auth0:s officiella Next.js-SDK och krypterade sessionskakor. Ingen ambassad-SSO eller intern systemintegration används. E-postadressen måste vara verifierad. Identitet kommer från SDK-sessionen; plan och budget kommer från serverns databas, aldrig från klientens uppgifter.
 - Gratis har inledningsvis högst 30 redan bearbetade nyhetssignaler från senaste sju dygnen, ur fem uttryckligen valda publika nyhetskällor. Det är provisoriska produktgränser, inte en fastställd prislista. Endast detta publiceringsurval delas i en 15-minuters servercache. Konton, sökfrågor och privata uppgifter cacheas inte gemensamt.
 - Sökning i personläget sker lokalt i det levererade urvalet. Visa senaste läser samma cache. Inga nya LLM-anrop, dolda AI-framtagna sökord, sociala anrop, regionala analyser eller automatiska förstagångsjobb startas. Globala briefingar publiceras inte eftersom deras underlag kan innehålla sociala eller andra ej godkända källor. Mötesurval och sökhistorik sparas tills vidare bara i aktuell vy, inte i delad lokal lagring.
-- Alla befintliga motor- och käll-API:er avvisar anrop i personläget, även för Premium. Konton får inte ändra den gemensamma källistan, starta eller avbryta globala jobb. Den befintliga dashboarden återanvänds med en separat läsväg.
+- Alla befintliga motor- och käll-API:er avvisar anrop i personläget, även för Premium. Konton får inte ändra den gemensamma källistan, starta eller avbryta globala jobb. Personläget har en separat språkstyrd vy som återanvänder motorns publicerade nyhetsurval, medan den befintliga dashboarden behålls i legacy-läget.
 - Premiums plan anger 30 sociala konton, högst 20 poster per konto och en körning per UTC-dygn, per abonnemang. **Betalda personfunktioner är inte aktiverade än.** Den befintliga sociala adapterns gräns på fem poster har inte ändrats. Planens avsedda funktioner ska inte förväxlas med tillgängliga funktioner i denna fas.
 - `product_accounts` och `product_usage` är separata, additiva tabeller. Nya konton är Gratis och har noll extern budget. Premium kräver en giltig, tidsbegränsad serverlagrad tilldelning. Kostnadsreservationer använder kontolås i en databastransaktion, unika operationsnycklar, separata månadsbudgetar för LLM/socialt och daglig social kvot. Belopp lagras i miljondelar USD; detta är ett underlag för uppskattad förbrukning, inte automatisk avläsning av leverantörsfakturor.
 
@@ -154,7 +154,7 @@ Samma kodbas har nu två driftlägen. `MISSIONDESK_ACCESS_MODE` saknad eller `le
 4. Testa riktig registrering, verifiering, inloggning, utloggning, avstängt konto och åtskilda användare mot preview. Saknad authkonfiguration ska ge 503, inte återgång till ett öppet motorläge.
 5. Före kommersiell öppning: skydda den gamla motorns driftadress och dess administrations-/jobb-API:er separat. Att personläget är skyddat säkrar inte en annan publik `legacy`-installation. Använd lägsta nödvändiga databasbehörigheter och fastställ dataskydd, gallring, kontoradering och källornas publiceringsrättigheter.
 6. Innan Premiums externa anrop öppnas: bygg kontospecifika bevakningslistor och varaktig daglig körning, koppla reservation/avstämning till **varje** leverantörsanrop inklusive retries och profilläsningar, samt inför prisversioner, globalt kostnadstak, trafikbegränsningar och leverantörsavstämning. Reservera en konservativ övre kostnadsgräns innan arbete; släpp bara reservationer för arbete som säkert inte startat. Oklara/felade leverantörsanrop kan fortfarande vara debiterade. X:s licens för det faktiska användningsfallet måste vara bekräftad.
-7. Betalning, automatisk abonnemangsaktivering, språk-/landval, kontoradering och isolerade serverlagrade personliga inställningar återstår. Ingen privatinformation eller nytt artikelunderlag har skickats till en extern tjänst vid implementationstesterna.
+7. Betalning, automatisk abonnemangsaktivering, fler bevakningsländer, profil-/språkspecifika AI-analyser, kontoradering och serverlagrade privata mötesurval återstår. Profilvalen Sverige/Norge, Mexiko och svenska/norska sparas redan per konto. Inget nytt artikelunderlag skickas till LLM-/socialleverantörer i personlägets implementationstester.
 
 Återgång i en **intern/skyddad** installation: sätt `MISSIONDESK_ACCESS_MODE=legacy`. Ingen radering eller återställning av produkttabeller behövs. Använd inte detta som en nödöppning av en publik personinstallation.
 
@@ -174,16 +174,29 @@ När båda anslutningarna är verifierade:
 npm run personal:check
 MISSIONDESK_NEON_CONFIG_DIR="$HOME/.config/missiondesk-neon" MISSIONDESK_NEON_PROFILE=personal-test npm run personal:migrate
 npm run personal:smoke
+npm run personal:build
 npm run personal:dev
 ```
 
-Testappen använder port 3001 och `.next-personal/`, så den delar varken port eller byggcache med vanliga `npm run dev`. Sessionskakan heter `missiondesk_session`, inte det generiska Auth0-standardnamnet. `personal:smoke` använder riktiga Postgres-transaktioner och egna tillfälliga kontofiksturer på den verifierade testgrenen, testar kontoisolering och samtidiga kvoter och kontrollerar att motorns radantal inte ändras. Bara de skapade testkontona städas efteråt. Inga leverantörsanrop med API-kostnad utförs.
+Testappen använder port 3001 och `.next-personal/`, så den delar varken port eller byggcache med vanliga `npm run dev`. `personal:build` använder `.next-personal-build/` och stör inte heller testets pågående dev-server. Sessionskakan heter `missiondesk_session`, inte det generiska Auth0-standardnamnet. `personal:smoke` använder riktiga Postgres-transaktioner och egna tillfälliga kontofiksturer på den verifierade testgrenen, testar kontoisolering och samtidiga kvoter och kontrollerar att motorns radantal inte ändras. Bara de skapade testkontona städas efteråt. Inga LLM-/socialanrop med API-kostnad utförs.
 
 Testmigreringen hämtar tillfällig administratörsåtkomst till just testgrenen via den redan autentiserade Neon-profilen. Appens egen roll får endast läsa motortabellerna samt hantera konton och förbrukning. Administratörsanslutningen sparas inte i appens miljöfil. Databastestet verifierar även att approllen inte får skapa schemaobjekt eller ändra källor och jobb.
 
 Lokal verifiering 2026-10-27: den isolerade grenen `missiondesk-personal-test-2026-10-27` är skapad med minsta compute (0,25 CU) och automatisk utgång 2026-11-03 kl. 15:22 Mexico City-tid. Detta är en tillfällig testdatabas, inte lagring för produktionskonton. Kontotabellerna är installerade. Appen använder SQL-rollen `missiondesk_personal_app`, utan det administratörsarv som Neon ger CLI-skapade roller. Riktiga databastester godkänner publiceringsflöde (26 nyheter vid kontrollen), kontoisolering, budgetlås, daglig kvot och att motorns tabeller inte ändras. Den oanvända CLI-skapade installationsrollen har tagits bort. `.env.local` och produktionsmiljön är oförändrade.
 
-Användaren har bekräftat riktig inloggning och att nyhetsflödet visas. En anonymiserad databaskontroll bekräftar ett aktivt Gratis-konto med noll LLM-/socialbudget och inga förbrukningsposter. Manuell utloggning och nekad återkomst till flödet återstår att bekräfta. Separat e-post/lösenordsregistrering och verifieringsmejl är inte verifierade av denna bekräftelse; HTTP-omdirigeringar och simulerad sessions-/e-postkontroll är testade.
+Användaren har bekräftat riktig inloggning, att nyhetsflödet visas samt efterföljande utloggning och krav på ny inloggning. En anonymiserad databaskontroll bekräftar ett aktivt Gratis-konto med noll LLM-/socialbudget och inga förbrukningsposter. Separat e-post/lösenordsregistrering och verifieringsmejl är inte verifierade av denna bekräftelse; HTTP-omdirigeringar och simulerad sessions-/e-postkontroll är testade.
+
+#### Svenska Och Norska Profilval
+
+`Mitt konto` har kontosparade val för hemland (Sverige/Norge) och gränssnittsspråk (svenska/norska bokmål), oberoende av varandra. Mexiko är det enda bevakningslandet i piloten. Uppgifterna ligger i den separata tabellen `product_account_preferences`, med kontots serververifierade identitet som ägare. Saknad rad ger svensk standardprofil; befintliga konton ändras inte av migrationen.
+
+`src/lib/product/profiles.ts` äger pilotprofiler, källurval för Mexiko och regelbaserad profilrelevans. Båda profilerna delar samma fem öppna Mexikokällor och samma 15-minuters publiceringscache. Profilrelevansen räknas endast i läsvyn, påverkar aldrig sparade signalpoäng och använder inte motorns Sverige- eller ambassadspecifika relevanspoäng. Hemlandskoppling kräver ordstöd i originalrubrik eller originalutdrag. Detta är en provisorisk, transparent urvalsregel, inte en validerad norsk diplomatisk AI-bedömning.
+
+Den norska vyn har norska gränssnittstexter men visar källornas originalrubriker och originalutdrag, med textens språk angivet. Den svenska vyn kan visa redan sparade svenska sammanfattningar. De sammanfattningarna är gemensamt underlag, inte nya analyser för den valda profilen. Inga norska översättningar eller norska briefingar skapas automatiskt. Detta och beräkningsgrunden framgår i inforutan, inte som utvecklartext i grundvyn.
+
+Personvyn behåller aktuella signaler, separat prioritering, lokal signalspårning och mötesunderlag för utskrift. Sökning, ämnesfilter och sortering körs i webbläsaren. Mötesunderlaget påverkas inte av sökfiltret. Prioritering och mötesurval ligger tills vidare bara i den aktuella sessionens minne och delas inte via localStorage.
+
+`PATCH /api/personal/profile` tar endast de tre profilfälten, kräver aktivt konto och samma Origin som appens basadress, accepterar endast JSON och begränsar kroppen till 2 KiB. Klienten får inte välja konto-id, abonnemang eller budget. Kontouppgifter och profilval ligger aldrig i den delade publiceringscachen. `smoke:personal-profiles` testar dessa gränser utan nätverk; `personal:smoke` testar även verklig lagring, kontoisolering och spärr för pausade konton på testgrenen. Den visuella komponentkontrollen använder syntetiska nyheter; byte av profil i användarens riktiga webbsession behöver också bekräftas.
 
 `npm run smoke:personal-env` testar skyddsräckena utan nätverk eller databas. Använd inte äldre Neon OAuth-återkopplingslänkar: CLI:ns korta väntetid gör dem ogiltiga när den lokala mottagaren stängts. Slutför i stället aktuell CLI-inloggning direkt i en vanlig lokal terminal.
 

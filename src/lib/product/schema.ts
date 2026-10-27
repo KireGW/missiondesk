@@ -30,4 +30,12 @@ CREATE TABLE IF NOT EXISTS product_usage (
 
 CREATE INDEX IF NOT EXISTS product_usage_account_period_idx
   ON product_usage(account_id, service, period);
+
+CREATE TABLE IF NOT EXISTS product_account_preferences (
+  account_id UUID PRIMARY KEY REFERENCES product_accounts(id) ON DELETE CASCADE,
+  home_country TEXT NOT NULL CHECK (home_country IN ('SE', 'NO')),
+  target_country TEXT NOT NULL CHECK (target_country = 'MX'),
+  language TEXT NOT NULL CHECK (language IN ('sv', 'nb')),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 `;

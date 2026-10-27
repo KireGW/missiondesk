@@ -2,6 +2,7 @@
 node_modules/
 .next/
 .next-personal/
+.next-personal-build/
 out/
 dist/
 build/
