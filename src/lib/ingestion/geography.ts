@@ -41,8 +41,9 @@ export function detectGeography(
 ): DetectedGeography {
   const normalized = normalize(value);
   const countryMatches =
-    normalized.includes(normalize(config.country)) ||
-    normalized.includes(normalize(config.countryCode));
+    includesGeographicTerm(normalized, config.country) ||
+    includesGeographicTerm(normalized, config.countryCode) ||
+    (config.countryCode === "MX" && /\bmexic(?:o|an[ao]?s?)\b/.test(normalized));
 
   const matchedDivision = config.geography.administrativeDivisions.find((division) => {
     const terms = [

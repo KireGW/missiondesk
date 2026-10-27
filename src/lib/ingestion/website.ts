@@ -1,5 +1,6 @@
 import type { RawSourceDocument } from "@/lib/ingestion/types";
 import type { SourceDefinition } from "@/lib/types";
+import { matchesSourceContentScope } from "@/lib/sources/content-scope";
 
 const USER_AGENT = "MissionDesk/0.1 diplomatic briefing ingestion";
 const DEFAULT_REQUEST_TIMEOUT_MS = 8_000;
@@ -213,6 +214,7 @@ function extractArticleLinks(
         extractAttribute(attrs, "title");
       const score = scoreArticleLink(title, resolvedUrl);
       if (!title || score < 0) return null;
+      if (!matchesSourceContentScope(source, title, resolvedUrl)) return null;
 
       return {
         title: title.slice(0, 220),
@@ -952,6 +954,8 @@ export async function fetchWebsiteSource(
         const title = extractTitle(articleHtml) || candidate.title;
         const description = extractDescription(articleHtml);
         const articleText = stripHtml(articleHtml).slice(0, 5000);
+
+        if (!matchesSourceContentScope(source, title, candidateUrl)) continue;
 
         if (!isLikelyRelevantDocument(title, description || articleText.slice(0, 240))) {
           stats.extractionFailures += 1;

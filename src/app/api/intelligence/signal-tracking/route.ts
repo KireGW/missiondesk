@@ -10,7 +10,7 @@ export async function POST(request: Request) {
       aiEnabled?: boolean;
       deepSearchOptions?: {
         includeWebRss?: boolean;
-        includeSocialX?: boolean;
+        includeSocialMedia?: boolean;
       };
     };
     const query = body.query?.trim() ?? "";
@@ -29,7 +29,7 @@ export async function POST(request: Request) {
       aiEnabled: body.aiEnabled ?? false,
       deepSearchOptions: {
         includeWebRss: body.deepSearchOptions?.includeWebRss ?? true,
-        includeSocialX: body.deepSearchOptions?.includeSocialX ?? false,
+        includeSocialMedia: body.deepSearchOptions?.includeSocialMedia === true,
       },
     });
 

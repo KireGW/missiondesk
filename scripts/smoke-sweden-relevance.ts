@@ -10,7 +10,7 @@ function item({
   sourceCountry = "Internationell",
   sourceLanguage = "en",
   sourceType = "news",
-  publishedAt = "2026-05-24T10:00:00.000Z",
+  publishedAt = new Date().toISOString(),
   detectedCountry,
   url = "https://example.com/story",
   sourcePriority = 82,

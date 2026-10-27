@@ -117,9 +117,9 @@ Appen hämtar även riktiga artiklar via `GET /api/intelligence/live`. Första l
 
 Lättviktsurvalet för AI-kandidater ligger i `src/lib/intelligence/ranking.ts`. Det rankar råa källobjekt utan AI med URL-/titeldeduplicering, freshness, källprioritet, trovärdighet, nyckelordsrelevans, diplomatisk relevans, Sverigerelevans, geografi, novelty och cross-source-signaler. Kandidater sparas i `ranked_processing_candidates`; dedupe-kluster sparas i `item_duplicate_clusters`, med hook-fält för framtida embeddingbaserad klustring. Backend-endpoints finns på `GET /api/intelligence/candidates` och `POST /api/intelligence/candidates/rank`.
 
-Nationell AI-bearbetning körs endast via bakgrundsjobb. `src/lib/ai/national-processing.ts` använder som standard `gpt-5-mini` via `MISSIONDESK_PROCESSING_MODEL`, `OPENAI_PROCESSING_MODEL` eller `OPENAI_MODEL`, i den ordningen. `src/lib/intelligence/national-processing-worker.ts` plockar bara `selected` kandidater som inte är regionala/stadsspecifika och inte redan processade. Backend-endpoints finns på `POST /api/intelligence/process/enqueue`, `POST /api/intelligence/process/run` och `GET /api/intelligence/processed`. Den gamla live-endpointen kör inte AI som standard; `GET /api/intelligence/live?ai=1` krävs för opt-in.
+Nationell AI-bearbetning körs endast via bakgrundsjobb. `src/lib/ai/national-processing.ts` använder `MISSIONDESK_PROCESSING_MODEL`, `OPENAI_PROCESSING_MODEL` eller `OPENAI_MODEL`, i den ordningen, annars `gpt-6-luna`. Regional bearbetning kan styras separat med `MISSIONDESK_REGIONAL_MODEL`. Befintliga miljövariabler har alltid företräde framför kodens standardvärden. `src/lib/intelligence/national-processing-worker.ts` plockar bara `selected` kandidater som inte är dubbletter eller redan processade. Backend-endpoints finns på `POST /api/intelligence/process/enqueue`, `POST /api/intelligence/process/run` och `GET /api/intelligence/processed`. Den gamla live-endpointen kör inte AI som standard; `GET /api/intelligence/live?ai=1` krävs för opt-in.
 
-Briefinggenerering körs också via bakgrundsjobb och bygger endast på redan processade poster. `src/lib/ai/briefing-generation.ts` använder `MISSIONDESK_BRIEFING_MODEL` eller `OPENAI_BRIEFING_MODEL`, annars `gpt-5`, för slutlig syntes/polish. `src/lib/intelligence/briefing-worker.ts` väljer 5-15 högt signalvärderade poster och genererar Morgonbrief, Ambassadörsbrief, viktigaste nationella utvecklingar, brådskande utvecklingar och kommande händelser/advisories. Backend-endpoints finns på `GET /api/intelligence/briefings`, `POST /api/intelligence/briefings/enqueue` och `POST /api/intelligence/briefings/run`.
+Briefinggenerering körs också via bakgrundsjobb och bygger endast på redan processade poster. `src/lib/ai/briefing-generation.ts` använder `MISSIONDESK_BRIEFING_MODEL` eller `OPENAI_BRIEFING_MODEL`, annars `gpt-6.1-sol`, för slutlig syntes/polish. Detta bevarar uppdelningen mellan lättare signalbearbetning och starkare syntes; alla artiklar skickas inte till flaggskeppsmodellen. `src/lib/intelligence/briefing-worker.ts` väljer 5-15 högt signalvärderade poster och genererar Morgonbrief, Ambassadörsbrief, viktigaste nationella utvecklingar, brådskande utvecklingar och kommande händelser/advisories. Backend-endpoints finns på `GET /api/intelligence/briefings`, `POST /api/intelligence/briefings/enqueue` och `POST /api/intelligence/briefings/run`.
 
 Liveflöden går via:
 
@@ -133,6 +133,71 @@ Liveflöden går via:
 - `src/lib/ai/pipeline.ts` för översättning, sammanfattning, klassificering, scoring, trendanalys och briefinggenerering.
 
 ## Roadmap
+
+### Lägeskontroll 2026-10-27
+
+### Genomfört I Produktion
+
+Produktionsversionen vid kontrollen var `dpl_5UVP4BxU7z3bBzJw9EQzK8PfZAHD` på [missiondesk.vercel.app](https://missiondesk.vercel.app). Den byggdes direkt från arbetskopian ovanpå `2d9c034`, innan ändringarna versionshanterades.
+
+- 54 aktuella signaler ombearbetades med `gpt-6-luna`. Sex andra poster uteslöts som fel landinnehåll eller odaterat referensmaterial. De tidigare analyserna finns i den ignorerade lokala filen `reports/pre-reprocess-2026-10-27.json`.
+- Fem nya briefingar skapades med `gpt-6.1-sol`. Produktionsinställningarna för dessa två modellroller är explicita.
+- Daglig överblick har nu tre signaler med hög relevans (76, 73, 67), jämfört med noll för samma urval före ombedömningen. Mätningen använder samma nya sammanvägning på gamla respektive nya delpoäng. Ingen av de 54 ombearbetade signalerna har längre samtliga delpoäng högst 10.
+- Gamla Business Sweden-rapporter visas under en separat flik för referensmaterial. De ingår inte som färska prioriterade signaler eller som underlag till nya nyhetsbriefingar.
+- Aristegui använder sitt verifierade officiella Mexiko-RSS och Milenio sin fungerande politiksida. AP, IMF, SvD, DOF och SCJN är pausade med förklaring i källistan. Totalt finns 65 källor, varav 56 aktiva. Pausade myndighetskällor behöver tills vidare kontrolleras manuellt; de ska inte räknas som fullgod automatisk täckning.
+- Totalt 202 övergivna junijobb avbröts efter uttryckliga godkännanden: först 194, därefter åtta med nya oktoberlås. Dagens 60 tidsanalysjobb slutfördes: 54 underlag behandlades och sex utanför källfokus hoppades över. Tretton tidsbaserade signaler lagrades; övriga hade motiverade bortval. Produktionskontrollen visade inga väntande eller körande jobb och Framåtblicks status var inaktiv. Tidsanalysen behåller tills vidare sin tidigare modell `gpt-5-mini`, till skillnad från den uppgraderade nationella bearbetningen och briefingsyntesen.
+- Kösystemets hämtning av jobb är nu atomisk (`FOR UPDATE SKIP LOCKED`) så att samtidiga arbetare inte plockar samma jobb. Källistan skrivs atomiskt i ett enda databasanrop i stället för radering följd av många separata återinläggningar.
+- Tolv oberoende syntetiska relevansfall passerade ett riktigt API-prov. Det ersätter inte ett större mänskligt granskat facit på verkliga artiklar. Bygge, sju testsviter och fullständig lint passerar. Publik sida, signal-API, briefing-API och käll-API har verifierats efter publicering; inga error/fatal-loggar hittades i den kontrollerade driftperioden.
+
+Kvarstående driftarbete: ersätt lösa bakgrundslöften och webbläsardriven refresh med varaktig jobbkörning som kan fortsätta efter timeout eller ny driftsättning. Den nuvarande underhållskörningen slutför kön, men den ändrar inte denna arkitektur. Granska också källtextextraktion och geografiska taggar separat, särskilt risken att navigationsinnehåll räknas som artikelinnehåll. Framåtblick behöver ett eget kvalitetsfacit och granskning av historiska framtidssignaler: köstatusen är rättad, men kontrollen hittade fortfarande generella riskprognoser och ett felaktigt årtal i en sammanfattning. Det nationella relevansfacit på tolv fall verifierar inte dessa tidsanalyser.
+
+### Signalspårning Efter Driftkontrollen
+
+Signalspårning har en separat, förvalt avmarkerad ruta: **Sök i kopplade sociala medier-konton**. Bara ett uttryckligt val inkluderar sparade sociala medier-poster och hämtar nya från aktiva, kopplade konton. Servern blockerar sociala anrop även när webb-/RSS-sökning är på; den äldre automatiska X-flaggan aktiverar inte längre social sökning. Sociala medier och utökad webb-/RSS-sökning kan väljas oberoende av varandra. Inforutan beskriver de tre kryssrutorna, sparad svensk text och möjliga API-/AI-kostnader, inklusive separat AI-framtagning av sökordens språkvarianter.
+
+`npm run smoke:signal-tracking` verifierar tio scenarier med simulerad databas och simulerade nätverkssvar, utan betalda API-anrop. Dessa efterföljande ändringar ingick inte i produktionsversionen ovan.
+
+### Förkontroll
+
+Den anslutna appdatabasen hade 9 330 råposter och 1 307 processade signaler vid kontrollen. Senaste manuella uppdateringen försökte 61 källor, lagrade 511 nya råposter och bearbetade 60 signaler. Av dessa hade 55 samtliga fem poäng högst 10, trots ett avsett intervall 0-100. Detta är ett starkt tecken på felkalibrering, inte bevis för att varje låg poäng ska multipliceras med tio.
+
+Business Sweden Mexicos sida länkade till globala artiklar. Den generiska hämtaren valde gamla Tysklandsartiklar, utan publiceringsdatum, och källans förvalda land blev sedan Mexiko. Källan har nu ett uttryckligt innehållsfilter som tillämpas före länkurval och artikelhämtning. Även äldre sådana poster filtreras ur rålistor, kandidater, signaler och framtidssignaler utan att raderas. Redan skrivna briefingtexter måste däremot genereras om.
+
+Verifiering av den nya hämtningen gav Mexikos företagsklimatrapporter för 2025, 2024 och 2023 i stället för Tysklandsartiklar. Landfiltret fungerar alltså, men rapporterna saknar fortfarande publiceringsdatum i hämtningen och ska inte likställas med färska nyhetssignaler. Datumextraktion och tydlig separation mellan referensmaterial och nyheter återstår.
+
+Relevansbedömningen har nu ett gemensamt 0-100-kontrakt med kalibrerade dimensioner och validering. Geografiska taggar begränsas till konfigurerade delstats-id:n. Sammanvägningen använder diplomatisk relevans, den starkaste sakdimensionen och brådska, med normaliserade profilvikter. Avsaknad av en Sverigekoppling sänker därmed inte automatiskt en viktig mexikansk handels- eller säkerhetssignal. Generella utlandsnyheter utan innehållsbelagd Mexikokoppling begränsas till bakgrundsnivå i huvudvyn.
+
+Fem befintliga artiklar provkördes med `gpt-6-luna`, utan databasändringar. En transportblockad fick diplomatisk relevans 70 och ekonomisk påverkan 80; en mindre tunnelbanenyhet fick diplomatisk relevans 20; en tysk finanspolitisk artikel fick 5; Mexikos FN-samarbete fick 45; en undersökning om svenska företag i Mexiko fick Sverigerelevans 85. Provet kontrollerar kalibrering och format, inte generell modellkvalitet. Blockadexemplet ligger nära ett av instruktionernas kalibreringsankare, så siffrorna är inte ett oberoende benchmark.
+
+Aktuella primärhämtningar lyckades för bland annat El Universal, El Financiero, La Jornada, Expansión, El Economista, Animal Político och flera mexikanska myndigheter. Milenio och Aristegui gav inga RSS-poster; detta rapporteras nu som ett fel i stället för tyst framgång. Konfigurerad webb-fallback används vid RSS-fel. AP och IMF svarade 403, SvD:s utrikessida 404, och DOF/SCJN hade hämtningsfel i testet. Enskilda utfall kan vara tillfälliga. Sociala konton och marknadsadaptern ingick inte i primärkontrollen.
+
+Ursprunglig arbetsordning från förkontrollen (utfallet står ovan):
+
+1. Granska ändringarna, sätt explicit `MISSIONDESK_PROCESSING_MODEL=gpt-6-luna` och `MISSIONDESK_BRIEFING_MODEL=gpt-6.1-sol` i rätt driftmiljö och deploya. Lokala och produktionsinställningar skilde sig: lokalt var bearbetningsmodellen `gpt-5`, medan senaste sparade körningen använde `gpt-5-mini`.
+2. Ombearbeta ett avgränsat aktuellt urval och generera om briefingarna. Ändringarna rättar inte redan sparade poäng, och nya briefingmodellens kvalitet har ännu inte provats i skarpt syntesflöde.
+3. Hantera övergivna jobb med förhandsvisning och uttryckligt urval, inte massomstart. Kontrollens jobblista innehöll 20 körande briefingjobb, 8 körande signaljobb, 31 körande tidsanalysjobb samt 208 väntande tidsanalysjobb; flera var kvar sedan juni. Antalen är en ögonblicksbild och kan ändras. Ingen sådan städning har körts.
+4. Återställ eller ersätt blockerade/trasiga källor, följ upp utfall per källa och mät hur mycket av AI-urvalet som faktiskt handlar om Mexiko. Primärkontrollen bevisar inte korrekt artikelinnehåll för samtliga källor.
+5. Gör jobbkörningen oberoende av webbläsarens statuspollning. Kontrollera återhämtning efter avbrutna serverless-anrop innan gammal kö återaktiveras.
+6. Inför ett större oberoende relevansfacit med viktiga Mexikosignaler, rutinnyheter och negativa utlandsexempel. Åtgärda även befintliga React-lintfel och uppdatera den äldre MVP-roadmapen nedan.
+
+Läsande diagnostik (ingen migration, inga databasändringar eller AI-anrop):
+
+```bash
+npm run audit:mission
+npm run audit:mission -- --check-sources
+npm run audit:mission -- --check-source=business-sweden-mexico
+npm run smoke:mission
+```
+
+Separat modellprov använder betalda API-anrop för högst fem befintliga artiklar men skriver inte till databasen. Kör endast efter godkännande av artikelöverföringen:
+
+```bash
+npm run eval:signals -- --model=gpt-6-luna
+```
+
+Modellroller och kompatibilitet kontrollerades mot [OpenAI:s aktuella dokumentation](https://developers.openai.com/api/docs/guides/latest-model). Kontoåtkomst verifierades via modellistan, och Luna provades enligt ovan. API-nycklar och databaslösenord ska aldrig ingå i rapporter eller versionshistorik.
+
+### Äldre MVP-roadmap
 
 1. Real crawlers: implementera RSS-adapter, API-adapter för Banxico/INEGI/SCB/Riksbanken, kalenderparser och säker HTML-extraktion.
 2. Lagring: vidareutveckla Postgres-schemat med normaliserade dokument, events, embeddings och användarpreferenser.

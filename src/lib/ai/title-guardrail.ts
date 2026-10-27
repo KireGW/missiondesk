@@ -3,6 +3,7 @@ import {
   needsSwedishTitleRewrite,
   normalizeSwedishUserFacingText,
 } from "@/lib/ai/swedish-normalization";
+import { compactResponseSettings } from "@/lib/ai/model-settings";
 
 interface ResponsesApiResult {
   output_text?: string;
@@ -35,10 +36,6 @@ interface EnsureSwedishSummaryOptions {
   snippetOriginal?: string | null;
 }
 
-function supportsLowDeliberationReasoning(model: string) {
-  return model.startsWith("gpt-5");
-}
-
 function extractResponseText(payload: ResponsesApiResult) {
   if (payload.output_text) return payload.output_text;
 
@@ -66,10 +63,7 @@ async function translateShortTitleToSwedish({
     },
     body: JSON.stringify({
       model,
-      max_output_tokens: 120,
-      ...(supportsLowDeliberationReasoning(model)
-        ? { reasoning: { effort: "minimal" as const } }
-        : {}),
+      ...compactResponseSettings(model, 180),
       input: [
         {
           role: "system",
@@ -149,10 +143,7 @@ async function translateShortSummaryToSwedish({
     },
     body: JSON.stringify({
       model,
-      max_output_tokens: 180,
-      ...(supportsLowDeliberationReasoning(model)
-        ? { reasoning: { effort: "minimal" as const } }
-        : {}),
+      ...compactResponseSettings(model, 240),
       input: [
         {
           role: "system",

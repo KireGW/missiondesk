@@ -105,6 +105,9 @@ export async function fetchRssSource(
   const rssItems = asArray(parsed.rss?.channel?.item);
   const atomItems = asArray(parsed.feed?.entry);
   const entries = rssItems.length > 0 ? rssItems : atomItems;
+  if (entries.length === 0) {
+    throw new Error("RSS response contains no feed items (empty feed or non-RSS response)");
+  }
   const now = new Date().toISOString();
 
   return entries.slice(0, options.limit ?? 12).map((item, index) => {

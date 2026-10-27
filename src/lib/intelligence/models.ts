@@ -286,6 +286,7 @@ export interface RawSourceItemFilters {
 }
 
 export interface ProcessedItemFilters {
+  referenceOnly?: boolean;
   category?: IntelligenceCategory;
   profile?: ProfileMode;
   geographicTag?: string;

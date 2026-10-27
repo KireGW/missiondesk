@@ -26,6 +26,10 @@ import type {
   ProcessedIntelligenceRecord,
 } from "@/lib/intelligence/models";
 import type { GeographicScope, ProfileMode } from "@/lib/types";
+import { swedenMexicoEmbassyConfig } from "@/lib/config/embassies/sweden-mexico";
+import { processedRecordToIntelligenceItem } from "@/lib/intelligence/dashboard-view";
+import { getMissionRelevanceScore } from "@/lib/intelligence/relevance-score";
+import { contentKindForRaw } from "@/lib/intelligence/content-kind";
 
 export interface BriefingSelectionOptions {
   type: BriefingType;
@@ -82,12 +86,9 @@ function payloadBoolean(job: BackgroundJob, key: string) {
 
 function compositeScore(record: ProcessedIntelligenceRecord, type: BriefingType) {
   const processed = record.processed;
-  const base =
-    processed.urgency_score * 0.22 +
-    processed.diplomatic_relevance_score * 0.28 +
-    processed.sweden_relevance_score * 0.2 +
-    processed.economic_impact_score * 0.14 +
-    processed.security_impact_score * 0.16;
+  const base = getMissionRelevanceScore(
+    processedRecordToIntelligenceItem(record), swedenMexicoEmbassyConfig, defaultProfiles[type],
+  );
   const officialBoost = ["government", "institution", "advisory", "event", "report"].includes(
     record.raw.source_type,
   )
@@ -176,6 +177,7 @@ export async function selectBriefingItems(
   });
   const sourceRecords = profileRecords.length >= minItems ? profileRecords : fallbackRecords;
   const scopedRecords = sourceRecords.filter((record) => {
+    if (contentKindForRaw(record.raw) === "reference") return false;
     if (!sourceTypeMatches(options.type, record)) return false;
     if (
       options.geographicScope &&

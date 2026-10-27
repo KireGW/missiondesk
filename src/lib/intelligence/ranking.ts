@@ -19,8 +19,9 @@ import type {
   RankedCandidateRecord,
 } from "@/lib/intelligence/models";
 import type { EmbassyConfig, IntelligenceCategory } from "@/lib/types";
+import { matchesConfiguredSourceScope } from "@/lib/sources/content-scope";
 
-export const rankingVersion = "missiondesk-lightweight-ranker-v6-source-fit";
+export const rankingVersion = "missiondesk-lightweight-ranker-v7-content-scope";
 
 export interface CandidateRankingOptions {
   config?: EmbassyConfig;
@@ -297,7 +298,12 @@ function jaccardSimilarity(a: string, b: string) {
 }
 
 function termScore(text: string, terms: string[], maxScore = 100) {
-  const hits = terms.filter((term) => text.includes(normalize(term))).length;
+  const hits = terms.filter((term) => {
+    const normalizedTerm = normalize(term);
+    if (normalizedTerm.length > 3) return text.includes(normalizedTerm);
+    const escaped = normalizedTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|[^a-z0-9])${escaped}([^a-z0-9]|$)`).test(text);
+  }).length;
   if (hits === 0) return 0;
   return clampScore(Math.min(maxScore, 28 + hits * 16));
 }
@@ -580,7 +586,7 @@ function buildRankedDrafts(
   const processedUrlFingerprints = new Set(
     processedItems.map((item) => canonicalUrlFingerprint(item.url)),
   );
-  const clusters = buildDuplicateClusters(items);
+  const clusters = buildDuplicateClusters(items.filter(matchesConfiguredSourceScope));
   const drafts: RankedDraft[] = [];
 
   for (const cluster of clusters) {

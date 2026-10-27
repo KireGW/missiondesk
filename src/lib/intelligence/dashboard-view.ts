@@ -11,6 +11,7 @@ import {
 } from "@/lib/ai/swedish-normalization";
 import { countryNameSv } from "@/lib/i18n/countries";
 import { normalizeEventDate } from "@/lib/intelligence/event-dates";
+import { contentKindForRaw, referenceYearForRaw } from "@/lib/intelligence/content-kind";
 
 const scopeLabel = (record: ProcessedIntelligenceRecord) => {
   if (record.raw.detected_city) return record.raw.detected_city;
@@ -31,6 +32,8 @@ export function processedRecordToIntelligenceItem(
 
   return {
     id: `processed-${record.raw.id}`,
+    content_kind: contentKindForRaw(record.raw),
+    reference_year: referenceYearForRaw(record.raw),
     title_original: record.raw.title_original,
     title_sv: titleSv,
     summary_sv: summarySv,
@@ -40,7 +43,7 @@ export function processedRecordToIntelligenceItem(
     source_language: record.raw.source_language,
     published_at: record.raw.published_at ?? "",
     category: record.processed.category,
-    country: countryNameSv(record.raw.detected_country) ?? "Mexiko",
+    country: countryNameSv(record.raw.detected_country) || "Ej fastställt",
     region: scopeLabel(record),
     subregion: record.raw.source_type,
     city: record.raw.detected_city,
@@ -51,6 +54,8 @@ export function processedRecordToIntelligenceItem(
     sweden_relevance_score: record.processed.sweden_relevance_score,
     economic_impact_score: record.processed.economic_impact_score,
     security_impact_score: record.processed.security_impact_score,
+    // Kept only for compatibility with older/adjacent flows. The durable processed_items
+    // pipeline does not persist a standalone public-attention score.
     public_attention_score: Math.round(
       (record.processed.urgency_score + record.processed.diplomatic_relevance_score) / 2,
     ),

@@ -1,5 +1,6 @@
 import { swedenMexicoEmbassyConfig } from "@/lib/config/embassies/sweden-mexico";
 import { normalizeSwedishUserFacingText } from "@/lib/ai/swedish-normalization";
+import { compactResponseSettings, defaultBriefingModel } from "@/lib/ai/model-settings";
 import type { ProcessedIntelligenceRecord } from "@/lib/intelligence/models";
 import type { GeographicScope, ProfileMode } from "@/lib/types";
 
@@ -54,16 +55,12 @@ export function briefingModel() {
   return (
     process.env.MISSIONDESK_BRIEFING_MODEL ??
     process.env.OPENAI_BRIEFING_MODEL ??
-    "gpt-5"
+    defaultBriefingModel
   );
 }
 
 export function isBriefingGenerationConfigured() {
   return Boolean(process.env.OPENAI_API_KEY);
-}
-
-function supportsMinimalReasoning(model: string) {
-  return model.toLowerCase().startsWith("gpt-5");
 }
 
 function extractResponseText(payload: ResponsesApiResult) {
@@ -176,10 +173,8 @@ export async function generateBriefingWithOpenAI(
     },
     body: JSON.stringify({
       model,
-      max_output_tokens: 2400,
-      ...(supportsMinimalReasoning(model)
-        ? { reasoning: { effort: "minimal" } }
-        : {}),
+      ...compactResponseSettings(model, 2400),
+      store: false,
       input: [
         {
           role: "system",

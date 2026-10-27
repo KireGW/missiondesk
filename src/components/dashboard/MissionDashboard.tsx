@@ -47,6 +47,7 @@ import clsx from "clsx";
 import { normalizeSwedishTitle, normalizeSwedishUserFacingText } from "@/lib/ai/swedish-normalization";
 import type { SignalTrackingResult, SignalTrackingSearchResult } from "@/lib/intelligence/signal-tracking";
 import { processedRecordToIntelligenceItem } from "@/lib/intelligence/dashboard-view";
+import { getMissionRelevanceScore } from "@/lib/intelligence/relevance-score";
 import {
   eventDateRange,
   isUpcomingEventDate,
@@ -64,7 +65,6 @@ import type {
   IntelligenceCategory,
   IntelligenceItem,
   ProfileMode,
-  ScoreKey,
 } from "@/lib/types";
 
 interface MissionDashboardProps {
@@ -163,31 +163,6 @@ interface UpcomingSignalsApiPayload {
   };
   background?: BackgroundPanelStatus;
 }
-
-const scoreMeta: Array<{ key: ScoreKey; label: string; compact: string }> = [
-  { key: "urgency_score", label: "Brådska", compact: "Nu" },
-  {
-    key: "diplomatic_relevance_score",
-    label: "Diplomatisk relevans",
-    compact: "Dipl.",
-  },
-  { key: "sweden_relevance_score", label: "Sverigerelevans", compact: "Sve." },
-  {
-    key: "economic_impact_score",
-    label: "Ekonomisk påverkan",
-    compact: "Eko.",
-  },
-  {
-    key: "security_impact_score",
-    label: "Säkerhetspåverkan",
-    compact: "Säk.",
-  },
-  {
-    key: "public_attention_score",
-    label: "Offentlig uppmärksamhet",
-    compact: "Publ.",
-  },
-];
 
 const categoryIcon: Record<IntelligenceCategory, LucideIcon> = {
   economy: BarChart3,
@@ -767,41 +742,6 @@ const dedupeTopSignals = (items: IntelligenceItem[], limit: number) => {
   return selected;
 };
 
-const isOfficialSourceType = (value?: string) =>
-  ["government", "institution", "advisory"].includes((value ?? "").toLowerCase());
-
-const hasMexicoAnchor = (item: IntelligenceItem, config: EmbassyConfig) => {
-  const administrativeDivisionIds = new Set(
-    config.geography.administrativeDivisions.map((division) => division.id),
-  );
-  const hasRealGeographicDivision = item.geographic_tags.some((tag) =>
-    administrativeDivisionIds.has(tag),
-  );
-  if (hasRealGeographicDivision) return true;
-
-  const context = normalizeForGrouping(
-    [
-      item.title_sv,
-      item.summary_sv,
-      item.why_it_matters_sv,
-      item.original_excerpt,
-      item.region,
-    ]
-      .filter(Boolean)
-      .join(" "),
-  );
-
-  return /\bmexik(?:o|ansk|anska|anskt)\b|\bmexico\b|\bsve ?mex\b|\blatinamerika\b|\blatin america\b/.test(
-    context,
-  );
-};
-
-const compressCompositeScore = (score: number) => {
-  if (score <= 72) return score;
-  if (score <= 90) return 72 + (score - 72) * 0.8;
-  return 86.4 + (score - 90) * 0.48;
-};
-
 const weeklyDatePattern =
   /\b(20\d{2}-\d{2}-\d{2}|\d{1,2}[\/\-]\d{1,2}[\/\-](?:20)?\d{2}|\d{1,2}\s+(?:januari|februari|mars|april|maj|juni|juli|augusti|september|oktober|november|december|enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre|january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{4})\b/i;
 
@@ -877,32 +817,7 @@ const matchFieldLabel: Record<NonNullable<SignalTrackingResult["match_field"]>, 
   url: "länk",
 };
 
-const getCompositeScore = (
-  item: IntelligenceItem,
-  config: EmbassyConfig,
-  profile: ProfileMode,
-) => {
-  const profileDefinition = config.profileModes.find((mode) => mode.id === profile);
-  const baseScore = scoreMeta.reduce((total, { key }) => {
-    const configWeight = config.scoringWeights[key] ?? 1;
-    const profileWeight = profileDefinition?.scoreWeights[key] ?? 1;
-    return total + item[key] * configWeight * profileWeight;
-  }, 0);
-  const categoryWeight = profileDefinition?.categoryWeights[item.category] ?? 1;
-  const profileBoost = item.profile_tags.includes(profile) ? 1.13 : 0.96;
-  let composite = (baseScore / scoreMeta.length) * categoryWeight * profileBoost;
-
-  const isSwedishOfficialWithoutMexicoAnchor =
-    normalizeForGrouping(item.source_country).includes("sverige") &&
-    isOfficialSourceType(item.subregion) &&
-    !hasMexicoAnchor(item, config);
-
-  if (isSwedishOfficialWithoutMexicoAnchor) {
-    composite *= 0.88;
-  }
-
-  return Math.round(Math.max(0, Math.min(99, compressCompositeScore(composite))));
-};
+const getCompositeScore = getMissionRelevanceScore;
 
 const getRegionDivisionIds = (config: EmbassyConfig, regionId: string) =>
   config.geography.regions.find((region) => region.id === regionId)?.divisionIds ?? [];
@@ -1014,7 +929,7 @@ export function MissionDashboard({
   const [cacheTimestamp, setCacheTimestamp] = useState(initialCacheTimestamp);
   const [cacheExpiresAt, setCacheExpiresAt] = useState(initialCacheExpiresAt);
   const [secondaryStatus, setSecondaryStatus] = useState<"idle" | "loading" | "ready" | "error">(
-    "idle",
+    initialItems.length > 0 || initialBriefings.length > 0 ? "ready" : "idle",
   );
   const [profile, setProfile] = useState<ProfileMode>(DEFAULT_PROFILE);
   const [showBriefingPanel, setShowBriefingPanel] = useState(false);
@@ -1044,6 +959,7 @@ export function MissionDashboard({
   const [trackingError, setTrackingError] = useState("");
   const [trackingAiEnabled, setTrackingAiEnabled] = useState(true);
   const [trackingIncludeWebRss, setTrackingIncludeWebRss] = useState(false);
+  const [trackingIncludeSocialMedia, setTrackingIncludeSocialMedia] = useState(false);
   const [trackingQuickSearches, setTrackingQuickSearches] = useState<string[]>([
     ...SIGNAL_TRACKING_DEFAULT_QUICK_SEARCHES,
   ]);
@@ -1097,6 +1013,7 @@ export function MissionDashboard({
   useEffect(() => {
     const stored = window.localStorage.getItem("missiondesk.activeView");
     if (!stored) return;
+    const restore = window.setTimeout(() => {
     try {
       const parsed = JSON.parse(stored) as ActiveViewState;
       if (parsed.kind === "briefing") {
@@ -1129,6 +1046,8 @@ export function MissionDashboard({
     } catch {
       // Ignore malformed local view state.
     }
+    }, 0);
+    return () => window.clearTimeout(restore);
   }, [config.profileModes]);
 
   useEffect(() => {
@@ -1266,7 +1185,7 @@ export function MissionDashboard({
 
   const loadCachedDashboardData = useCallback(async () => {
     const [processedResponse, briefingsResponse] = await Promise.all([
-      fetch("/api/intelligence/processed?limit=200", { cache: "no-store" }),
+      fetch("/api/intelligence/processed?limit=200&includeReferences=1", { cache: "no-store" }),
       fetch("/api/intelligence/briefings?limit=12", { cache: "no-store" }),
     ]);
 
@@ -1448,12 +1367,14 @@ export function MissionDashboard({
     }
 
     void loadRefreshStatus();
-    void loadSecondaryData();
+    if (initiallyNeedsFirstRun) {
+      void loadSecondaryData();
+    }
 
     return () => {
       cancelled = true;
     };
-  }, [loadCachedDashboardData]);
+  }, [initiallyNeedsFirstRun, loadCachedDashboardData]);
 
   useEffect(() => {
     if (!initiallyNeedsFirstRun || !firstRunStatus?.active) return;
@@ -1621,6 +1542,7 @@ export function MissionDashboard({
 
   const baseFilteredItems = useMemo(() => {
     return categoryFilteredItems
+      .filter((item) => item.content_kind !== "reference")
       .filter((item) => itemMatchesGeography(item, config, geographySelection))
       .sort(byScore(config, profile));
   }, [categoryFilteredItems, config, geographySelection, profile]);
@@ -1672,7 +1594,7 @@ export function MissionDashboard({
     );
   };
 
-  const sourceRows = filteredItems.filter((item) => {
+  const sourceRows = categoryFilteredItems.filter((item) => itemMatchesGeography(item, config, geographySelection)).filter((item) => {
     const q = sourceQuery.trim().toLowerCase();
     if (!q) return true;
     return [
@@ -1689,9 +1611,10 @@ export function MissionDashboard({
 
   const sourceRowsCurrentSignals = sourceRows
     .filter((item) => {
+      if (item.content_kind === "reference") return true;
       const publishedTs = new Date(item.published_at).getTime();
       if (!Number.isFinite(publishedTs)) return false;
-      return publishedTs >= Date.now() - 4 * 24 * 60 * 60 * 1000;
+      return publishedTs >= viewNowTs - 4 * 24 * 60 * 60 * 1000;
     })
     .sort(
       (left, right) =>
@@ -1918,7 +1841,7 @@ export function MissionDashboard({
             aiEnabled: trackingAiEnabled,
             deepSearchOptions: {
               includeWebRss: trackingIncludeWebRss,
-              includeSocialX: true,
+              includeSocialMedia: trackingIncludeSocialMedia,
             },
           }),
         });
@@ -1955,6 +1878,7 @@ export function MissionDashboard({
       rememberTrackingSearch,
       trackingAiEnabled,
       trackingIncludeWebRss,
+      trackingIncludeSocialMedia,
       trackingQuery,
     ],
   );
@@ -2108,7 +2032,6 @@ export function MissionDashboard({
 
   useEffect(() => {
     if (!showBriefingPanel || !ambassadorBriefing || ambassadorBriefing.source_item_ids.length === 0) {
-      setBriefingSupportItems([]);
       return;
     }
 
@@ -2118,7 +2041,6 @@ export function MissionDashboard({
     );
 
     if (missingRawIds.length === 0) {
-      setBriefingSupportItems([]);
       return;
     }
 
@@ -2157,13 +2079,13 @@ export function MissionDashboard({
     };
   }, [ambassadorBriefing, items, showBriefingPanel]);
 
-  const openBriefingPrintView = useCallback(() => {
+  const openBriefingPrintView = () => {
     const seedItems = briefingSourceItems.length > 0 ? briefingSourceItems : topFive.slice(0, 5);
     setPrintItemIds(seedItems.map((item) => item.id));
     setShowBriefingPanel(false);
     setShowPrintPanel(true);
     setShowSignalTrackingPanel(false);
-  }, [briefingSourceItems, topFive]);
+  };
 
   const hasPrimaryData = Boolean(ambassadorBriefing || topFive.length > 0);
   const statusTimestamp =
@@ -2172,14 +2094,14 @@ export function MissionDashboard({
   const isFreshStatus =
     Number.isFinite(statusTimestampMs) &&
     statusTimestampMs > 0 &&
-    Date.now() - statusTimestampMs < 24 * 60 * 60 * 1000;
+    viewNowTs - statusTimestampMs < 24 * 60 * 60 * 1000;
   const refreshCompletedAtMs = cacheRefreshJobStatus?.updateCompletedAt
     ? new Date(cacheRefreshJobStatus.updateCompletedAt).getTime()
     : 0;
   const showRecentRefreshCompletionMessage =
     Number.isFinite(refreshCompletedAtMs) &&
     refreshCompletedAtMs > 0 &&
-    Date.now() - refreshCompletedAtMs < 24 * 60 * 60 * 1000;
+    viewNowTs - refreshCompletedAtMs < 24 * 60 * 60 * 1000;
   const primaryStatusLine = statusTimestamp
     ? `${isFreshStatus ? "Färsk lägesbild" : "Lägesbild"} · uppdaterad ${formatDate(statusTimestamp, true)} Mexico City-tid`
     : "Ingen lägesbild tillgänglig";
@@ -2727,6 +2649,8 @@ export function MissionDashboard({
                 onAiEnabledChange={setTrackingAiEnabled}
                 includeWebRss={trackingIncludeWebRss}
                 onIncludeWebRssChange={setTrackingIncludeWebRss}
+                includeSocialMedia={trackingIncludeSocialMedia}
+                onIncludeSocialMediaChange={setTrackingIncludeSocialMedia}
                 onSearch={(query) => void runSignalTrackingSearch(query, "local")}
                 onDeepSearch={(query) => void runSignalTrackingSearch(query, "deep")}
                 config={config}
@@ -3029,6 +2953,8 @@ function SignalTrackingPanel({
   onAiEnabledChange,
   includeWebRss,
   onIncludeWebRssChange,
+  includeSocialMedia,
+  onIncludeSocialMediaChange,
   onSearch,
   onDeepSearch,
   config,
@@ -3046,6 +2972,8 @@ function SignalTrackingPanel({
   onAiEnabledChange: (value: boolean) => void;
   includeWebRss: boolean;
   onIncludeWebRssChange: (value: boolean) => void;
+  includeSocialMedia: boolean;
+  onIncludeSocialMediaChange: (value: boolean) => void;
   onSearch: (query?: string) => void;
   onDeepSearch: (query?: string) => void;
   config: EmbassyConfig;
@@ -3058,8 +2986,8 @@ function SignalTrackingPanel({
   const trackingInfoRef = useRef<HTMLDivElement | null>(null);
   const deepSearchSteps = [
     "Läser lokala signaler och matchar sökord",
-    "Skannar aktiva RSS- och webbkällor",
-    "Hämtar senaste poster från aktiva X-konton",
+    includeWebRss ? "Skannar aktiva RSS- och webbkällor" : "Väljer kopplade sociala medier-konton",
+    includeSocialMedia ? "Hämtar poster från kopplade sociala medier-konton" : "Sammanställer matchande signaler",
     "Deduplicerar och sammanställer träffar",
   ];
 
@@ -3093,19 +3021,22 @@ function SignalTrackingPanel({
                   <Info className="h-5 w-5" />
                 </button>
                 {showTrackingInfo && (
-                  <div className="absolute left-0 top-9 z-30 w-[340px] max-w-[90vw] rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-strong)] p-3 text-xs leading-5 text-[var(--app-fg)] shadow-xl">
+                  <div className="absolute left-0 top-9 z-30 max-h-[55vh] w-[340px] max-w-[90vw] overflow-y-auto rounded-lg border border-[var(--app-line)] bg-[var(--app-panel-strong)] p-3 text-xs leading-5 text-[var(--app-fg)] shadow-xl">
                     <p className="font-medium text-[var(--app-fg)]">Om signalspårning</p>
                     <p className="mt-2">
-                      <strong>Standardsökning</strong> söker i redan skannade och sparade signaler, inklusive tidigare hämtade <strong>X-poster</strong>.
+                      Sökningen utgår från redan sparade signaler.
                     </p>
                     <p className="mt-2">
-                      Aktivera <strong>utökad sökning</strong> för att skanna aktiva <strong>webb-/RSS-källor</strong> och hämta de senaste posterna från aktiva <strong>X-konton</strong>.
+                      <strong>AI-bearbetning</strong> översätter rubriker och korta utdrag för upp till 16 träffar till svenska. Kan medföra AI-kostnad. Avmarkerad: ingen ny AI-bearbetning av träffarna, men sparad svensk text kan fortfarande visas.
                     </p>
                     <p className="mt-2">
-                      <strong>AI-bearbetning</strong> visar träffar översatta och kort sammanfattade på svenska. När AI-bearbetning är av visas innehållet på <strong>originalspråk</strong>.
+                      <strong>Utökad sökning</strong> hämtar nytt material från aktiva webb- och RSS-källor. Aktiverar inte sociala medier.
                     </p>
                     <p className="mt-2">
-                      <strong>Utökad sökning</strong> och <strong>AI-bearbetning</strong> kan medföra ytterligare <strong>API- och AI-kostnader</strong>.
+                      <strong>Sök i kopplade sociala medier-konton</strong> tar med sparade sociala medier-poster och hämtar nya från aktiva, kopplade konton på X och andra sociala medier. Kräver inte Utökad sökning. Kan medföra API-kostnad. Avmarkerad: inga sociala medier-träffar eller anrop till sociala medier.
+                    </p>
+                    <p className="mt-2">
+                      Språkvarianter för sökord kan tas fram med AI även när AI-bearbetning är av.
                     </p>
                   </div>
                 )}
@@ -3130,7 +3061,7 @@ function SignalTrackingPanel({
           className="mt-5 flex flex-col gap-3 md:flex-row"
           onSubmit={(event) => {
             event.preventDefault();
-            if (includeWebRss) {
+            if (includeWebRss || includeSocialMedia) {
               onDeepSearch();
             } else {
               onSearch();
@@ -3174,6 +3105,16 @@ function SignalTrackingPanel({
               className="h-3.5 w-3.5 accent-[var(--app-accent)]"
             />
             Utökad sökning
+          </label>
+          <label className="inline-flex items-center gap-2 rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-2.5 py-1.5" title="API-anrop till sociala medier kan medföra kostnader">
+            <input
+              type="checkbox"
+              checked={includeSocialMedia}
+              disabled={status === "loading"}
+              onChange={(event) => onIncludeSocialMediaChange(event.target.checked)}
+              className="h-3.5 w-3.5 shrink-0 accent-[var(--app-accent)]"
+            />
+            Sök i kopplade sociala medier-konton
           </label>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
@@ -4723,13 +4664,15 @@ function SourceFeed({
     key: "relevance",
     direction: "desc",
   });
+  const [contentKind, setContentKind] = useState<"news" | "reference">("news");
+  const visibleRows = useMemo(() => rows.filter((item) => (item.content_kind ?? "news") === contentKind), [rows, contentKind]);
 
   const sortedRows = useMemo(() => {
-    if (!sort) return rows;
+    if (!sort) return visibleRows;
 
     const direction = sort.direction === "asc" ? 1 : -1;
 
-    return rows
+    return visibleRows
       .map((item, index) => ({ item, index }))
       .sort((left, right) => {
         let result = 0;
@@ -4770,7 +4713,7 @@ function SourceFeed({
         return result === 0 ? left.index - right.index : result * direction;
       })
       .map(({ item }) => item);
-  }, [config, prioritizedIds, profile, rows, sort]);
+  }, [config, prioritizedIds, profile, visibleRows, sort]);
 
   const toggleSort = (key: SourceFeedSortKey) => {
     setSort((current) => {
@@ -4790,7 +4733,17 @@ function SourceFeed({
       <div className="flex flex-col gap-4 border-b border-[var(--app-line)] p-5 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <SectionKicker icon={Newspaper} label="Källflöde" />
-          <h2 className="mt-3 text-xl font-semibold">Fler signaler</h2>
+          <div className="mt-3 flex flex-wrap gap-1" role="group" aria-label="Källmaterial">
+            {(["news", "reference"] as const).map((kind) => (
+              <button key={kind} type="button" aria-pressed={contentKind === kind}
+                onClick={() => setContentKind(kind)}
+                className={clsx("rounded-md border px-3 py-2 text-sm", contentKind === kind
+                  ? "border-[var(--app-accent)] text-[var(--app-accent)]"
+                  : "border-[var(--app-line)] text-[var(--app-muted)]")}>
+                {kind === "news" ? "Aktuella signaler" : "Referensmaterial"}
+              </button>
+            ))}
+          </div>
         </div>
         <label className="flex min-h-10 w-full items-center gap-2 rounded-md border border-[var(--app-line)] bg-[var(--app-panel-muted)] px-3 lg:w-[360px]">
           <Search className="h-4 w-4 text-[var(--app-muted)]" />
@@ -4803,7 +4756,7 @@ function SourceFeed({
         </label>
       </div>
 
-      {rows.length > 0 ? (
+      {visibleRows.length > 0 ? (
         <div className="thin-scrollbar overflow-x-auto">
           <table className="w-full min-w-[980px] border-collapse text-left text-sm">
             <thead>
@@ -4883,7 +4836,9 @@ function SourceFeed({
                       </a>
                     </td>
                     <td className="px-5 py-4 font-mono text-xs text-[var(--app-muted)]">
-                      {formatDate(item.published_at, true)}
+                      {item.content_kind === "reference" && !item.published_at
+                        ? item.reference_year ? `Referens ${item.reference_year}` : "Datum saknas"
+                        : formatDate(item.published_at, true)}
                     </td>
                     <td className="px-5 py-4">
                       <p className="text-sm">{getGeographyLabel(item, config)}</p>
@@ -4920,7 +4875,7 @@ function SourceFeed({
         </div>
       ) : (
         <div className="p-5">
-          <EmptyState title="Källor och verifiering visas när färska signaler finns" />
+          <EmptyState title={contentKind === "reference" ? "Inget referensmaterial i urvalet" : "Inga aktuella signaler i urvalet"} />
         </div>
       )}
     </section>

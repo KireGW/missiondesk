@@ -3,6 +3,7 @@ import type { MissionDeskDb } from "@/lib/db/postgres";
 import { getMigratedDb } from "@/lib/db/postgres";
 import { cacheFreshnessState } from "@/lib/intelligence/cache-policy";
 import { eventDateRange, normalizeEventDate } from "@/lib/intelligence/event-dates";
+import { matchesConfiguredSourceScope } from "@/lib/sources/content-scope";
 import type {
   BackgroundJob,
   BackgroundJobFilters,
@@ -621,7 +622,7 @@ export async function listRawSourceItems(filters: RawSourceItemFilters = {}, db:
     `)
     .all(...params, rawListLimit) as unknown as RawSourceItemRow[];
 
-  return rows.map(mapRawSourceItem);
+  return rows.map(mapRawSourceItem).filter(matchesConfiguredSourceScope);
 }
 
 export async function upsertDuplicateCluster(
@@ -809,7 +810,7 @@ export async function listRankedCandidates(
     `)
     .all(...params, limitValue(filters.limit, 100)) as unknown as JoinedRankedCandidateRow[];
 
-  return rows.map(mapJoinedRankedCandidate);
+  return rows.map(mapJoinedRankedCandidate).filter((record) => matchesConfiguredSourceScope(record.raw));
 }
 
 export async function markRawSourceItemStatus(
@@ -1070,7 +1071,7 @@ export async function listTemporalSignals(
       raw_source_items.detected_region AS raw_detected_region,
       raw_source_items.detected_city AS raw_detected_city,
       raw_source_items.snippet AS raw_snippet,
-      raw_source_items.raw_content AS raw_raw_content,
+      NULL::text AS raw_raw_content,
       raw_source_items.source_priority AS raw_source_priority,
       raw_source_items.credibility_score AS raw_credibility_score,
       raw_source_items.crawl_status AS raw_crawl_status,
@@ -1090,7 +1091,7 @@ export async function listTemporalSignals(
     LIMIT ?
   `).all(...params, Math.max(limitValue(filters.limit, 50) * 5, 50)) as unknown as JoinedTemporalSignalRow[];
 
-  const mapped = rows.map(mapJoinedTemporalSignal);
+  const mapped = rows.map(mapJoinedTemporalSignal).filter((record) => matchesConfiguredSourceScope(record.raw));
   const deduped = new Map<string, TemporalSignalRecord>();
 
   for (const record of mapped) {
@@ -1117,6 +1118,13 @@ export async function listProcessedItems(
   const where: string[] = [];
   const params: DbValue[] = [];
   const now = nowIso();
+  if (filters.referenceOnly) {
+    where.push(`raw_source_items.published_at IS NULL AND (
+      raw_source_items.source_type = 'report'
+      OR LOWER(raw_source_items.title_original || ' ' || raw_source_items.url)
+        ~ '(business.climate|survey|/reports{0,1}/|/publications{0,1}/)'
+    )`);
+  }
 
   if (filters.category) {
     where.push("processed_items.category = ?");
@@ -1169,7 +1177,7 @@ export async function listProcessedItems(
         raw_source_items.detected_region AS raw_detected_region,
         raw_source_items.detected_city AS raw_detected_city,
         raw_source_items.snippet AS raw_snippet,
-        raw_source_items.raw_content AS raw_raw_content,
+        NULL::text AS raw_raw_content,
         raw_source_items.source_priority AS raw_source_priority,
         raw_source_items.credibility_score AS raw_credibility_score,
         raw_source_items.crawl_status AS raw_crawl_status,
@@ -1193,7 +1201,7 @@ export async function listProcessedItems(
       Math.max(0, Math.round(filters.offset ?? 0)),
     ) as unknown as JoinedProcessedRow[];
 
-  return rows.map(mapJoinedProcessed);
+  return rows.map(mapJoinedProcessed).filter((record) => matchesConfiguredSourceScope(record.raw));
 }
 
 export async function listExpiredProcessedItems(limit = 100, db: MissionDeskDb = getMigratedDb()) {
@@ -1530,7 +1538,7 @@ export async function claimBackgroundJobs(
   db: MissionDeskDb = getMigratedDb(),
 ) {
   const workerId = input.workerId ?? `missiondesk-worker-${randomUUID()}`;
-  const where = ["status = 'pending'", "datetime(run_after) <= datetime(?)"];
+  const where = ["status = 'pending'", "attempts < max_attempts", "datetime(run_after) <= datetime(?)"];
   const params: DbValue[] = [nowIso()];
 
   if (input.type) {
@@ -1540,31 +1548,20 @@ export async function claimBackgroundJobs(
 
   const rows = await db
     .prepare(`
-      SELECT *
-      FROM background_jobs
-      WHERE ${where.join(" AND ")}
-      ORDER BY priority DESC, created_at ASC
-      LIMIT ?
+      WITH available AS (
+        SELECT id FROM background_jobs
+        WHERE ${where.join(" AND ")}
+        ORDER BY priority DESC, created_at ASC
+        LIMIT ? FOR UPDATE SKIP LOCKED
+      )
+      UPDATE background_jobs AS job SET status = 'running',
+        attempts = job.attempts + 1, locked_at = datetime('now'),
+        locked_by = ?, updated_at = datetime('now')
+      FROM available WHERE job.id = available.id
+      RETURNING job.*
     `)
-    .all(...params, limitValue(input.limit, 10)) as unknown as BackgroundJobRow[];
-
-  for (const row of rows) {
-    await db.prepare(`
-      UPDATE background_jobs
-      SET
-        status = 'running',
-        attempts = attempts + 1,
-        locked_at = datetime('now'),
-        locked_by = ?,
-        updated_at = datetime('now')
-      WHERE id = ?
-        AND status = 'pending'
-    `).run(workerId, row.id);
-  }
-
-  const claimed = await Promise.all(rows.map((row) => getBackgroundJobById(row.id, db)));
-  return claimed
-    .filter((job): job is BackgroundJob => Boolean(job));
+    .all(...params, limitValue(input.limit, 10), workerId) as unknown as BackgroundJobRow[];
+  return rows.map(mapBackgroundJob);
 }
 
 export async function completeBackgroundJob(id: string, db: MissionDeskDb = getMigratedDb()) {

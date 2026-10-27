@@ -12,6 +12,8 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 .vercel
+reports/*.json
+tsconfig.tsbuildinfo
 data/sources.json
 data/*.sqlite
 data/*.sqlite-shm

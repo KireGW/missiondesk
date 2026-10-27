@@ -45,7 +45,7 @@ export async function GET(request: Request) {
     .map((value) => value.trim())
     .filter(Boolean);
 
-  const items = await listProcessedItems({
+  const currentItems = await listProcessedItems({
     category: categories.includes(categoryParam as IntelligenceCategory)
       ? (categoryParam as IntelligenceCategory)
       : undefined,
@@ -58,13 +58,16 @@ export async function GET(request: Request) {
     rawSourceItemIds: rawSourceItemIds.length > 0 ? rawSourceItemIds : undefined,
     limit: Number.isFinite(limit) ? limit : 60,
   });
+  const references = url.searchParams.get("includeReferences") === "1" && rawSourceItemIds.length === 0
+    ? await listProcessedItems({ onlyFresh: false, referenceOnly: true, limit: 25 }) : [];
+  const items = [...new Map([...currentItems, ...references].map((record) => [record.raw.id, record])).values()];
 
   return NextResponse.json({
     items,
     cache: {
       itemCount: items.length,
-      latestProcessedAt: latestCacheTimestamp([], items),
-      earliestExpiresAt: earliestCacheExpiry([], items),
+      latestProcessedAt: latestCacheTimestamp([], currentItems),
+      earliestExpiresAt: earliestCacheExpiry([], currentItems),
       onlyFresh,
     },
   });

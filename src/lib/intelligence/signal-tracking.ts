@@ -33,6 +33,10 @@ const LOCAL_SCAN_LIMIT = 5000;
 const AI_CANDIDATE_LIMIT = 16;
 const QUERY_CACHE_TTL_HOURS = 24 * 14;
 const QUERY_VARIANTS_CACHE_VERSION = "v3";
+const SOCIAL_MEDIA_DOMAINS = [
+  "x.com", "twitter.com", "facebook.com", "instagram.com", "linkedin.com",
+  "threads.net", "threads.com", "bsky.app", "tiktok.com", "youtube.com", "youtu.be",
+];
 
 export type SignalTrackingMode = "local" | "deep";
 
@@ -93,7 +97,7 @@ export interface SignalTrackingSearchResult {
 
 interface DeepSearchOptions {
   includeWebRss: boolean;
-  includeSocialX: boolean;
+  includeSocialMedia: boolean;
 }
 
 interface SearchOptions {
@@ -317,14 +321,26 @@ function retrievalFallback(source: SourceDefinition): RetrievalMethod | undefine
   return source.retrieval?.fallback;
 }
 
-function isSocialXSource(source: SourceDefinition) {
-  if ((source.platform ?? "").toLowerCase() === "x") return true;
+function isSocialUrl(url: string, domains = SOCIAL_MEDIA_DOMAINS) {
   try {
-    const host = new URL(source.url).hostname.toLowerCase();
-    return host.includes("x.com") || host.includes("twitter.com");
+    const host = new URL(url).hostname.toLowerCase();
+    return domains.some((domain) => host === domain || host.endsWith(`.${domain}`));
   } catch {
     return false;
   }
+}
+
+function isSocialSource(source: SourceDefinition) {
+  return (
+    source.type === "social" || source.sourceType === "social" ||
+    retrievalPrimary(source) === "social_api" || Boolean(source.platform?.trim()) ||
+    [source.url, source.rssUrl, source.websiteUrl].some((url) => url && isSocialUrl(url))
+  );
+}
+
+function isSocialXSource(source: SourceDefinition) {
+  return (source.platform ?? "").toLowerCase() === "x" ||
+    isSocialUrl(source.url, ["x.com", "twitter.com"]);
 }
 
 function queryExpansionModel() {
@@ -478,7 +494,7 @@ async function getQueryVariants(query: string) {
 }
 
 function toRawSourceType(source: SourceDefinition): SourceIntelligenceType {
-  return sourceType(source);
+  return isSocialSource(source) ? "social" : sourceType(source);
 }
 
 function damerauLevenshtein(a: string, b: string) {
@@ -763,6 +779,7 @@ async function localSearchCandidates(
   queryVariants: string[],
   config: EmbassyConfig,
   limit: number,
+  includeSocialMedia: boolean,
 ) {
   const activeSources = await getSources();
   const sourceByName = new Map(activeSources.map((source) => [source.name, source]));
@@ -790,6 +807,12 @@ async function localSearchCandidates(
         categories: ["society"],
         enabled: true,
       } satisfies SourceDefinition);
+    if (
+      !includeSocialMedia &&
+      (raw.source_type === "social" || isSocialSource(source) || isSocialUrl(raw.url))
+    ) {
+      continue;
+    }
     const candidate = candidateFromRaw(raw, source, terms, queryVariants, fuzzyEnabledVariants);
     if (candidate) candidates.push(candidate);
   }
@@ -809,7 +832,13 @@ async function localSearchCandidates(
     })
     .slice(0, limit);
 
-  return { candidates: deduped, sourceCount: activeSources.filter((source) => source.enabled).length, notes };
+  return {
+    candidates: deduped,
+    sourceCount: activeSources.filter(
+      (source) => source.enabled && (includeSocialMedia || !isSocialSource(source)),
+    ).length,
+    notes,
+  };
 }
 
 function shouldFallbackToWebsite(rssMatches: number, docsFetched: number) {
@@ -829,15 +858,9 @@ async function deepSearchCandidates(
       .filter((term) => term.length >= 4),
   );
   const activeSources = (await getSources()).filter((source) => source.enabled);
-  const socialXSources = options.includeSocialX
-    ? activeSources.filter(
-        (source) => retrievalPrimary(source) === "social_api" && isSocialXSource(source),
-      )
-    : [];
-  const nonSocialSources = activeSources.filter(
-    (source) => !(retrievalPrimary(source) === "social_api" && isSocialXSource(source)),
+  const boundedSources = activeSources.filter((source) =>
+    isSocialSource(source) ? options.includeSocialMedia : options.includeWebRss,
   );
-  const boundedSources = [...nonSocialSources, ...socialXSources];
   const stats: DeepSearchStats = {
     sourcesScanned: 0,
     rssHits: 0,
@@ -859,15 +882,18 @@ async function deepSearchCandidates(
     stats.sourcesScanned += 1;
 
     try {
-      if (primary === "social_api") {
-        if (!options.includeSocialX || !isSocialXSource(source)) continue;
-        stats.xAccountsQueried += 1;
+      if (isSocialSource(source)) {
+        if (options.includeSocialMedia !== true) continue;
+        const isX = isSocialXSource(source);
+        if (isX) stats.xAccountsQueried += 1;
         const docs = await fetchSocialSource(source, {
           limit: Math.min(MAX_SOCIAL_POSTS_PER_ACCOUNT, source.maxItemsPerRun ?? MAX_SOCIAL_POSTS_PER_ACCOUNT),
           preserveRawContent: false,
         });
-        stats.estimatedApiReads += docs.length;
-        stats.xPostsFetched += docs.length;
+        if (isX) {
+          stats.estimatedApiReads += docs.length;
+          stats.xPostsFetched += docs.length;
+        }
 
         for (const doc of docs) {
           const persisted = await persistDiscoveredDocument(source, doc, config);
@@ -1100,7 +1126,7 @@ export async function searchSignalsAcrossSources({
   config = swedenMexicoEmbassyConfig,
   mode = "local",
   aiEnabled = false,
-  deepSearchOptions = { includeWebRss: true, includeSocialX: false },
+  deepSearchOptions = { includeWebRss: true, includeSocialMedia: false },
   limit,
 }: SearchOptions): Promise<SignalTrackingSearchResult> {
   const searchedAt = nowIso();
@@ -1109,9 +1135,10 @@ export async function searchSignalsAcrossSources({
   const resultLimit = Math.max(1, Math.min(120, limit ?? baseLimit));
   const errors: Array<{ source: string; message: string }> = [];
   const notes: string[] = [];
+  const includeSocialMedia = deepSearchOptions.includeSocialMedia === true;
 
   const { variants, model: expansionModel } = await getQueryVariants(query);
-  const local = await localSearchCandidates(variants, config, resultLimit);
+  const local = await localSearchCandidates(variants, config, resultLimit, includeSocialMedia);
   notes.push(...local.notes);
 
   let candidates = local.candidates;
@@ -1131,7 +1158,9 @@ export async function searchSignalsAcrossSources({
   };
 
   if (deepSearchUsed) {
-    const deep = await deepSearchCandidates(variants, config, deepSearchOptions, resultLimit * 2);
+    const deep = await deepSearchCandidates(
+      variants, config, { ...deepSearchOptions, includeSocialMedia }, resultLimit * 2,
+    );
     candidates = [...candidates, ...deep.candidates];
     scannedSourceCount = deep.scannedSourceCount;
     deepStats = deep.stats;
@@ -1144,6 +1173,12 @@ export async function searchSignalsAcrossSources({
   const finalCandidates = candidates
     .sort((a, b) => b.score - a.score)
     .filter((candidate) => {
+      if (
+        !includeSocialMedia &&
+        (candidate.sourceType === "social" || isSocialSource(candidate.source) || isSocialUrl(candidate.url))
+      ) {
+        return false;
+      }
       const key = `${canonicalUrl(candidate.url)}|${normalize(candidate.titleOriginal).slice(0, 140)}`;
       if (seen.has(key)) return false;
       seen.add(key);

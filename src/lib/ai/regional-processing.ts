@@ -1,4 +1,6 @@
 import { swedenMexicoEmbassyConfig } from "@/lib/config/embassies/sweden-mexico";
+import { compactResponseSettings, defaultProcessingModel } from "@/lib/ai/model-settings";
+import { assertSignalScoreScale, signalScoreProperties, signalScoringInstructions } from "@/lib/ai/signal-scoring";
 import { normalizeSwedishTitle, normalizeSwedishUserFacingText } from "@/lib/ai/swedish-normalization";
 import { ensureSwedishSignalSummary, ensureSwedishSignalTitle } from "@/lib/ai/title-guardrail";
 import { normalizeEventDate } from "@/lib/intelligence/event-dates";
@@ -86,6 +88,7 @@ const regionalProcessingSchema = {
   type: "object",
   additionalProperties: false,
   required: [
+    "score_scale",
     "title_sv",
     "summary_sv",
     "category",
@@ -101,19 +104,16 @@ const regionalProcessingSchema = {
     "event_date",
   ],
   properties: {
+    score_scale: { type: "string", enum: ["0-100"] },
     title_sv: { type: "string" },
     summary_sv: { type: "string" },
     category: { type: "string", enum: categories },
-    urgency_score: { type: "integer", minimum: 0, maximum: 100 },
-    diplomatic_relevance_score: { type: "integer", minimum: 0, maximum: 100 },
-    sweden_relevance_score: { type: "integer", minimum: 0, maximum: 100 },
-    economic_impact_score: { type: "integer", minimum: 0, maximum: 100 },
-    security_impact_score: { type: "integer", minimum: 0, maximum: 100 },
+    ...signalScoreProperties,
     geographic_scope: { type: "string", enum: scopes },
     geographic_tags: {
       type: "array",
       maxItems: 6,
-      items: { type: "string" },
+      items: { type: "string", enum: swedenMexicoEmbassyConfig.geography.administrativeDivisions.map((division) => division.id) },
     },
     profile_tags: {
       type: "array",
@@ -131,16 +131,12 @@ export function regionalProcessingModel() {
     process.env.MISSIONDESK_PROCESSING_MODEL ??
     process.env.OPENAI_PROCESSING_MODEL ??
     process.env.OPENAI_MODEL ??
-    "gpt-5-mini"
+    defaultProcessingModel
   );
 }
 
 export function isRegionalProcessingConfigured() {
   return Boolean(process.env.OPENAI_API_KEY);
-}
-
-function supportsLowDeliberationReasoning(model: string) {
-  return model.startsWith("gpt-5");
 }
 
 function clampScore(value: number) {
@@ -175,7 +171,9 @@ function sanitizeAnalysis(
     geographic_scope: scopes.includes(value.geographic_scope)
       ? value.geographic_scope
       : "administrative_division",
-    geographic_tags: [...new Set([...requiredGeographicTags, ...value.geographic_tags.filter(Boolean)])].slice(0, 6),
+    geographic_tags: [...new Set([...requiredGeographicTags, ...value.geographic_tags])].filter((tag) =>
+      swedenMexicoEmbassyConfig.geography.administrativeDivisions.some((division) => division.id === tag),
+    ).slice(0, 6),
     profile_tags: value.profile_tags.filter((tag) => profiles.includes(tag)).slice(0, 4),
     why_it_may_matter_sv: normalizeSwedishUserFacingText(value.why_it_may_matter_sv).slice(
       0,
@@ -205,7 +203,18 @@ function inputForModel(raw: RawSourceItem, ranking?: RegionalRankingSignal) {
       detected_region: raw.detected_region,
       detected_city: raw.detected_city,
     },
-    ranking,
+    candidate_hints: ranking
+      ? {
+          selected_by_ranker: true,
+          rank_score: ranking.rank_score,
+          selection_reason: ranking.selection_reason,
+          freshness_score: ranking.freshness_score,
+          prior_diplomatic_hint_score: ranking.diplomatic_relevance_score,
+          prior_sweden_hint_score: ranking.sweden_relevance_score,
+          prior_geographic_hint_score: ranking.geographic_relevance_score,
+          prior_cross_source_hint_score: ranking.cross_source_confirmation_score,
+        }
+      : undefined,
   };
 }
 
@@ -234,16 +243,15 @@ export async function processRegionalSourceItemWithOpenAI({
 
   const response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
+    signal: AbortSignal.timeout(90_000),
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
       model,
-      max_output_tokens: 440,
-      ...(supportsLowDeliberationReasoning(model)
-        ? { reasoning: { effort: "minimal" as const } }
-        : {}),
+      ...compactResponseSettings(model, 800),
+      store: false,
       input: [
         {
           role: "system",
@@ -258,6 +266,10 @@ export async function processRegionalSourceItemWithOpenAI({
             "Om underlaget är tunt: var försiktig, skriv kort och överdriv inte betydelsen.",
             "Skriv kompakt nog för snabb regional lägesbild.",
             "Alla användarvända fält ska vara på svenska.",
+            "Om candidate_hints finns är det endast upstream-hintar från urvalsmotorn, inte slutliga score som ska kopieras.",
+            signalScoringInstructions,
+            "geographic_tags får bara innehålla angivna mexikanska delstats-id:n, aldrig länder eller fritext.",
+            "Använd hela 0-100-skalan på ett rimligt sätt: 0-10 mycket låg relevans, 20-40 viss bevakningsrelevans, 50-70 tydlig relevans, 80-95 mycket hög relevans.",
             "Skriv idiomatisk svensk nyhetssvenska: översätt betydelse, inte ord för ord, och lämna inte engelska fraser kvar i svenska rubriker.",
             "Använd EU eller Europeiska unionen, inte Europeiska Unionen; skriv Mexiko på svenska och använd Mexiko-EU eller Mexiko och EU i rubriker.",
             "Använd svensk stavning i användartext: skriv fentanyl, inte fentanil.",
@@ -317,8 +329,10 @@ export async function processRegionalSourceItemWithOpenAI({
   const text = extractResponseText(payload);
   if (!text) return null;
 
+  const parsed = JSON.parse(text);
+  assertSignalScoreScale(parsed);
   const analysis = sanitizeAnalysis(
-    JSON.parse(text) as RegionalProcessingAnalysis,
+    parsed as RegionalProcessingAnalysis,
     requiredGeographicTags,
   );
   analysis.title_sv = await ensureSwedishSignalTitle({

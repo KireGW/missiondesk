@@ -103,20 +103,19 @@ async function writeSources(sources: SourceDefinition[]) {
   const auditedAt = new Date().toISOString();
   const auditedSources = sources.map((source) => sourceWithAuditMetadata(source, auditedAt));
 
-  await db.prepare("DELETE FROM source_definitions").run();
-
-  for (const [index, source] of auditedSources.entries()) {
-    await db
-      .prepare(`
-        INSERT INTO source_definitions (id, data, sort_order)
-        VALUES (?, ?::jsonb, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          data = excluded.data,
-          sort_order = excluded.sort_order,
-          updated_at = datetime('now')
-      `)
-      .run(source.id, JSON.stringify(source), index);
-  }
+  const rows = auditedSources.map((source, index) => ({ id: source.id, data: source, sort_order: index }));
+  await db.prepare(`
+    WITH incoming AS (
+      SELECT * FROM jsonb_to_recordset(?::jsonb) AS source(id text, data jsonb, sort_order integer)
+    ), saved AS (
+      INSERT INTO source_definitions (id, data, sort_order)
+      SELECT id, data, sort_order FROM incoming
+      ON CONFLICT(id) DO UPDATE SET data = excluded.data,
+        sort_order = excluded.sort_order, updated_at = datetime('now')
+      RETURNING id
+    )
+    DELETE FROM source_definitions WHERE id NOT IN (SELECT id FROM incoming)
+  `).run(JSON.stringify(rows));
 
   return auditedSources;
 }
@@ -165,13 +164,14 @@ function migrateLegacySeedSources(sources: SourceDefinition[]) {
 
 function mergeDefaultSources(sources: SourceDefinition[]) {
   const existingByKey = new Map(sources.map((source) => [sourceKey(source), source]));
+  const existingById = new Map(sources.map((source) => [source.id, source]));
   const mergedDefaults = defaultSources.map((source) => {
-    const existing = existingByKey.get(sourceKey(source));
+    const existing = existingById.get(source.id) ?? existingByKey.get(sourceKey(source));
     return preserveSourceUserState(source, existing);
   });
 
   const customSources = sources.filter(
-    (source) => !defaultSources.some((item) => sourceKey(item) === sourceKey(source)),
+    (source) => !defaultSources.some((item) => item.id === source.id || sourceKey(item) === sourceKey(source)),
   );
   return [...mergedDefaults, ...customSources];
 }
@@ -194,6 +194,7 @@ export async function getSources(): Promise<SourceDefinition[]> {
   const merged = mergeDefaultSources(stored);
   const needsRewrite =
     merged.length !== stored.length ||
+    merged.some((source, index) => JSON.stringify(source.contentKeywords ?? []) !== JSON.stringify(stored[index]?.contentKeywords ?? [])) ||
     merged.some((source, index) => sourceKey(source) !== sourceKey(stored[index] ?? source)) ||
     merged.some(sourceNeedsAuditMetadataRefresh);
 

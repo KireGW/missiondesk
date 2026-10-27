@@ -22,7 +22,10 @@ export default async function Home() {
     publishedSince: signalDisplaySince(),
     limit: 100,
   });
-  const initialItems = processedRecordsToIntelligenceItems(primaryRecords);
+  const referenceRecords = await listProcessedItems({ onlyFresh: false, referenceOnly: true, limit: 25 });
+  const initialItems = processedRecordsToIntelligenceItems([...new Map(
+    [...primaryRecords, ...referenceRecords].map((record) => [record.raw.id, record]),
+  ).values()]);
   const activeSourceCount = (await getSources()).filter((source) => source.enabled).length;
   const ingestionState = await getIngestionUpdateState();
 

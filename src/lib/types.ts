@@ -151,6 +151,7 @@ export interface SourceDefinition {
   regionalScope?: string[];
   preserveRawContent?: boolean;
   maxItemsPerRun?: number;
+  contentKeywords?: string[];
   auditDetectedType?: "rss_feed" | "website" | "government_page" | "official_social_account" | "market_reference_page";
   recommendedSourceType?: string;
   auditRecommendedType?: string;
@@ -190,6 +191,8 @@ export interface EmbassyConfig {
 }
 
 export interface IntelligenceItem {
+  content_kind?: "news" | "reference";
+  reference_year?: number;
   id: string;
   title_original: string;
   title_sv: string;

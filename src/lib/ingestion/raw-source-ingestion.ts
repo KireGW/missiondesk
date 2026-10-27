@@ -5,6 +5,7 @@ import { sanitizePublishedAt } from "@/lib/ingestion/published-at";
 import { ingestionAdapters } from "@/lib/ingestion/registry";
 import { fetchWebsiteSource, type WebsiteFetchStats } from "@/lib/ingestion/website";
 import { getSources } from "@/lib/sources/store";
+import { matchesSourceContentScope } from "@/lib/sources/content-scope";
 import type {
   IngestibleSourceDefinition,
   RawSourceDocument,
@@ -278,6 +279,7 @@ function toRawSourceItem(
   const url = canonicalUrl(document.url || source.url);
 
   if (!title || !url) return null;
+  if (!matchesSourceContentScope(source, title, url)) return null;
 
   const textForDetection = [
     title,
@@ -350,12 +352,22 @@ async function ingestSource(
           };
         }
 
-        documents = await adapter.fetch(source, {
-          embassy: config,
-          limit,
-          preserveRawContent,
-          signal: timeout.signal,
-        });
+        try {
+          documents = await adapter.fetch(source, {
+            embassy: config, limit, preserveRawContent, signal: timeout.signal,
+          });
+        } catch (error) {
+          if (source.retrieval?.fallback !== "website" || !source.websiteUrl) throw error;
+          const result = await fetchWebsiteSource(source, {
+            limit, preserveRawContent, signal: timeout.signal,
+          });
+          documents = result.documents;
+          websiteStats = result.stats;
+          sourceErrors = [
+            { message: `RSS failed; website fallback used: ${error instanceof Error ? error.message : String(error)}` },
+            ...result.errors,
+          ];
+        }
       } else if (retrievalMethod === "market") {
         const recentItems = await listRawSourceItems({
           sourceName: source.name,
