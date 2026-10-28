@@ -31,7 +31,7 @@ export default async function AccountPage() {
     <main lang={preferences.language} className="missiondesk min-h-dvh px-4 py-8 text-[var(--app-fg)] sm:px-8">
       <div className="mx-auto max-w-2xl">
         <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--app-line)] pb-5">
-          <h1 className="text-2xl font-semibold">MissionDesk</h1>
+          <h1 className="text-2xl font-semibold"><Link href="/" className="rounded-sm hover:text-[var(--app-accent)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--app-accent)]">MissionDesk</Link></h1>
           {account?.status === "active" && <Link href="/" className="inline-flex items-center gap-2 text-sm"><ArrowLeft className="h-4 w-4" />{t.back}</Link>}
         </header>
         <section className="py-8">
