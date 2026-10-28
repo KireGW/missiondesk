@@ -70,12 +70,18 @@ mock.module("node:child_process", { namedExports: { execFileSync(command, args, 
 mock.module("pg", { defaultExport: { Pool: class {
   async query(sql) {
     if (sql.includes("FROM product_accounts")) return { rows: [account] };
-    if (sql.includes("FROM product_account_preferences")) return { rows: [profile] };
+    if (sql.includes("FROM product_account_preferences")) return { rows: [{ ...profile }] };
     if (sql.includes("SELECT enabled")) return { rows: [{ enabled: approved }] };
     if (sql.startsWith("UPDATE product_username_logins")) {
       events.push({ type: sql.includes("interface_profile") ? "configure-interface" : "revoke-sessions" }); return { rowCount: 1 };
     }
-    if (sql.startsWith("UPDATE product_account_preferences")) return { rowCount: 0 };
+    if (sql.startsWith("UPDATE product_account_preferences")) {
+      assert.match(sql,/SET language = 'en'/);
+      assert.match(sql,/AND language = 'sv'/,"A valid saved Norwegian-profile language must not be reset");
+      if(profile.language!=="sv") return {rowCount:0};
+      profile.language="en";
+      return {rowCount:1};
+    }
     throw new Error("Credential updates must not write accounts, profiles or engine tables");
   }
   async end() {}
@@ -98,6 +104,15 @@ try {
   await invoke("norwegian-interface");
   assert.deepEqual(credentials(), initialCredentials, "Changing interface options must not change authentication credentials");
   assert.deepEqual(events, [{ type: "configure-interface" }]);
+  for(const language of ["en","nb","es"]) {
+    profile.language=language;
+    await invoke("norwegian-interface");
+    assert.equal(profile.language,language,"Existing valid preferences must survive profile setup");
+  }
+  profile.language="sv";
+  await invoke("norwegian-interface");
+  assert.equal(profile.language,"en","An unavailable language must fall back to English, not force Norwegian");
+  profile.language="nb";
   events.length = 0;
   await invoke("rename", "daniel-new");
   assert.equal(credentials().AUTH0_USER_ID, subject);

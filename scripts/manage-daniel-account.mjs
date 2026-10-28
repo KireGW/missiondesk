@@ -126,7 +126,7 @@ try {
     const updated = await db.query(`UPDATE product_username_logins SET interface_profile = 'norwegian', updated_at = now()
       WHERE account_id = $1 AND connection_name = $2 AND enabled = true RETURNING account_id`, [account.id, credentials.AUTH0_CONNECTION]);
     if (updated.rowCount !== 1) throw new Error("The existing managed login could not be configured.");
-    await db.query("UPDATE product_account_preferences SET language = 'nb', updated_at = now() WHERE account_id = $1 AND language = 'sv'", [account.id]);
+    await db.query("UPDATE product_account_preferences SET language = 'en', updated_at = now() WHERE account_id = $1 AND language = 'sv'", [account.id]);
   } else if (action !== "status") {
     if (branch.expires_at || values.MISSIONDESK_PERSONAL_DATA_MODE !== "pilot") throw new Error("Promote the account before changing its permanent credentials.");
     const approval = (await db.query("SELECT enabled FROM product_username_logins WHERE account_id = $1 AND connection_name = $2", [account.id, credentials.AUTH0_CONNECTION])).rows[0];
@@ -162,7 +162,7 @@ try {
     unlinkSync(pendingPath);
   }
   const after = (await db.query("SELECT home_country, target_country, language, content_language FROM product_account_preferences WHERE account_id = $1", [account.id])).rows[0];
-  const expected = action === "norwegian-interface" && before?.language === "sv" ? { ...before, language: "nb" } : before;
+  const expected = action === "norwegian-interface" && before?.language === "sv" ? { ...before, language: "en" } : before;
   if (JSON.stringify(expected) !== JSON.stringify(after)) throw new Error("Unexpected profile change.");
   console.log(JSON.stringify({ action, username: action === "rename" ? username : user.username,
     sameAccountId: true, profilePreserved: true, plan: account.plan, expiresAt: branch.expires_at ?? null,

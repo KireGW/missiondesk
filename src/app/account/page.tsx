@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Library, LogIn, LogOut, ShieldCheck, UserRound } from "lucide-react";
-import { getAccessMode, authConfigurationReady, pilotInviteOnly } from "@/lib/product/config";
+import { getAccessMode, authConfigurationReady } from "@/lib/product/config";
 import { getPersonalAccount } from "@/lib/product/account";
 import { effectivePlan } from "@/lib/product/plans";
 import { getPersonalSessionIdentity } from "@/lib/product/auth";
@@ -23,8 +23,7 @@ export default async function AccountPage() {
   const needsNewSession = unverified && identity.managedUsername;
   const account = ready ? await getPersonalAccount() : null;
   const plan = account ? effectivePlan(account) : null;
-  const preferences = account ? await getPersonalPreferences(account.id)
-    : pilotInviteOnly() ? { ...defaultPersonalPreferences, language: "en" as const } : defaultPersonalPreferences;
+  const preferences = account ? await getPersonalPreferences(account.id) : defaultPersonalPreferences;
   const t = personalMessages(preferences.language);
   const interfaceLanguages = interfaceLanguagesForProfile(identity?.interfaceProfile);
   return (

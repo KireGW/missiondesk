@@ -138,8 +138,8 @@ try {
     throw new Error("The demo account must remain active and free with zero paid-provider budgets.");
   }
   await db.query(`INSERT INTO product_account_preferences (account_id, home_country, target_country, language, content_language)
-    VALUES ($1, 'NO', 'MX', 'nb', 'original') ON CONFLICT (account_id) DO NOTHING`, [account.id]);
+    VALUES ($1, 'NO', 'MX', 'en', 'original') ON CONFLICT (account_id) DO NOTHING`, [account.id]);
   savePrivate(envPath, { ...values, MISSIONDESK_LOCAL_DEMO_USER_ID: userId });
-  console.log(JSON.stringify({ username: "daniel", profile: "NO/MX/nb", plan: "free", connection: connectionName,
+  console.log(JSON.stringify({ username: "daniel", profile: "NO/MX/en", plan: "free", connection: connectionName,
     credentialsFile: ".env.daniel-demo.local", appEnvUpdated: ".env.personal.local", existingLoginsChanged: false }));
 } finally { await db.end(); }

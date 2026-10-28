@@ -68,11 +68,11 @@ try {
     VALUES ($1, 'Managed-Users', 'Unapproved', true)`, [free]), (error: unknown) => (error as { code?: string }).code === "42501");
   await assert.rejects(reserveUsage({ accountId: free, operationKey: "free-test", service: "llm", reservedMicros: 1 }), UsageDenied);
   const account = await fixture();
-  assert.deepEqual(await getPersonalPreferences(free), { homeCountry: "SE", targetCountry: "MX", language: "sv", contentLanguage: "sv" });
+  assert.deepEqual(await getPersonalPreferences(free), { homeCountry: "SE", targetCountry: "MX", language: "en", contentLanguage: "sv" });
   const profile = { homeCountry: "NO", targetCountry: "MX", language: "nb", contentLanguage: "original" };
   assert.equal(await savePersonalPreferences(free, profile), true);
   assert.deepEqual(await getPersonalPreferences(free), profile);
-  assert.deepEqual(await getPersonalPreferences(account), { homeCountry: "SE", targetCountry: "MX", language: "sv", contentLanguage: "sv" }, "Preferences must not cross accounts");
+  assert.deepEqual(await getPersonalPreferences(account), { homeCountry: "SE", targetCountry: "MX", language: "en", contentLanguage: "sv" }, "Preferences must not cross accounts");
   assert.equal(await savePersonalPreferences(free, { ...profile, contentLanguage: "sv" }), true);
   assert.deepEqual(await getPersonalPreferences(free), { ...profile, contentLanguage: "sv" });
   assert.equal(await savePersonalPreferences(free, { ...profile, language: "sv", contentLanguage: "original" }), true);

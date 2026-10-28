@@ -1,5 +1,5 @@
 import type { HomeCountry, MonitoredCountry, PersonalLanguage, PersonalPreferences } from "@/lib/product/profiles";
-import { mexicoPublication, personalStations } from "@/lib/product/profiles";
+import { interfaceLanguagesForProfile, mexicoPublication, personalStations } from "@/lib/product/profiles";
 import { defaultSources } from "@/lib/sources/default-sources";
 
 type Localized = Readonly<Record<PersonalLanguage, string>>;
@@ -357,7 +357,7 @@ export function getProfileSourceCatalog(homeCountry: HomeCountry) {
 }
 
 export function sourceCatalogPreview(preferences: PersonalPreferences, query: { home?: string; lang?: string },
-  interfaceLanguages: readonly PersonalLanguage[] = ["sv", "nb"]) {
+  interfaceLanguages: readonly PersonalLanguage[] = interfaceLanguagesForProfile()) {
   return {
     // Old country-preview links must not override the signed-in account's source profile.
     home: preferences.homeCountry,

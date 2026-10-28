@@ -5,8 +5,8 @@ export type InterfaceLanguageProfile = "standard" | "norwegian";
 export const interfaceLanguageNames: Readonly<Record<PersonalLanguage, string>> = {
   sv: "Svenska", nb: "Norsk (bokmål)", es: "Español", en: "English",
 };
-const standardLanguages: readonly PersonalLanguage[] = ["sv", "nb"];
-const norwegianLanguages: readonly PersonalLanguage[] = ["nb", "es", "en"];
+const standardLanguages: readonly PersonalLanguage[] = ["en", "sv", "nb"];
+const norwegianLanguages: readonly PersonalLanguage[] = ["en", "nb", "es"];
 export function interfaceLanguagesForProfile(profile?: InterfaceLanguageProfile) {
   return profile === "norwegian" ? norwegianLanguages : standardLanguages;
 }
@@ -26,7 +26,7 @@ export const personalStations = {
 } as const satisfies Record<HomeCountry, { id: string; homeCountry: HomeCountry; countries: readonly MonitoredCountry[] }>;
 
 export const defaultPersonalPreferences: Readonly<PersonalPreferences> = {
-  homeCountry: "SE", targetCountry: "MX", language: "sv", contentLanguage: "sv",
+  homeCountry: "SE", targetCountry: "MX", language: "en", contentLanguage: "sv",
 };
 
 export function parsePersonalPreferences(value: unknown, previousContentLanguage?: SignalTextLanguage): PersonalPreferences | null {

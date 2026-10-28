@@ -63,10 +63,13 @@ assert.match(norwegian.sources.find((source) => source.id === "no-mx-ud-news")!.
 assert.equal(norwegian.sources.find((source) => source.id === "no-mx-ssb-trade")!.kind, "reference");
 assert.equal(norwegian.sources.find((source) => source.id === "no-mx-efta")!.kind, "reference");
 assert.equal(norwegian.sources.find((source) => source.id === "no-mx-ud-advisory")!.kind, "advisory");
-assert.deepEqual(sourceCatalogPreview(defaultPersonalPreferences, {}), { home: "SE", language: "sv" });
+assert.deepEqual(sourceCatalogPreview(defaultPersonalPreferences, {}), { home: "SE", language: "en" });
 assert.deepEqual(sourceCatalogPreview(defaultPersonalPreferences, { home: "NO", lang: "nb" }), { home: "SE", language: "nb" },
   "A URL must not switch a Swedish account to another source profile");
-assert.deepEqual(sourceCatalogPreview(defaultPersonalPreferences, { home: "https://evil.example", lang: "unknown" }), { home: "SE", language: "sv" });
+assert.deepEqual(sourceCatalogPreview(defaultPersonalPreferences, { home: "https://evil.example", lang: "unknown" }), { home: "SE", language: "en" });
+assert.deepEqual(sourceCatalogPreview(defaultPersonalPreferences, { lang: "en" }), { home: "SE", language: "en" });
+assert.deepEqual(sourceCatalogPreview({ ...defaultPersonalPreferences, language: "sv" }, { lang: "en" }), { home: "SE", language: "en" },
+  "English must be an available preview language, not only the missing-profile fallback");
 const daniel = { ...defaultPersonalPreferences, homeCountry: "NO" as const, language: "nb" as const, contentLanguage: "original" as const };
 for (const lang of ["nb", "es", "en"]) {
   assert.deepEqual(sourceCatalogPreview(daniel, { lang }, interfaceLanguagesForProfile("norwegian")), { home: "NO", language: lang });

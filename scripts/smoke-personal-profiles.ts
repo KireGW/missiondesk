@@ -1,9 +1,12 @@
 import assert from "node:assert/strict";
 import { mock } from "node:test";
 import type { IntelligenceItem } from "../src/lib/types";
-import { defaultPersonalPreferences, interfaceLanguagesForProfile, parsePersonalPreferences, personalCategory, personalContent, personalRelevance, personalStations } from "../src/lib/product/profiles";
+import { defaultPersonalPreferences, interfaceLanguagesForProfile, parsePersonalPreferences, personalCategory, personalContent, personalRelevance, personalStations, type PersonalPreferences } from "../src/lib/product/profiles";
 import { personalDate, personalMessages } from "../src/lib/product/messages";
+import type { Pool } from "pg";
 
+assert.equal(defaultPersonalPreferences.language,"en","New personal profiles must default to an English interface");
+assert.equal(defaultPersonalPreferences.contentLanguage,"sv","The UI default must not change the separate signal-text setting");
 const norwegian = { homeCountry: "NO", targetCountry: "MX", language: "nb", contentLanguage: "original" } as const;
 assert.deepEqual(parsePersonalPreferences(norwegian), norwegian);
 assert.deepEqual(parsePersonalPreferences({ ...norwegian, language: "sv" }), { ...norwegian, language: "sv" });
@@ -65,9 +68,25 @@ for (const language of ["sv", "nb", "es", "en"] as const) {
   for (const country of personalStations.NO.countries) assert.ok(messages.monitoredCountryNames[country]);
   assert.equal("DO" in messages.monitoredCountryNames, false, "The complete Norwegian country list excludes the Dominican Republic");
 }
-assert.deepEqual(interfaceLanguagesForProfile(), ["sv", "nb"]);
-assert.deepEqual(interfaceLanguagesForProfile("norwegian"), ["nb", "es", "en"]);
+assert.deepEqual(interfaceLanguagesForProfile(), ["en", "sv", "nb"]);
+assert.deepEqual(interfaceLanguagesForProfile("norwegian"), ["en", "nb", "es"]);
 assert.match(personalDate("2026-10-27T20:12:00Z", "nb"), /14:12/);
+
+const {getPersonalPreferences:readPreferences}=await import("../src/lib/product/preferences-store");
+let storedPreferences: PersonalPreferences[]=[];
+const preferencesDb={query:async(sql:string,values:unknown[])=>{
+  assert.match(sql,/^SELECT /,"Reading a default or saved language must not write profile data");
+  assert.deepEqual(values,["current-account"]);
+  return {rows:storedPreferences};
+}} as unknown as Pool;
+const fallback=await readPreferences("current-account",preferencesDb);
+assert.deepEqual(fallback,defaultPersonalPreferences);
+fallback.language="nb";
+assert.equal((await readPreferences("current-account",preferencesDb)).language,"en","Defaults must be returned as independent copies");
+for(const language of ["sv","nb","es","en"] as const) {
+  storedPreferences=[{...norwegian,language}];
+  assert.deepEqual(await readPreferences("current-account",preferencesDb),{...norwegian,language},"Every saved language choice must override the English default");
+}
 
 let account: { id: string; status: string } | null = null;
 let interfaceProfile: "standard" | "norwegian" = "standard";
@@ -127,8 +146,12 @@ try {
   assert.equal(legacyResponse.status, 200);
   assert.deepEqual(await legacyResponse.json(), { preferences: mixed });
   assert.deepEqual(writes.slice(1), [{ id: "session-account", value: mixed }, { id: "session-account", value: mixed }]);
-  for (const language of ["en", "es"]) {
-    assert.equal((await PATCH(request({ ...norwegian, language }))).status, 400, "Standard accounts retain their existing language choices");
+  assert.equal((await PATCH(request({ ...norwegian, language:"es" }))).status,400,"Spanish remains restricted to the Norwegian interface profile");
+  for(const language of ["en","sv","nb"]) {
+    const updated={...norwegian,language};
+    const result=await PATCH(request(updated));
+    assert.equal(result.status,200);
+    assert.deepEqual(await result.json(),{preferences:updated},"Standard accounts can save English or an existing language choice");
   }
   interfaceProfile = "norwegian";
   for (const language of ["nb", "es", "en"]) {
