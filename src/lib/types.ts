@@ -191,6 +191,8 @@ export interface EmbassyConfig {
 }
 
 export interface IntelligenceItem {
+  workspace_relevance?: number;
+  workspace_selection?: "selected" | "held" | "rejected" | "unassessed";
   content_kind?: "news" | "reference";
   reference_year?: number;
   id: string;

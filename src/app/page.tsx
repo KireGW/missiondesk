@@ -19,6 +19,7 @@ import { effectivePlan } from "@/lib/product/plans";
 import { getPersonalFeed } from "@/lib/product/feed-store";
 import { getPersonalPreferences } from "@/lib/product/preferences-store";
 import { PersonalDashboard } from "@/components/product/PersonalDashboard";
+import { addWorkspaceFeed } from "@/lib/product/workspace-feed";
 
 export const dynamic = "force-dynamic";
 
@@ -29,9 +30,9 @@ export default async function Home() {
     const account = await getPersonalAccount();
     if (!account || account.status !== "active") redirect("/account");
     const plan = effectivePlan(account);
-    const feed = await getPersonalFeed(plan.id);
     const preferences = await getPersonalPreferences(account.id);
-    return <PersonalDashboard key={`${preferences.homeCountry}:${preferences.language}`} initialFeed={feed} initialPreferences={preferences} plan={plan.id} />;
+    const feed = await addWorkspaceFeed(account.id, preferences, await getPersonalFeed(plan.id), plan.id);
+    return <PersonalDashboard key={`${preferences.homeCountry}:${preferences.language}:${preferences.contentLanguage}`} initialFeed={feed} initialPreferences={preferences} plan={plan.id} />;
   }
   const primaryBriefings = await listBriefings({ onlyFresh: true, limit: 8 });
   const primaryRecords = await listProcessedItems({

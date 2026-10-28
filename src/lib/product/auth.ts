@@ -1,5 +1,8 @@
 import { Auth0Client } from "@auth0/nextjs-auth0/server";
-import { authConfigurationReady, getAccessMode } from "@/lib/product/config";
+import { cache } from "react";
+import { authConfigurationReady, getAccessMode, pilotInviteOnly } from "@/lib/product/config";
+import { approvedUsernameSession, getUsernameLogin } from "@/lib/product/username-login";
+import { getUsernameLoginApproval } from "@/lib/product/username-login-store";
 
 let client: Auth0Client | undefined;
 
@@ -14,15 +17,23 @@ export function getPersonalAuth() {
   return client;
 }
 
-export async function getPersonalSessionIdentity() {
+export const getPersonalSessionIdentity = cache(async () => {
   const auth = getPersonalAuth();
   if (!auth) return null;
   const session = await auth.getSession();
   if (!session?.user.sub) return null;
-  return { subject: `${process.env.AUTH0_DOMAIN!.toLowerCase()}|${session.user.sub}`, emailVerified: session.user.email_verified === true };
-}
+  const subject = `${process.env.AUTH0_DOMAIN!.toLowerCase()}|${session.user.sub}`;
+  const emailVerified = session.user.email_verified === true;
+  const approval = session.user.sub.startsWith("auth0|") ? await getUsernameLoginApproval(subject) : null;
+  const invitationRequired = pilotInviteOnly() && !approval;
+  const accessVerified = approval
+    ? approvedUsernameSession(approval, getUsernameLogin()?.connection, session.internal?.createdAt)
+    : !invitationRequired && emailVerified;
+  return { subject, emailVerified, managedUsername: Boolean(approval), displayName: approval?.displayName,
+    interfaceProfile: approval?.interfaceProfile, accessVerified, invitationRequired };
+});
 
 export async function getPersonalIdentity() {
   const identity = await getPersonalSessionIdentity();
-  return identity?.emailVerified ? { subject: identity.subject } : null;
+  return identity?.accessVerified ? { subject: identity.subject } : null;
 }

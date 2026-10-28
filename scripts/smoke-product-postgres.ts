@@ -16,6 +16,7 @@ const { getProductPool, reserveUsage, settleUsage, releaseUnstartedUsage, UsageD
 const { readPersonalFeed } = await import("../src/lib/product/feed-store");
 const { closeDb } = await import("../src/lib/db/postgres");
 const { getPersonalPreferences, savePersonalPreferences } = await import("../src/lib/product/preferences-store");
+const { getUsernameLoginApproval } = await import("../src/lib/product/username-login-store");
 const db = getProductPool();
 const ids: string[] = [];
 const engineTables = ["raw_source_items", "processed_items", "briefings", "background_jobs"];
@@ -38,25 +39,50 @@ try {
     (SELECT rolcreaterole OR rolcreatedb FROM pg_roles WHERE rolname = current_user) AS can_administer,
     has_schema_privilege(current_user, 'public', 'CREATE') AS can_create,
     has_table_privilege(current_user, 'raw_source_items', 'INSERT,UPDATE,DELETE,TRUNCATE') AS can_write_sources,
-    has_table_privilege(current_user, 'background_jobs', 'INSERT,UPDATE,DELETE,TRUNCATE') AS can_write_jobs`);
+    has_table_privilege(current_user, 'background_jobs', 'INSERT,UPDATE,DELETE,TRUNCATE') AS can_write_jobs,
+    has_table_privilege(current_user, 'product_username_logins', 'SELECT') AS can_read_login_approvals,
+    has_table_privilege(current_user, 'product_username_logins', 'INSERT,UPDATE,DELETE,TRUNCATE') AS can_write_login_approvals`);
   assert.equal(permissions.rows[0].is_admin, false, "The app must not inherit administrator access");
   assert.equal(permissions.rows[0].can_administer, false, "The app must not create roles or databases");
   assert.equal(permissions.rows[0].can_create, false, "The app must not create schema objects");
   assert.equal(permissions.rows[0].can_write_sources, false, "The app must not change sources");
   assert.equal(permissions.rows[0].can_write_jobs, false, "The app must not change engine jobs");
+  assert.equal(permissions.rows[0].can_read_login_approvals, true);
+  assert.equal(permissions.rows[0].can_write_login_approvals, false, "The app must not approve or un-revoke username logins");
+  if (config.values.MISSIONDESK_PERSONAL_DATA_MODE === "pilot") {
+    const approval = await getUsernameLoginApproval(`${config.values.AUTH0_DOMAIN.toLowerCase()}|${config.values.MISSIONDESK_DANIEL_AUTH0_USER_ID}`);
+    assert.equal(approval?.enabled, true);
+    assert.equal(approval.accountActive, true);
+    assert.equal(approval.connection, config.values.MISSIONDESK_USERNAME_CONNECTION);
+    assert.equal(approval.displayName, "Daniel");
+    assert.equal(approval.interfaceProfile, "norwegian");
+  }
   const before = await engineCounts();
   const feed = await readPersonalFeed("free");
   assert.ok(feed.items.length > 0 && feed.items.length <= 30, "The real public free feed must load within its plan limit");
   assert.equal(feed.briefings.length, 0, "Global briefings must not leak into the public feed");
   assert.equal(feed.activeSourceCount, 5);
   const free = await fixture("free");
+  assert.equal(await getUsernameLoginApproval(`test-only:${free}`), null, "New accounts are not implicitly approved for username login");
+  await assert.rejects(db.query(`INSERT INTO product_username_logins (account_id, connection_name, display_name, enabled)
+    VALUES ($1, 'Managed-Users', 'Unapproved', true)`, [free]), (error: unknown) => (error as { code?: string }).code === "42501");
   await assert.rejects(reserveUsage({ accountId: free, operationKey: "free-test", service: "llm", reservedMicros: 1 }), UsageDenied);
   const account = await fixture();
-  assert.deepEqual(await getPersonalPreferences(free), { homeCountry: "SE", targetCountry: "MX", language: "sv" });
-  const profile = { homeCountry: "NO", targetCountry: "MX", language: "nb" };
+  assert.deepEqual(await getPersonalPreferences(free), { homeCountry: "SE", targetCountry: "MX", language: "sv", contentLanguage: "sv" });
+  const profile = { homeCountry: "NO", targetCountry: "MX", language: "nb", contentLanguage: "original" };
   assert.equal(await savePersonalPreferences(free, profile), true);
   assert.deepEqual(await getPersonalPreferences(free), profile);
-  assert.deepEqual(await getPersonalPreferences(account), { homeCountry: "SE", targetCountry: "MX", language: "sv" }, "Preferences must not cross accounts");
+  assert.deepEqual(await getPersonalPreferences(account), { homeCountry: "SE", targetCountry: "MX", language: "sv", contentLanguage: "sv" }, "Preferences must not cross accounts");
+  assert.equal(await savePersonalPreferences(free, { ...profile, contentLanguage: "sv" }), true);
+  assert.deepEqual(await getPersonalPreferences(free), { ...profile, contentLanguage: "sv" });
+  assert.equal(await savePersonalPreferences(free, { ...profile, language: "sv", contentLanguage: "original" }), true);
+  assert.deepEqual(await getPersonalPreferences(free), { ...profile, language: "sv", contentLanguage: "original" });
+  for (const language of ["es", "en"]) {
+    assert.equal(await savePersonalPreferences(free, { ...profile, language }), true);
+    assert.deepEqual(await getPersonalPreferences(free), { ...profile, language });
+  }
+  assert.equal(await savePersonalPreferences(free, { ...profile, contentLanguage: "nb" }), false);
+  assert.equal(await savePersonalPreferences(free, { ...profile, contentLanguage: "en" }), false);
   assert.equal(await savePersonalPreferences(free, { ...profile, plan: "premium" }), false);
   assert.equal((await db.query("SELECT plan FROM product_accounts WHERE id = $1", [free])).rows[0].plan, "free");
   await db.query("UPDATE product_accounts SET status = 'suspended' WHERE id = $1", [account]);

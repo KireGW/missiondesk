@@ -2,8 +2,10 @@ import type { Briefing } from "@/lib/intelligence/models";
 import type { IntelligenceItem } from "@/lib/types";
 import type { DashboardUpdateStatus } from "@/lib/intelligence/dashboard-status";
 import type { SignalTrackingSearchResult } from "@/lib/intelligence/signal-tracking";
+import { personalHomeConnection, type HomeCountry } from "@/lib/product/profiles";
 
 export interface PersonalFeed {
+  workspacePilot?: { connectedSourceIds: string[]; heldCount: number; attentionNeeded: boolean; refreshEnabled?: boolean };
   items: IntelligenceItem[];
   briefings: Briefing[];
   activeSourceCount: number;
@@ -11,11 +13,33 @@ export interface PersonalFeed {
   updates: DashboardUpdateStatus;
 }
 
+export function personalSelectionItems(items: IntelligenceItem[], retained: Record<string, IntelligenceItem>, selectedIds: string[]) {
+  const current=new Set(items.map(item=>item.id));
+  const selected=new Set(selectedIds);
+  return [...items,...Object.values(retained).filter(item=>selected.has(item.id) && !current.has(item.id))];
+}
+
+export function normalizePersonalSearchQuery(query: string) {
+  return query.normalize("NFKC").replace(/\s+/g," ").trim();
+}
+
+export function aggregatePersonalSearchItems(current: IntelligenceItem[], saved: IntelligenceItem[], query: string, homeCountry?: HomeCountry) {
+  const normalized=normalizePersonalSearchQuery(query);
+  const local=normalized ? searchPersonalFeed({items:current,briefings:[],updates:{},activeSourceCount:0},normalized) : homeCountry ? current : [];
+  const seen=new Set<string>();
+  return [...local,...saved].filter(item=>{
+    if(homeCountry && !personalHomeConnection(item,homeCountry)) return false;
+    let key=item.source_url || item.id;
+    try {const url=new URL(key);url.hash="";for(const name of [...url.searchParams.keys()])if(name.startsWith("utm_")||["fbclid","gclid"].includes(name))url.searchParams.delete(name);key=url.toString();} catch { /* Retain non-URL fixture identities. */ }
+    if(seen.has(key))return false;seen.add(key);return true;
+  });
+}
+
 export function searchPersonalFeed(feed: PersonalFeed, query: string) {
   const terms = query.toLocaleLowerCase("sv").trim().split(/\s+/).filter(Boolean);
   if (!terms.length) return [];
   return feed.items.filter((item) => {
-    const text = `${item.title_original} ${item.title_sv} ${item.summary_sv} ${item.source_name} ${item.region}`.toLocaleLowerCase("sv");
+    const text = `${item.title_original} ${item.original_excerpt} ${item.title_sv} ${item.summary_sv} ${item.source_name} ${item.region}`.toLocaleLowerCase("sv");
     return terms.every((term) => text.includes(term));
   });
 }

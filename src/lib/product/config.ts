@@ -4,8 +4,15 @@ type Environment = Readonly<Record<string, string | undefined>>;
 
 export function getAccessMode(env: Environment = process.env): AccessMode {
   const value = env.MISSIONDESK_ACCESS_MODE?.trim();
+  const invitation = env.MISSIONDESK_PILOT_INVITE_ONLY;
+  if (invitation !== undefined && invitation !== "true" && invitation !== "false") return "invalid";
+  if (invitation === "true" && value !== "personal") return "invalid";
   if (!value || value === "legacy") return "legacy";
   return value === "personal" ? "personal" : "invalid";
+}
+
+export function pilotInviteOnly(env: Environment = process.env) {
+  return env.MISSIONDESK_PILOT_INVITE_ONLY === "true";
 }
 
 export function authConfigurationReady(env: Environment = process.env) {

@@ -4,6 +4,8 @@ import { parseEnv } from "node:util";
 import { Pool } from "pg";
 import { readPersonalTestEnvironment } from "./personal-test-env.mjs";
 import { productSchemaSql } from "../src/lib/product/schema";
+import { productPreferencesMigrationSql } from "../src/lib/product/preferences-migration";
+import { productInterfaceLanguageMigrationSql } from "../src/lib/product/interface-language-migration";
 
 const config = readPersonalTestEnvironment(process.cwd(), { requireAuth: false });
 const configDir = process.env.MISSIONDESK_NEON_CONFIG_DIR;
@@ -52,9 +54,12 @@ try {
   await client.query("BEGIN");
   await client.query("SELECT pg_advisory_xact_lock(713492, 1)");
   await client.query(productSchemaSql);
+  await client.query(productPreferencesMigrationSql);
+  await client.query(productInterfaceLanguageMigrationSql);
   await client.query("GRANT USAGE ON SCHEMA public TO missiondesk_personal_app");
   await client.query("GRANT SELECT ON raw_source_items, processed_items, briefings, background_jobs TO missiondesk_personal_app");
   await client.query("GRANT SELECT, INSERT, UPDATE, DELETE ON product_accounts, product_usage, product_account_preferences TO missiondesk_personal_app");
+  await client.query("GRANT SELECT ON product_username_logins TO missiondesk_personal_app");
   await client.query("COMMIT");
   console.log("Personal schema ready on the isolated branch. App role can manage accounts and usage, but only read engine tables; no schema creation privilege granted.");
 } catch (error) {

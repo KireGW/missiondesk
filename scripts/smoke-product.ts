@@ -14,6 +14,7 @@ import { searchPersonalSignals } from "@/lib/product/feed";
 import { reserveUsage, settleUsage, releaseUnstartedUsage, UsageDenied } from "@/lib/product/store";
 import { productSchemaSql } from "@/lib/product/schema";
 import { getReadOnlyDb } from "@/lib/db/postgres";
+import { approvedUsernameSession, getUsernameLogin, type UsernameLoginApproval } from "@/lib/product/username-login";
 
 assert.equal(getAccessMode({}), "legacy");
 assert.equal(getAccessMode({ MISSIONDESK_ACCESS_MODE: "legacy" }), "legacy");
@@ -29,6 +30,27 @@ for (const base of ["https://user:pass@example.com", "https://example.com/path",
   assert.equal(authConfigurationReady({ ...authEnv, APP_BASE_URL: base }), false);
 }
 assert.equal(authConfigurationReady({ ...authEnv, AUTH0_SECRET: "short" }), false);
+const usernameEnv = { ...authEnv, MISSIONDESK_ACCESS_MODE: "personal", MISSIONDESK_USERNAME_CONNECTION: "Managed-Users" };
+assert.equal(getUsernameLogin({}), null);
+const usernameLogin = getUsernameLogin(usernameEnv)!;
+const loginUrl = new URL(usernameLogin.loginUrl, authEnv.APP_BASE_URL);
+assert.equal(loginUrl.searchParams.get("connection"), "Managed-Users");
+assert.equal(loginUrl.searchParams.get("prompt"), "login");
+assert.equal(loginUrl.searchParams.get("max_age"), "0");
+for (const overrides of [{ MISSIONDESK_ACCESS_MODE: "legacy" }, { MISSIONDESK_USERNAME_CONNECTION: "" },
+  { MISSIONDESK_USERNAME_CONNECTION: "bad/connection" }, { AUTH0_SECRET: "" }]) {
+  assert.equal(getUsernameLogin({ ...usernameEnv, ...overrides }), null);
+}
+const managedSubject = `example.auth0.com|auth0|${"a".repeat(24)}`;
+const approvedLogin: UsernameLoginApproval = { displayName: "Daniel", connection: "Managed-Users", enabled: true,
+  accountActive: true, sessionsValidAfter: 100, interfaceProfile: "standard" };
+assert.equal(approvedUsernameSession(approvedLogin, "Managed-Users", 101), true);
+for (const createdAt of [undefined, "101", 0, NaN, Infinity, 99]) {
+  assert.equal(approvedUsernameSession(approvedLogin, "Managed-Users", createdAt), false);
+}
+assert.equal(approvedUsernameSession(approvedLogin, "Other-Connection", 101), false);
+assert.equal(approvedUsernameSession({ ...approvedLogin, enabled: false }, "Managed-Users", 101), false);
+assert.equal(approvedUsernameSession({ ...approvedLogin, accountActive: false }, "Managed-Users", 101), false);
 assert.equal(effectivePlan({ plan: "premium", premiumUntil: "2000-01-01" }).id, "free");
 assert.equal(effectivePlan({ plan: "premium", premiumUntil: null }).id, "free");
 assert.equal(effectivePlan({ plan: "premium", premiumUntil: "invalid" }).id, "free");
@@ -130,6 +152,7 @@ for (const units of [{ accounts: 31, postsPerAccount: 20 }, { accounts: 30, post
 const savedMode = process.env.MISSIONDESK_ACCESS_MODE;
 const savedFetch = globalThis.fetch;
 const savedAuth = Object.fromEntries(Object.keys(authEnv).map((key) => [key, process.env[key]]));
+const savedUsername = Object.fromEntries([...Object.keys(usernameEnv), "VERCEL", "MISSIONDESK_LOCAL_DEMO_USER_ID"].map((key) => [key, process.env[key]]));
 const hook = registerHooks({ resolve(specifier, context, nextResolve) {
   return nextResolve(specifier === "next/server" ? "next/server.js" : specifier === "next/cache" ? "next/cache.js" : specifier, context);
 } });
@@ -160,7 +183,8 @@ const feedDb: MissionDeskDb = { prepare: (sql) => ({
   get: async () => { throw new Error("No unexpected reads"); },
   run: async () => { throw new Error("Personal feed must never write"); },
 }), exec: async () => { throw new Error("Personal feed must never migrate"); } };
-let identity: { user: { sub: string; email_verified?: boolean } } | null = null;
+let identity: { user: { sub: string; email_verified?: boolean; username?: string }; internal?: { createdAt: number } } | null = null;
+let usernameApproval: UsernameLoginApproval | null = null;
 let personalAccount: { id: string; status: string; plan: string; premiumUntil: string | null } | null = null;
 let personalFeedReads = 0;
 try {
@@ -181,9 +205,12 @@ try {
     async getSession() { return identity; }
     async middleware() { return new Response("auth-handler"); }
   } } });
+  mock.module(new URL("../src/lib/product/username-login-store.ts", import.meta.url), { namedExports: {
+    getUsernameLoginApproval: async (subject: string) => subject === managedSubject ? usernameApproval : null,
+  } });
   mock.module(new URL("../src/lib/product/account.ts", import.meta.url), { namedExports: { getPersonalAccount: async () => personalAccount } });
   mock.module(new URL("../src/lib/product/preferences-store.ts", import.meta.url), { namedExports: {
-    getPersonalPreferences: async () => ({ homeCountry: "SE", targetCountry: "MX", language: "sv" }),
+    getPersonalPreferences: async () => ({ homeCountry: "SE", targetCountry: "MX", language: "sv", contentLanguage: "sv" }),
   } });
 
   // Every existing handler must reject personal mode before parsing bodies or calling the engine.
@@ -223,6 +250,33 @@ try {
   assert.equal(await getPersonalIdentity(), null);
   identity = { user: { sub: "user", email_verified: false } };
   assert.equal(await getPersonalIdentity(), null);
+  Object.assign(process.env, usernameEnv);
+  assert.equal(await getPersonalIdentity(), null, "An unrelated unverified user must still be rejected");
+  identity = { user: { sub: `auth0|${"a".repeat(24)}`, username: "daniel" }, internal: { createdAt: 101 } };
+  process.env.MISSIONDESK_LOCAL_DEMO_USER_ID = identity.user.sub;
+  assert.equal(await getPersonalIdentity(), null, "Old environment allowlists and a matching username must not grant access");
+  usernameApproval = { ...approvedLogin };
+  assert.deepEqual(await getPersonalIdentity(), { subject: managedSubject });
+  identity.user.username = "another-username";
+  assert.deepEqual(await getPersonalIdentity(), { subject: managedSubject }, "Renaming a login must retain its stable account identity");
+  process.env.VERCEL = "1";
+  process.env.APP_BASE_URL = "https://missiondesk.example.com";
+  assert.deepEqual(await getPersonalIdentity(), { subject: managedSubject }, "Database-approved accounts are not localhost exceptions");
+  usernameApproval.sessionsValidAfter = 102;
+  assert.equal(await getPersonalIdentity(), null, "A credential change must revoke an older application session");
+  identity.user.email_verified = true;
+  assert.equal(await getPersonalIdentity(), null, "Email verification must not bypass managed-account session revocation");
+  usernameApproval = { ...approvedLogin, enabled: false };
+  assert.equal(await getPersonalIdentity(), null);
+  usernameApproval = { ...approvedLogin, accountActive: false };
+  assert.equal(await getPersonalIdentity(), null);
+  usernameApproval = { ...approvedLogin, connection: "Other-Connection" };
+  assert.equal(await getPersonalIdentity(), null);
+  usernameApproval = null;
+  for (const [key, value] of Object.entries(savedUsername)) {
+    if (value === undefined) delete process.env[key]; else process.env[key] = value;
+  }
+  Object.assign(process.env, authEnv, { MISSIONDESK_ACCESS_MODE: "personal" });
   identity = { user: { sub: "user", email_verified: true } };
   assert.deepEqual(await getPersonalIdentity(), { subject: "example.auth0.com|user" });
 
@@ -286,7 +340,7 @@ try {
   globalThis.fetch = savedFetch;
   if (savedMode === undefined) delete process.env.MISSIONDESK_ACCESS_MODE;
   else process.env.MISSIONDESK_ACCESS_MODE = savedMode;
-  for (const [key, value] of Object.entries(savedAuth)) {
+  for (const [key, value] of Object.entries({ ...savedUsername, ...savedAuth })) {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
   }

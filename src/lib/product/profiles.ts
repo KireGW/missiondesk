@@ -1,24 +1,45 @@
 import type { IntelligenceCategory, IntelligenceItem } from "@/lib/types";
 
-export type PersonalLanguage = "sv" | "nb";
+export type PersonalLanguage = "sv" | "nb" | "es" | "en";
+export type InterfaceLanguageProfile = "standard" | "norwegian";
+export const interfaceLanguageNames: Readonly<Record<PersonalLanguage, string>> = {
+  sv: "Svenska", nb: "Norsk (bokmål)", es: "Español", en: "English",
+};
+const standardLanguages: readonly PersonalLanguage[] = ["sv", "nb"];
+const norwegianLanguages: readonly PersonalLanguage[] = ["nb", "es", "en"];
+export function interfaceLanguagesForProfile(profile?: InterfaceLanguageProfile) {
+  return profile === "norwegian" ? norwegianLanguages : standardLanguages;
+}
+export type SignalTextLanguage = "original" | "sv";
 export type HomeCountry = "SE" | "NO";
 export interface PersonalPreferences {
   homeCountry: HomeCountry;
   targetCountry: "MX";
   language: PersonalLanguage;
+  contentLanguage: SignalTextLanguage;
 }
 
+export type MonitoredCountry = "MX" | "NI" | "CR" | "GT" | "HN" | "SV" | "BZ";
+export const personalStations = {
+  SE: { id: "sweden-mexico-city", homeCountry: "SE", countries: ["MX"] },
+  NO: { id: "norway-mexico-city", homeCountry: "NO", countries: ["MX", "NI", "CR", "GT", "HN", "SV", "BZ"] },
+} as const satisfies Record<HomeCountry, { id: string; homeCountry: HomeCountry; countries: readonly MonitoredCountry[] }>;
+
 export const defaultPersonalPreferences: Readonly<PersonalPreferences> = {
-  homeCountry: "SE", targetCountry: "MX", language: "sv",
+  homeCountry: "SE", targetCountry: "MX", language: "sv", contentLanguage: "sv",
 };
 
-export function parsePersonalPreferences(value: unknown): PersonalPreferences | null {
+export function parsePersonalPreferences(value: unknown, previousContentLanguage?: SignalTextLanguage): PersonalPreferences | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = value as Record<string, unknown>;
-  if (Object.keys(record).length !== 3 || !Object.keys(record).every((key) => ["homeCountry", "targetCountry", "language"].includes(key))) return null;
+  const hasContentLanguage = Object.hasOwn(record, "contentLanguage");
+  // Older forms may omit the new field; preserve its stored value rather than deriving it from the new UI language.
+  if (Object.keys(record).length !== (hasContentLanguage ? 4 : 3) ||
+      !Object.keys(record).every((key) => ["homeCountry", "targetCountry", "language", "contentLanguage"].includes(key))) return null;
+  const contentLanguage = hasContentLanguage ? record.contentLanguage : previousContentLanguage;
   if ((record.homeCountry !== "SE" && record.homeCountry !== "NO") || record.targetCountry !== "MX" ||
-      (record.language !== "sv" && record.language !== "nb")) return null;
-  return { homeCountry: record.homeCountry, targetCountry: record.targetCountry, language: record.language };
+      (typeof record.language !== "string" || !["sv", "nb", "es", "en"].includes(record.language)) || (contentLanguage !== "original" && contentLanguage !== "sv")) return null;
+  return { homeCountry: record.homeCountry, targetCountry: record.targetCountry, language: record.language as PersonalLanguage, contentLanguage };
 }
 
 export const mexicoPublication = {
@@ -42,11 +63,18 @@ function words(text: string) {
   return new Set(text.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "").split(/[^a-z0-9]+/).filter(Boolean));
 }
 
-export function personalRelevance(item: IntelligenceItem, preferences: PersonalPreferences) {
-  const profile = personalProfiles[preferences.homeCountry];
+export function personalHomeConnection(item: IntelligenceItem, homeCountry: HomeCountry) {
   // Home-country evidence must be in the source, never in a Swedish AI explanation or URL.
   const sourceWords = words(`${item.title_original} ${item.original_excerpt}`);
-  const homeConnection = profile.homeTerms.some((term) => sourceWords.has(term));
+  return personalProfiles[homeCountry].homeTerms.some((term) => sourceWords.has(term));
+}
+
+export function personalRelevance(item: IntelligenceItem, preferences: PersonalPreferences) {
+  const profile = personalProfiles[preferences.homeCountry];
+  const homeConnection = personalHomeConnection(item, preferences.homeCountry);
+  if (item.workspace_relevance !== undefined) {
+    return { score: Math.max(0, Math.min(100, Math.round(item.workspace_relevance))), homeConnection, basis: "public-rules-v2" };
+  }
   const clamp = (score: number) => Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : 0;
   const domain = Math.max(clamp(item.economic_impact_score), clamp(item.security_impact_score));
   const weights: Partial<Record<IntelligenceCategory, number>> = profile.categoryWeights;
@@ -56,8 +84,8 @@ export function personalRelevance(item: IntelligenceItem, preferences: PersonalP
 }
 
 export function personalContent(item: IntelligenceItem, preferences: PersonalPreferences) {
-  // A Norwegian interface is not a Norwegian translation. Never relabel Swedish analysis.
-  return preferences.language === "sv" && item.title_sv && item.summary_sv
+  // UI language never selects or translates signal text. Reuse only the explicitly chosen cached version.
+  return preferences.contentLanguage === "sv" && item.title_sv && item.summary_sv
     ? { title: item.title_sv, summary: item.summary_sv, language: "sv" }
     : { title: item.title_original, summary: item.original_excerpt, language: item.source_language };
 }

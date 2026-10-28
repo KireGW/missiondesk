@@ -1,4 +1,4 @@
-// Deliberately separate from the engine's lazy migrations. Apply explicitly on a preview database.
+// Deliberately separate from the engine's lazy migrations. Apply on a verified personal database.
 export const productSchemaSql = `
 CREATE TABLE IF NOT EXISTS product_accounts (
   id UUID PRIMARY KEY,
@@ -35,7 +35,19 @@ CREATE TABLE IF NOT EXISTS product_account_preferences (
   account_id UUID PRIMARY KEY REFERENCES product_accounts(id) ON DELETE CASCADE,
   home_country TEXT NOT NULL CHECK (home_country IN ('SE', 'NO')),
   target_country TEXT NOT NULL CHECK (target_country = 'MX'),
-  language TEXT NOT NULL CHECK (language IN ('sv', 'nb')),
+  language TEXT NOT NULL CHECK (language IN ('sv', 'nb', 'es', 'en')),
+  content_language TEXT NOT NULL DEFAULT 'sv' CHECK (content_language IN ('original', 'sv')),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS product_username_logins (
+  account_id UUID PRIMARY KEY REFERENCES product_accounts(id) ON DELETE CASCADE,
+  connection_name TEXT NOT NULL CHECK (length(connection_name) BETWEEN 2 AND 128),
+  display_name TEXT NOT NULL CHECK (length(trim(display_name)) BETWEEN 1 AND 80),
+  enabled BOOLEAN NOT NULL DEFAULT false,
+  interface_profile TEXT NOT NULL DEFAULT 'standard' CHECK (interface_profile IN ('standard', 'norwegian')),
+  sessions_valid_after TIMESTAMPTZ NOT NULL DEFAULT to_timestamp(0),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 `;

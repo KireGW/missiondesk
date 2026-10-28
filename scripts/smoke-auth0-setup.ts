@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 import { NextRequest } from "next/server.js";
+import { getUsernameLogin } from "../src/lib/product/username-login";
 
 const values = parseEnv(readFileSync(".env.personal.local", "utf8"));
 assert.equal(values.MISSIONDESK_ACCESS_MODE, "personal");
@@ -22,6 +23,17 @@ assert.equal(redirect.searchParams.get("code_challenge_method"), "S256");
 assert.equal(redirect.searchParams.get("redirect_uri"), `${values.APP_BASE_URL}/auth/callback`);
 assert.ok(redirect.searchParams.get("state"));
 assert.ok(redirect.searchParams.get("nonce"));
+const demo = getUsernameLogin();
+if (demo) {
+  const demoResponse = await auth.middleware(new NextRequest(`${values.APP_BASE_URL}${demo.loginUrl}`));
+  const demoRedirect = new URL(demoResponse.headers.get("location")!);
+  assert.equal(demoRedirect.hostname, values.AUTH0_DOMAIN);
+  assert.equal(demoRedirect.searchParams.get("client_id"), values.AUTH0_CLIENT_ID);
+  assert.equal(demoRedirect.searchParams.get("connection"), demo.connection);
+  assert.equal(demoRedirect.searchParams.get("prompt"), "login");
+  assert.equal(demoRedirect.searchParams.get("max_age"), "0");
+  assert.equal(demoRedirect.searchParams.get("code_challenge_method"), "S256");
+}
 const cookie = response.headers.get("set-cookie") ?? "";
 assert.match(cookie, /httponly/i);
 assert.match(cookie, /samesite=lax/i);

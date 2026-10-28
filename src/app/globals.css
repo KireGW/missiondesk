@@ -137,7 +137,8 @@ a {
 
 .missiondesk-print-title,
 .missiondesk-print-meta,
-.missiondesk-print-generated {
+.missiondesk-print-generated,
+.missiondesk-print-only {
   display: none;
 }
 
@@ -193,6 +194,7 @@ a {
 
   .missiondesk-print-actions,
   .missiondesk-print-remove,
+  .missiondesk-print-screen-only,
   .missiondesk-summary-label,
   .missiondesk-print-panel .missiondesk-print-screen-header,
   .missiondesk-print-panel .missiondesk-print-screen-header * {
@@ -202,7 +204,8 @@ a {
 
   .missiondesk-print-panel .missiondesk-print-title,
   .missiondesk-print-panel .missiondesk-print-meta,
-  .missiondesk-print-panel .missiondesk-print-generated {
+  .missiondesk-print-panel .missiondesk-print-generated,
+  .missiondesk-print-panel .missiondesk-print-only {
     display: block !important;
     visibility: visible !important;
   }
@@ -236,6 +239,20 @@ a {
     background: transparent !important;
     padding: 0 !important;
     margin-top: 2px !important;
+  }
+
+  .personal-desk .missiondesk-print-item {
+    display: block !important;
+  }
+
+  .personal-desk .missiondesk-print-source {
+    overflow-wrap: anywhere;
+    font-size: 8pt;
+  }
+
+  .personal-desk .missiondesk-print-item h3 a {
+    color: inherit !important;
+    text-decoration: none !important;
   }
 
   .missiondesk-print-panel h2 {

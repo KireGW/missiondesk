@@ -1,7 +1,8 @@
 import { getAccessMode } from "@/lib/product/config";
 import { getPersonalAccount } from "@/lib/product/account";
-import { parsePersonalPreferences } from "@/lib/product/profiles";
-import { savePersonalPreferences } from "@/lib/product/preferences-store";
+import { interfaceLanguagesForProfile, parsePersonalPreferences } from "@/lib/product/profiles";
+import { getPersonalSessionIdentity } from "@/lib/product/auth";
+import { getPersonalPreferences, savePersonalPreferences } from "@/lib/product/preferences-store";
 
 const headers = { "Cache-Control": "private, no-store" };
 const reply = (status: number, error: string) => Response.json({ error }, { status, headers });
@@ -30,8 +31,14 @@ export async function PATCH(request: Request) {
   } finally { reader.releaseLock(); }
   let value: unknown;
   try { value = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { return reply(400, "invalid_profile"); }
-  const preferences = parsePersonalPreferences(value);
+  const previous = await getPersonalPreferences(account.id);
+  const preferences = parsePersonalPreferences(value, previous.contentLanguage);
   if (!preferences) return reply(400, "invalid_profile");
+  if (preferences.homeCountry !== previous.homeCountry || preferences.targetCountry !== previous.targetCountry) {
+    return reply(400, "station_read_only");
+  }
+  const identity = await getPersonalSessionIdentity();
+  if (!interfaceLanguagesForProfile(identity?.interfaceProfile).includes(preferences.language)) return reply(400, "interface_language_not_available");
   if (!await savePersonalPreferences(account.id, preferences)) return reply(403, "profile_not_saved");
   return Response.json({ preferences }, { headers });
 }
