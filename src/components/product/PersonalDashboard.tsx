@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ClipboardList, ExternalLink, Flag, Info, Loader2, Moon, Newspaper, Printer, Radar, RefreshCw, Search, Settings, Star, Sun, Trash2, X } from "lucide-react";
+import { ClipboardList, ExternalLink, Flag, Info, Library, Loader2, Moon, Newspaper, Printer, Radar, RefreshCw, Search, Settings, Star, Sun, Trash2, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { IntelligenceCategory, IntelligenceItem } from "@/lib/types";
 import type { PersonalFeed } from "@/lib/product/feed";
@@ -89,6 +89,7 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
         <div className="flex items-center gap-2">
           <span className="mr-2 text-xs text-[var(--app-positive)]">{plan === "free" ? t.free : "Premium"}</span>
           <IconButton label={t.theme} icon={light ? Sun : Moon} onClick={() => setLight(!light)} />
+          <a href="/account/sources" title={t.sources} aria-label={t.sources} className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-[var(--app-line)] hover:border-[var(--app-accent)]"><Library className="h-4 w-4" /></a>
           <a href="/account" title={t.account} aria-label={t.account} className="inline-flex h-10 items-center gap-2 rounded-md border border-[var(--app-line)] px-3 text-sm hover:border-[var(--app-accent)]">
             <Settings className="h-4 w-4" /><span>{t.account}</span>
           </a>

@@ -19,6 +19,7 @@
     "personal:smoke": "node scripts/run-personal-test.mjs smoke",
     "smoke:personal-env": "node scripts/smoke-personal-env.mjs",
     "smoke:personal-profiles": "node --experimental-test-module-mocks --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-personal-profiles.ts",
+    "smoke:profile-sources": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-profile-sources.ts",
     "smoke:auth0-setup": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-auth0-setup.ts",
     "smoke:product": "node --experimental-test-module-mocks --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-product.ts",
     "smoke:postgres": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-postgres.ts",

@@ -200,6 +200,18 @@ Personvyn behåller aktuella signaler, separat prioritering, lokal signalspårni
 
 Verifiering i riktig webbsession 2026-10-27: Norge och norska bokmål sparades via kontoformuläret och fanns kvar efter omladdning. Den norska vyn laddade 26 riktiga, redan sparade nyheter med korrekt märkning av originalspråket. Prioritering och val till mötesunderlag fungerade; den valda signalen visades i mötesvyn med utskriftsknappen aktiverad. Ingen faktisk utskrift startades. De ursprungliga valen Sverige/svenska återställdes och verifierades efter omladdning. Endast testkontots profilinställningar ändrades; inga motorjobb eller LLM-/socialanrop startades.
 
+#### Separat Norsk Källmall
+
+`/account/sources` visar startmallar för den inloggade, aktiva personprofilen. Norge–Mexiko kan även förhandsgranskas med `?home=NO`, utan att kontots sparade profil ändras. Gränssnittsspråk kan förhandsgranskas med `lang=sv` eller `lang=nb`. Endast dessa fasta värden accepteras; inga godtyckliga källadresser eller konto-id:n tas emot.
+
+Den norska mallen innehåller 16 poster: 5 befintliga publiceringskällor, 10 nya offentliga förslag och 1 låst social Premium-kandidat. Källorna och kontrollanteckningarna ligger i `src/lib/product/source-catalog.ts`; bakgrund och officiella länkar finns i [källgranskningen](docs/norway-mexico-sources.md). Dessa förslag är avsiktligt inte körbara `SourceDefinition`-objekt och registreras inte i den svenska motorns globala källtabell.
+
+Nyheter, reseinformation, referenser och statistik skiljs åt. Blockerade arkiv, dynamiska listor och det blandade regerings-RSS-flödet har tydliga granskningsnoteringar. En fungerande webblänk är inte ett godkänt automatiskt artikeluttag. X-kontot är endast en officiellt länkad kandidat, inte en anslutning eller verifierad API-källa.
+
+Ingen ny automatisk hämtning, AI-bearbetning eller social API-användning aktiveras. Personflödet fortsätter använda sina fem tidigare publiceringskällor. Organisationssparade källval och teknisk anslutning av godkända nya källor återstår. `npm run smoke:profile-sources` verifierar att mallarna är separata, att ändringar i en förhandsvisning inte ändrar andra mallar eller motorns standardkällor, samt att sociala förslag förblir låsta.
+
+Granskningsvyn är verifierad i den riktiga testsessionen på dator samt vid 390 och 320 pixlars bredd. Norsk mall visar 16 poster och svensk personmall 5. Navigering mellan konto och källvy fungerar, och förhandsvisning av land/språk ändrade inte kontots sparade Sverige/svenska-inställningar. Anonym åtkomst går till inloggning och legacy-installationen visar inte den nya personvyn. Bygge, lint och regressionssviter passerar. Produktionsinställningar och den svenska motorns källista är oförändrade.
+
 `npm run smoke:personal-env` testar skyddsräckena utan nätverk eller databas. Använd inte äldre Neon OAuth-återkopplingslänkar: CLI:ns korta väntetid gör dem ogiltiga när den lokala mottagaren stängts. Slutför i stället aktuell CLI-inloggning direkt i en vanlig lokal terminal.
 
 ### Lägeskontroll 2026-10-27

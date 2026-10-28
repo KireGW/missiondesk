@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, LogIn, LogOut, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Library, LogIn, LogOut, ShieldCheck } from "lucide-react";
 import { getAccessMode, authConfigurationReady } from "@/lib/product/config";
 import { getPersonalAccount } from "@/lib/product/account";
 import { effectivePlan } from "@/lib/product/plans";
@@ -43,6 +43,7 @@ export default async function AccountPage() {
           ) : (
             <>
               {account.status === "active" && <ProfileSettings preferences={preferences} />}
+              {account.status === "active" && <Link href={{ pathname: "/account/sources" }} className="mt-5 inline-flex min-h-11 items-center gap-2 text-sm text-[var(--app-accent)]"><Library className="h-4 w-4" />{t.sources}</Link>}
               <dl className="mt-6 divide-y divide-[var(--app-line)] text-sm">
                 {account.status === "suspended" && <div className="py-3 text-[var(--app-warning)]">{t.suspended}</div>}
                 <div className="flex flex-wrap justify-between gap-3 py-3"><dt>{t.subscription}</dt><dd>{plan!.id === "free" ? t.free : "Premium"}</dd></div>
