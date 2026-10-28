@@ -37,6 +37,7 @@ const loginUrl = new URL(usernameLogin.loginUrl, authEnv.APP_BASE_URL);
 assert.equal(loginUrl.searchParams.get("connection"), "Managed-Users");
 assert.equal(loginUrl.searchParams.get("prompt"), "login");
 assert.equal(loginUrl.searchParams.get("max_age"), "0");
+assert.equal(loginUrl.searchParams.get("returnTo"), "/", "Username login must return to the news feed, not account settings");
 for (const overrides of [{ MISSIONDESK_ACCESS_MODE: "legacy" }, { MISSIONDESK_USERNAME_CONNECTION: "" },
   { MISSIONDESK_USERNAME_CONNECTION: "bad/connection" }, { AUTH0_SECRET: "" }]) {
   assert.equal(getUsernameLogin({ ...usernameEnv, ...overrides }), null);
@@ -202,6 +203,9 @@ try {
     assert.equal(options.revalidate, 900); return fn;
   } } });
   mock.module("@auth0/nextjs-auth0/server", { namedExports: { Auth0Client: class {
+    constructor(options: { signInReturnToPath: string }) {
+      assert.equal(options.signInReturnToPath, "/", "The default sign-in destination must also be the home page");
+    }
     async getSession() { return identity; }
     async middleware() { return new Response("auth-handler"); }
   } } });

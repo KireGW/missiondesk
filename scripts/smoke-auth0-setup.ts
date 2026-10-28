@@ -25,6 +25,7 @@ assert.ok(redirect.searchParams.get("state"));
 assert.ok(redirect.searchParams.get("nonce"));
 const demo = getUsernameLogin();
 if (demo) {
+  assert.equal(new URL(demo.loginUrl, values.APP_BASE_URL).searchParams.get("returnTo"), "/");
   const demoResponse = await auth.middleware(new NextRequest(`${values.APP_BASE_URL}${demo.loginUrl}`));
   const demoRedirect = new URL(demoResponse.headers.get("location")!);
   assert.equal(demoRedirect.hostname, values.AUTH0_DOMAIN);

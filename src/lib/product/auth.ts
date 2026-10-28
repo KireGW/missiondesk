@@ -10,6 +10,7 @@ export function getPersonalAuth() {
   if (getAccessMode() !== "personal" || !authConfigurationReady()) return null;
   client ??= new Auth0Client({
     appBaseUrl: process.env.APP_BASE_URL,
+    signInReturnToPath: "/",
     authorizationParameters: { scope: "openid profile email" },
     session: { rolling: false, absoluteDuration: 60 * 60 * 12, cookie: { name: "missiondesk_session" } },
     enableAccessTokenEndpoint: false,

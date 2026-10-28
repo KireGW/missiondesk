@@ -7,7 +7,7 @@ export function getUsernameLogin(env: Readonly<Record<string, string | undefined
       !/^[a-zA-Z0-9][a-zA-Z0-9-]{0,126}[a-zA-Z0-9]$/.test(connection)) return null;
   return {
     connection,
-    loginUrl: `/auth/login?${new URLSearchParams({ connection, prompt: "login", max_age: "0", returnTo: "/account" })}`,
+    loginUrl: `/auth/login?${new URLSearchParams({ connection, prompt: "login", max_age: "0", returnTo: "/" })}`,
   };
 }
 
