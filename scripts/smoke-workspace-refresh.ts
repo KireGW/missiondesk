@@ -2,21 +2,44 @@ import assert from "node:assert/strict";
 import { mock } from "node:test";
 import { workspaceSources } from "../src/lib/product/workspace-pilot-sources";
 import { getProfileSourceCatalog } from "../src/lib/product/source-catalog";
-import { referencePageHash, parsePilotFeed, fetchPilotFeed } from "../src/lib/product/workspace-ingestion";
+import { referencePageHash, parsePilotFeed, fetchPilotFeed, fetchPublicText } from "../src/lib/product/workspace-ingestion";
 import { evaluateCandidate } from "../src/lib/product/workspace-candidates";
+import { personalMessages, workspaceRefreshMessage } from "../src/lib/product/messages";
+import { refreshWorkspaceStep, type WorkspaceRefreshResult } from "../src/lib/product/workspace-refresh";
+import type { Pool } from "pg";
 
 assert.equal(workspaceSources.length,33);
 assert.deepEqual(new Set(workspaceSources.map(s=>s.id)),new Set(getProfileSourceCatalog("NO").sources.filter(s=>s.publication!=="premium_locked").map(s=>s.id)));
-assert.equal(workspaceSources.filter(s=>s.mode==="rss").length,13);
-assert.equal(workspaceSources.filter(s=>s.mode==="page").length,12);
-assert.equal(workspaceSources.filter(s=>s.mode==="paused").length,8);
+assert.equal(workspaceSources.filter(s=>s.mode==="rss").length,12);
+assert.equal(workspaceSources.filter(s=>s.mode==="page").length,5);
+assert.equal(workspaceSources.filter(s=>s.mode==="paused").length,16);
 for(const s of workspaceSources) assert.equal(new URL(s.feedUrl).protocol,"https:");
+const reviewed=getProfileSourceCatalog("NO").sources;
+for(const source of workspaceSources.filter(s=>s.mode==="paused")) {
+  const note=reviewed.find(s=>s.id===source.id)!;
+  assert.ok(note.reviewedOn);
+  for(const language of ["sv","nb","es","en"] as const) assert.ok(note.review[language]);
+  assert.match(note.review.en,/HTTP 403|calendar events|timed out/,"Every paused source must have an explicit documented reason");
+}
+for(const language of ["sv","nb","es","en"] as const) {
+  const t=personalMessages(language);
+  const result: WorkspaceRefreshResult={state:"complete",processed:17,total:17,partial:true};
+  assert.equal(workspaceRefreshMessage(language,result),t.scanPartial);
+  assert.equal(workspaceRefreshMessage(language,{...result,partial:false}),t.scanComplete);
+  assert.equal(workspaceRefreshMessage(language,{...result,state:"reused"}),t.scanReused,"Old partial runs must not append a source warning");
+  assert.equal(workspaceRefreshMessage(language,{...result,state:"busy"}),t.scanBusy);
+  assert.equal(workspaceRefreshMessage(language,{...result,state:"progress",processed:1}),`${t.scanProgress}: 1/17`);
+  for(const state of ["complete","reused","busy","progress"] as const)
+    assert.doesNotMatch(workspaceRefreshMessage(language,{...result,state}),/error|problem|källfel|kildefeil|hämtningsfel|innhentingsfeil/i);
+  assert.notEqual(t.refreshError,t.scanPartial,"An application failure must remain distinct from a partial source check");
+}
 const body="Official public travel information about the countries monitored by this mission. ".repeat(3);
 assert.equal(referencePageHash(`<html><title>Advice</title><nav>one</nav><main>${body}</main><script>one()</script></html>`),referencePageHash(`<html><title>Advice</title><nav>two</nav><main>${body}</main><script>two()</script></html>`));
 assert.notEqual(referencePageHash(`<main>${body}</main>`),referencePageHash(`<main>${body}Changed advice</main>`));
 assert.throws(()=>referencePageHash("<html><title>Just a moment...</title><main>Challenge</main></html>"));
 assert.throws(()=>referencePageHash("<html><main>Empty</main></html>"));
-const government=workspaceSources.find(s=>s.id==="no-mx-ud-news")!;
+const government={...workspaceSources.find(s=>s.id==="no-mx-ud-news")!,mode:"rss" as const};
+assert.equal(workspaceSources.find(s=>s.id===government.id)!.mode,"paused");
 const calendar=parsePilotFeed(`<rss><channel><item><title>Norge Mexico minister</title><link>https://${government.host}/no/dep/kalender/event/</link><pubDate>${new Date().toUTCString()}</pubDate></item></channel></rss>`,government).items[0];
 assert.equal(calendar.contentKind,"reference");
 assert.equal(evaluateCandidate(calendar,{id:"fixture",homeCountry:"NO",countries:["MX"]}).status,"held");
@@ -24,12 +47,47 @@ assert.equal(parsePilotFeed(`<rss><channel><item><title>Mexico trade</title><lin
 assert.throws(()=>parsePilotFeed('<!DOCTYPE rss [<!ENTITY external SYSTEM "file:///etc/passwd">]><rss><channel/></rss>',government));
 const fetchBefore=globalThis.fetch;
 try {
+  const embassy=workspaceSources.find(s=>s.id==="no-mx-embassy-news")!;
+  assert.equal(embassy.mode,"paused");
+  let blockedCalls=0;
+  globalThis.fetch=async()=>{blockedCalls++;return new Response(null,{status:403});};
+  await assert.rejects(()=>fetchPublicText(embassy),/Source is paused/);
+  assert.equal(blockedCalls,0,"A paused source must never trigger a scan request");
+  await assert.rejects(()=>fetchPublicText({...embassy,mode:"page"}),/Source HTTP 403/);
+  assert.equal(blockedCalls,1,"An audit must report an access denial without retrying or bypassing it");
+  assert.equal(embassy.mode,"paused","A diagnostic request must not enable the source");
   let redirects=0;
   globalThis.fetch=async()=>{redirects++;return new Response(null,{status:302,headers:{Location:"https://untrusted.example/"}});};
   await assert.rejects(()=>fetchPilotFeed(government),/Cross-host redirect denied/);
   assert.equal(redirects,1);
   globalThis.fetch=async()=>new Response(new Uint8Array(2_000_001));
   await assert.rejects(()=>fetchPilotFeed(government),/2 MB/);
+} finally {globalThis.fetch=fetchBefore;}
+
+// An older in-progress run may still contain a source that has since been reviewed and paused.
+const run={id:"run",status:"running",source_ids:[government.id],completed_source_ids:[] as string[],report:[]};
+let savedReport: Array<{source:string;skipped?:boolean;error?:string}>=[];
+let released=0;
+const db={connect:async()=>({release:()=>released++,query:async(sql:string,params:unknown[]=[])=>{
+  if(sql.includes("current_user")) return {rows:[{role:"missiondesk_personal_app"}]};
+  if(sql.includes("FROM product_workspaces w")) return {rows:[{id:"workspace",home_country:"NO",countries:["MX"]}]};
+  if(sql.includes("SELECT s.source_id")) return {rows:[{source_id:government.id},{source_id:"no-mx-noref"}]};
+  if(sql.includes("INSERT INTO product_workspace_scan_runs")) assert.deepEqual(JSON.parse(params[2] as string),["no-mx-noref"],"Reviewed holds must be excluded even before database configuration is synchronized");
+  if(sql.includes("SELECT * FROM product_workspace_scan_runs")) return {rows:[run]};
+  if(sql.includes("UPDATE product_workspace_scan_runs")) {
+    savedReport=JSON.parse(params[2] as string);
+    assert.equal(params[3],"completed","An intentional pause must not mark the run partial");
+  }
+  return {rows:[]};
+}})} as unknown as Pool;
+try {
+  globalThis.fetch=async()=>{throw new Error("Paused sources must not be fetched");};
+  const result=await refreshWorkspaceStep("account","NO",db);
+  assert.deepEqual(result,{state:"complete",processed:1,total:1,partial:false});
+  assert.deepEqual(savedReport,[{source:government.id,skipped:true}]);
+  run.status="partial";
+  assert.deepEqual(await refreshWorkspaceStep("account","NO",db),{state:"reused",processed:1,total:1,partial:true},"Historical partial status must be retained for diagnostics");
+  assert.equal(released,2);
 } finally {globalThis.fetch=fetchBefore;}
 
 let account:{id:string;status:string}|null=null;
@@ -39,7 +97,7 @@ class Denied extends Error {}
 mock.module(new URL("../src/lib/product/account.ts",import.meta.url),{namedExports:{getPersonalAccount:async()=>account}});
 mock.module(new URL("../src/lib/product/preferences-store.ts",import.meta.url),{namedExports:{getPersonalPreferences:async()=>({homeCountry:"NO"})}});
 mock.module(new URL("../src/lib/product/workspace-refresh.ts",import.meta.url),{namedExports:{WorkspaceRefreshDenied:Denied,
-  refreshWorkspaceStep:async(id:string,country:string)=>{calls++;assert.equal(id,"trusted-account");assert.equal(country,"NO");if(failure)throw failure;return {state:"progress",processed:1,total:25,partial:false};}}});
+  refreshWorkspaceStep:async(id:string,country:string)=>{calls++;assert.equal(id,"trusted-account");assert.equal(country,"NO");if(failure)throw failure;return {state:"progress",processed:1,total:17,partial:false};}}});
 const route=await import("../src/app/api/personal/feed/refresh/route");
 assert.equal("GET" in route,false,"GET must never start a scan");
 const keys=["MISSIONDESK_ACCESS_MODE","MISSIONDESK_WORKSPACE_PILOT","MISSIONDESK_WORKSPACE_REFRESH","APP_BASE_URL"];
@@ -58,7 +116,7 @@ try {
   for(const body of ["{invalid","[]","null",'{"workspaceId":"other"}','{"force":true}','{"url":"https://untrusted.example"}']) assert.equal((await route.POST(request(body))).status,400);
   assert.equal(calls,0,"Rejected requests must not reach the scan worker");
   const response=await route.POST(request());assert.equal(response.status,200);assert.equal(response.headers.get("cache-control"),"private, no-store");
-  assert.deepEqual(await response.json(),{state:"progress",processed:1,total:25,partial:false});
+  assert.deepEqual(await response.json(),{state:"progress",processed:1,total:17,partial:false});
   failure=new Denied();assert.equal((await route.POST(request())).status,403);
   failure=new Error("Private database detail");const unavailable=await route.POST(request());assert.equal(unavailable.status,503);assert.deepEqual(await unavailable.json(),{error:"refresh_unavailable"});
 } finally {for(const key of keys) if(saved[key]===undefined) delete process.env[key];else process.env[key]=saved[key];mock.restoreAll();}

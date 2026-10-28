@@ -14,6 +14,7 @@ let memberships = [workspace];
 let connects = 0;
 let releases = 0;
 let fail = false;
+let sourceRows = [{ id: "fixture", fetch_mode: "rss", last_success_at: new Date("2026-10-27T11:00:00Z"), truncated: true, last_error: null as string | null, changed_at: null as Date | null }];
 mock.module(new URL("../src/lib/product/store.ts", import.meta.url), { namedExports: {
   getProductPool: () => ({ connect: async () => {
     connects++;
@@ -29,7 +30,7 @@ mock.module(new URL("../src/lib/product/store.ts", import.meta.url), { namedExpo
           language: "es", url: "https://fixture.example/a", score: 65, published_at: new Date("2026-10-27T10:00:00Z"), countries: ["GT"] }] };
       }
       if (sql.includes("COUNT(*)")) return { rows: [{ count: 3 }] };
-      if (sql.includes("FROM product_public_sources")) return { rows: [{ id: "fixture", last_success_at: new Date("2026-10-27T11:00:00Z"), truncated: true, last_error: null }] };
+      if (sql.includes("FROM product_public_sources")) return { rows: sourceRows };
       return { rows: [] };
     } };
   } }),
@@ -79,6 +80,12 @@ try {
     await assert.rejects(() => addWorkspaceFeed("server-account", mode === "mismatch" ? { ...preferences, homeCountry: "SE" } : preferences, feed));
     assert.equal(calls.at(-1)?.sql, "ROLLBACK");
   }
+  const { readWorkspaceSourceStatus }=await import("../src/lib/product/workspace-source-status");
+  sourceRows=[...sourceRows,{id:"no-mx-ud-advisory",fetch_mode:"page",last_success_at:new Date("2026-10-26T10:00:00Z"),truncated:false,last_error:"Source HTTP 403",changed_at:new Date("2026-10-26T10:00:00Z")}];
+  calls.length=0;
+  const statuses=await readWorkspaceSourceStatus("server-account");
+  assert.deepEqual(statuses.find(source=>source.id==="no-mx-ud-advisory"),{id:"no-mx-ud-advisory",connected:true,attention:true,mode:"paused",changed:false},"The source list must reflect the scanner's effective pause without discarding diagnostic history");
+  assert.deepEqual(calls[1],{sql:"SELECT set_config('missiondesk.account_id',$1,true)",values:["server-account"]});
   assert.equal(connects, releases, "Every pooled connection must be released");
   assert.equal(feed.items.length, 30, "The shared baseline must not be mutated");
 } finally {

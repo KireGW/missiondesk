@@ -27,6 +27,7 @@
     "workspace:search-verify": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/verify-workspace-search.ts",
     "workspace:verify": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/verify-workspace-pilot.ts",
     "workspace:scan": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/scan-workspace-pilot.ts",
+    "workspace:audit": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/audit-workspace-sources.ts",
     "smoke:auth0-setup": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-auth0-setup.ts",
     "smoke:managed-account": "node --experimental-test-module-mocks scripts/smoke-managed-account.mjs",
     "smoke:pilot-access": "node --experimental-test-module-mocks --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-pilot-access.ts",

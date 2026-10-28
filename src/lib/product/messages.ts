@@ -1,5 +1,6 @@
 import type { IntelligenceCategory } from "@/lib/types";
 import type { PersonalLanguage } from "@/lib/product/profiles";
+import type { WorkspaceRefreshResult } from "@/lib/product/workspace-refresh";
 
 const sv = {
   filterCurrent: "Filtrera aktuella signaler", filterPrioritized: "Filtrera prioriterade signaler",
@@ -7,7 +8,7 @@ const sv = {
   previousPage: "Föregående sida", nextPage: "Nästa sida", searchPages: "Sökresultatens sidor", page: "Sida",
   sourceUnavailable: "Hämtningsfel · manuell kontroll behövs",
   workspaceInfo: "Nyheter från anslutna RSS-källor väljs separat för din arbetsyta med regler, inte AI. Originaltexten översätts inte. Uppdatera flödet kan starta en gemensam körning per arbetsyta och kalenderdygn i Mexico City. Fler klick visar dagens resultat eller återupptar en avbruten körning. Referenssidor och reseinformation ändringsbevakas utan att bli nyhetsartiklar. Pausade och begränsade källor framgår i källistan. Inga LLM- eller sociala API-anrop startas.",
-  refreshFeed: "Uppdatera flödet", scanProgress: "Kontrollerar källor", scanComplete: "Uppdateringen är klar.", scanPartial: "Klart med vissa källfel. Se källistan.", scanReused: "Dagens körning är redan klar. Visar sparat resultat.", scanBusy: "En uppdatering pågår. Visar senast sparat material.",
+  refreshFeed: "Uppdatera flödet", scanProgress: "Kontrollerar källor", scanComplete: "Uppdateringen är klar.", scanPartial: "Källkontrollen är klar. Visar tillgängligt material.", scanReused: "Dagens körning är redan klar. Visar sparat resultat.", scanBusy: "En uppdatering pågår. Visar senast sparat material.",
   sourcePageMonitor: "Ändringsbevakning · inte nyhetsuttag", sourcePaused: "Pausad · manuell kontroll krävs", sourceWaiting: "Ansluten · väntar första kontroll", sourceChanged: "Ändring upptäckt · öppna originalkällan",
   heldCandidates: "Kandidater som behållits för senare bedömning", sourceAttention: "Vissa källor behöver kontrolleras i källförteckningen.",
   sourcePilotConnected: "Ansluten i testflödet", sourcePilotLimited: "Begränsat flöde eller hämtningsfel",
@@ -57,7 +58,7 @@ const nb: typeof sv = {
   previousPage: "Forrige side", nextPage: "Neste side", searchPages: "Søkeresultatsider", page: "Side",
   sourceUnavailable: "Innhentingsfeil · manuell kontroll nødvendig",
   workspaceInfo: "Nyheter fra tilkoblede RSS-kilder velges separat for arbeidsområdet ditt med regler, ikke KI. Originalteksten oversettes ikke. Oppdater strømmen kan starte én felles kjøring per arbeidsområde og kalenderdøgn i Mexico City. Flere klikk viser dagens resultat eller fortsetter en avbrutt kjøring. Referansesider og reiseinformasjon overvåkes for endringer uten å bli nyhetsartikler. Kildelisten viser kilder som er satt på pause eller begrenset. Ingen KI- eller sosiale API-kall startes.",
-  refreshFeed: "Oppdater strømmen", scanProgress: "Kontrollerer kilder", scanComplete: "Oppdateringen er ferdig.", scanPartial: "Ferdig med enkelte kildefeil. Se kildelisten.", scanReused: "Dagens kjøring er allerede ferdig. Viser lagret resultat.", scanBusy: "En oppdatering pågår. Viser sist lagret materiale.",
+  refreshFeed: "Oppdater strømmen", scanProgress: "Kontrollerer kilder", scanComplete: "Oppdateringen er ferdig.", scanPartial: "Kildekontrollen er ferdig. Viser tilgjengelig materiale.", scanReused: "Dagens kjøring er allerede ferdig. Viser lagret resultat.", scanBusy: "En oppdatering pågår. Viser sist lagret materiale.",
   sourcePageMonitor: "Endringsovervåking · ikke nyhetsuttrekk", sourcePaused: "Satt på pause · krever manuell kontroll", sourceWaiting: "Tilkoblet · venter på første kontroll", sourceChanged: "Endring oppdaget · åpne originalkilden",
   heldCandidates: "Kandidater beholdt for senere vurdering", sourceAttention: "Noen kilder må kontrolleres i kildelisten.",
   sourcePilotConnected: "Tilkoblet teststrømmen", sourcePilotLimited: "Begrenset strøm eller innhentingsfeil",
@@ -107,7 +108,7 @@ const en: typeof sv = {
   previousPage: "Previous page", nextPage: "Next page", searchPages: "Search result pages", page: "Page",
   sourceUnavailable: "Retrieval failed · manual check needed",
   workspaceInfo: "News from connected RSS sources is selected separately for your workspace using rules, not AI. Original text is not translated. Refresh feed can start one shared run per workspace and Mexico City calendar day. Further clicks show today's result or resume an interrupted run. Reference pages and travel advice are monitored for changes, not published as news articles. Paused or limited sources are marked in the source list. No LLM or social API calls are started.",
-  refreshFeed: "Refresh feed", scanProgress: "Checking sources", scanComplete: "Update complete.", scanPartial: "Complete with some source errors. See the source list.", scanReused: "Today's run is already complete. Showing saved results.", scanBusy: "An update is in progress. Showing the latest saved material.",
+  refreshFeed: "Refresh feed", scanProgress: "Checking sources", scanComplete: "Update complete.", scanPartial: "Source check complete. Showing available material.", scanReused: "Today's run is already complete. Showing saved results.", scanBusy: "An update is in progress. Showing the latest saved material.",
   sourcePageMonitor: "Change monitoring · not news extraction", sourcePaused: "Paused · manual review required", sourceWaiting: "Connected · awaiting first check", sourceChanged: "Change detected · open the original source",
   heldCandidates: "Candidates retained for later review", sourceAttention: "Some sources need review in the source list.",
   sourcePilotConnected: "Connected to test feed", sourcePilotLimited: "Limited feed or retrieval error",
@@ -157,7 +158,7 @@ const es: typeof sv = {
   previousPage: "Página anterior", nextPage: "Página siguiente", searchPages: "Páginas de resultados", page: "Página",
   sourceUnavailable: "Error de extracción · requiere revisión manual",
   workspaceInfo: "Las noticias de fuentes RSS conectadas se seleccionan por separado para tu espacio mediante reglas, no IA. No se traduce el texto original. Actualizar flujo puede iniciar una ejecución compartida por espacio y día calendario de Ciudad de México. Más clics muestran el resultado del día o reanudan una ejecución interrumpida. Se vigilan cambios en páginas de referencia e información de viaje, sin publicarlas como noticias. Las fuentes pausadas o limitadas se indican en la lista. No se inician llamadas a LLM ni API sociales.",
-  refreshFeed: "Actualizar flujo", scanProgress: "Comprobando fuentes", scanComplete: "Actualización completada.", scanPartial: "Completado con errores en algunas fuentes. Consulta la lista.", scanReused: "La ejecución de hoy ya terminó. Se muestran resultados guardados.", scanBusy: "Hay una actualización en curso. Se muestra el último material guardado.",
+  refreshFeed: "Actualizar flujo", scanProgress: "Comprobando fuentes", scanComplete: "Actualización completada.", scanPartial: "Comprobación de fuentes completada. Se muestra el material disponible.", scanReused: "La ejecución de hoy ya terminó. Se muestran resultados guardados.", scanBusy: "Hay una actualización en curso. Se muestra el último material guardado.",
   sourcePageMonitor: "Seguimiento de cambios · sin extracción de noticias", sourcePaused: "Pausada · requiere revisión manual", sourceWaiting: "Conectada · pendiente de primera comprobación", sourceChanged: "Cambio detectado · abre la fuente original",
   heldCandidates: "Candidatos conservados para una revisión posterior", sourceAttention: "Algunas fuentes requieren revisión en la lista de fuentes.",
   sourcePilotConnected: "Conectada al flujo de prueba", sourcePilotLimited: "Flujo limitado o error de extracción",
@@ -203,6 +204,14 @@ const es: typeof sv = {
 
 const messages: Readonly<Record<PersonalLanguage, typeof sv>> = { sv, nb, es, en };
 export const personalMessages = (language: PersonalLanguage) => messages[language];
+
+export function workspaceRefreshMessage(language: PersonalLanguage, result: WorkspaceRefreshResult) {
+  const t = personalMessages(language);
+  if (result.state === "progress") return `${t.scanProgress}: ${result.processed}/${result.total}`;
+  if (result.state === "busy") return t.scanBusy;
+  if (result.state === "reused") return t.scanReused;
+  return result.partial ? t.scanPartial : t.scanComplete;
+}
 
 export function personalDate(value: string | undefined, language: PersonalLanguage) {
   if (!value || !Number.isFinite(Date.parse(value))) return personalMessages(language).notRecorded;

@@ -20,9 +20,11 @@ const feeds: Record<string, string> = {
   "no-bz-love-fm": "https://lovefm.com/feed/",
   "no-bz-press-office": "https://www.pressoffice.gov.bz/feed/",
 };
-// Reviewed access blocks, JS challenges or unavailable origin. Never bypass them.
+// Reviewed access/quality holds. Keep the public links and localized review notes.
 const paused = new Set(["no-mx-embassy-news", "no-mx-innovation", "no-mx-sre", "no-mx-economy",
-  "no-cr-mfa", "no-gt-minex", "no-hn-mfa", "no-sv-mfa"]);
+  "no-cr-mfa", "no-gt-minex", "no-hn-mfa", "no-sv-mfa", "no-mx-ud-news",
+  "no-mx-ud-advisory", "no-ni-ud-advisory", "no-cr-ud-advisory", "no-gt-ud-advisory",
+  "no-hn-ud-advisory", "no-sv-ud-advisory", "no-bz-ud-advisory"]);
 export const workspaceSources: readonly WorkspaceSource[] = getProfileSourceCatalog("NO").sources
   .filter(source => source.publication !== "premium_locked" && source.kind !== "social")
   .map(source => ({ id: source.id, name: source.name, feedUrl: feeds[source.id] ?? source.url,

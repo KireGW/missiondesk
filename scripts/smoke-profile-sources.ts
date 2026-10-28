@@ -51,6 +51,14 @@ for (const source of norwegian.sources) {
   }
 }
 for (const id of ["no-mx-sre", "no-mx-economy"]) assert.match(norwegian.sources.find((source) => source.id === id)!.review.sv, /403/);
+const embassy = norwegian.sources.find((source) => source.id === "no-mx-embassy-news")!;
+assert.equal(embassy.reviewedOn, "2026-10-28");
+for (const language of ["sv", "nb", "es", "en"] as const) {
+  assert.match(embassy.review[language], /HTTP 403/);
+  assert.match(embassy.review[language], /RSS.*Atom/);
+}
+assert.match(embassy.review.en, /no signals are imported/);
+assert.equal(embassy.discoveredFeedUrl, undefined, "An official page link does not establish a working feed");
 assert.match(norwegian.sources.find((source) => source.id === "no-mx-ud-news")!.review.sv, /kalenderposter/);
 assert.equal(norwegian.sources.find((source) => source.id === "no-mx-ssb-trade")!.kind, "reference");
 assert.equal(norwegian.sources.find((source) => source.id === "no-mx-efta")!.kind, "reference");

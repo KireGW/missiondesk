@@ -54,7 +54,8 @@ export async function refreshWorkspaceStep(accountId: string, homeCountry: HomeC
     const nextId=run.source_ids.find((id:string)=>!completed.includes(id));
     if (nextId) {
       const source=workspaceSources.find(source=>source.id===nextId && eligible.includes(source.id));
-      const result: SourceScanReport=source ? await scanPublicSource(client,source) : {source:nextId,error:"Subscription is no longer active"};
+      // A reviewed pause or removed subscription is an intentional skip, not a retrieval failure.
+      const result: SourceScanReport=source ? await scanPublicSource(client,source) : {source:nextId,skipped:true};
       if (result.busy) {await client.query("COMMIT");return {state:"busy",processed:completed.length,total:run.source_ids.length,partial:false};}
       report.push(result);
       completed.push(nextId);

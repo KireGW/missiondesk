@@ -9,7 +9,7 @@ import type { PersonalFeed } from "@/lib/product/feed";
 import { aggregatePersonalSearchItems, normalizePersonalSearchQuery, personalSelectionItems } from "@/lib/product/feed";
 import type { PersonalPreferences } from "@/lib/product/profiles";
 import { personalCategory, personalContent, personalRelevance } from "@/lib/product/profiles";
-import { personalDate, personalMessages } from "@/lib/product/messages";
+import { personalDate, personalMessages, workspaceRefreshMessage } from "@/lib/product/messages";
 import type { PlanId } from "@/lib/product/plans";
 import type { WorkspaceRefreshResult } from "@/lib/product/workspace-refresh";
 import type { WorkspaceSearchPage } from "@/lib/product/workspace-search";
@@ -170,7 +170,7 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
           if (response.status === 401 || response.status === 403) { window.location.assign("/account"); return; }
           if (!response.ok) throw new Error("Refresh unavailable");
           const result = await response.json() as WorkspaceRefreshResult;
-          setFeedback(result.state === "progress" ? `${t.scanProgress}: ${result.processed}/${result.total}` : result.state === "busy" ? t.scanBusy : result.state === "reused" ? `${t.scanReused}${result.partial ? ` ${t.scanPartial}` : ""}` : result.partial ? t.scanPartial : t.scanComplete);
+          setFeedback(workspaceRefreshMessage(preferences.language, result));
           if (result.state !== "progress") break;
           if (step === 34) throw new Error("Refresh step limit reached");
         }

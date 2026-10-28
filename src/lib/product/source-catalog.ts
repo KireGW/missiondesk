@@ -37,33 +37,36 @@ const baselineSources: readonly ProfileSourceProposal[] = mexicoPublication.sour
 const norwegianProposals: readonly ProfileSourceProposal[] = [
   {
     id: "no-mx-embassy-news", name: "Norges ambassade i Mexico", url: "https://www.norway.no/es/mexico/noruega-mexico/news/",
-    language: "es", group: "norway", kind: "news", publication: "proposed", reviewedOn,
+    language: "es", group: "norway", kind: "news", publication: "proposed", reviewedOn: "2026-10-28",
     evidenceUrl: "https://www.norway.no/es/mexico",
     purpose: { sv: "Bilaterala relationer, ambassadens aktiviteter och norsk närvaro i Mexiko och bevakningsländerna i Centralamerika.", nb: "Bilaterale forbindelser, ambassadens aktiviteter og norsk tilstedeværelse i Mexico og overvåkingslandene i Mellom-Amerika.",
       en: "Bilateral relations, embassy activities and Norway's presence in Mexico and the monitored Central American countries.", es: "Relaciones bilaterales, actividades de la embajada y presencia noruega en México y los países de seguimiento de Centroamérica." },
-    review: { sv: "Officiell nyhetssida verifierad via ambassadens webbplats. Landkoppling måste beläggas i originalartikeln och avgränsas till stationens bevakningsländer före publicering.", nb: "Offisiell nyhetsside bekreftet via ambassadens nettsted. Landtilknytning må dokumenteres i originalartikkelen og avgrenses til stasjonens overvåkingsland før publisering.",
-      en: "Official news page verified through the embassy website. Country connections must be evidenced in the original article and limited to the station's monitored countries before publication.",
-      es: "Página oficial de noticias verificada en el sitio de la embajada. Antes de publicar debe comprobarse el vínculo geográfico en el artículo original y limitarse a los países de seguimiento de la sede." },
+    review: { sv: "Adressen är länkad från ambassadens officiella webbplats, men MissionDesks automatiska hämtning gav HTTP 403 vid kontrollen. Inget fungerande RSS-/Atom-flöde har verifierats. Källan förblir pausad och kan tills vidare bara läsas manuellt via länken; inga signaler hämtas härifrån. Automatisk import kräver en fungerande, tillåten anslutning samt kontroll av publiceringsdatum och koppling till stationens bevakningsländer.",
+      nb: "Adressen er lenket fra ambassadens offisielle nettsted, men MissionDesks automatiske innhenting ga HTTP 403 ved kontrollen. Ingen fungerende RSS-/Atom-strøm er bekreftet. Kilden forblir satt på pause og kan inntil videre bare leses manuelt via lenken; ingen signaler hentes herfra. Automatisk import krever en fungerende, tillatt tilkobling samt kontroll av publiseringsdato og tilknytning til stasjonens overvåkingsland.",
+      en: "The address is linked from the embassy's official website, but MissionDesk's automated retrieval returned HTTP 403 during the check. No working RSS/Atom feed has been verified. The source remains paused and is currently available only for manual reading via the link; no signals are imported from it. Automatic import requires a working, permitted connection and verification of publication dates and connections to the station's monitored countries.",
+      es: "La dirección está enlazada desde el sitio oficial de la embajada, pero la consulta automática de MissionDesk devolvió HTTP 403 durante la comprobación. No se ha verificado ningún flujo RSS/Atom que funcione. La fuente sigue pausada y por ahora solo puede leerse manualmente mediante el enlace; no se importan señales de ella. La importación automática requiere una conexión funcional y permitida, además de verificar las fechas de publicación y los vínculos con los países de seguimiento de la sede." },
   },
   {
     id: "no-mx-ud-news", name: "Utenriksdepartementet / Regjeringen.no", url: "https://www.regjeringen.no/no/aktuelt/rss/id2581966/",
     discoveredFeedUrl: "https://www.regjeringen.no/no/rss/Rss/2581966/",
-    language: "nb", group: "norway", kind: "news", publication: "proposed", reviewedOn,
+    language: "nb", group: "norway", kind: "news", publication: "proposed", reviewedOn: "2026-10-28",
     purpose: { sv: "Norsk utrikespolitik med uttrycklig koppling till stationens bevakningsländer.", nb: "Norsk utenrikspolitikk med uttrykkelig tilknytning til stasjonens overvåkingsland.",
       en: "Norwegian foreign policy with an explicit connection to the station's monitored countries.", es: "Política exterior noruega con un vínculo explícito con los países de seguimiento de la sede." },
-    review: { sv: "RSS svarade HTTP 200 och kunde XML-tolkas, men det är ett brett regeringsflöde med bland annat kalenderposter. Departement, innehållstyp, filter för bevakningsländerna och faktiska publiceringsdatum måste verifieras före aktivering.", nb: "RSS svarte HTTP 200 og kunne XML-tolkes, men dette er en bred regjeringsstrøm med blant annet kalenderoppføringer. Departement, innholdstype, filter for overvåkingslandene og faktiske publiseringsdatoer må verifiseres før aktivering.",
-      en: "The RSS returned HTTP 200 and valid XML, but is a broad government feed including calendar entries. Department, content type, monitored-country filtering and actual publication dates must be verified before activation.",
-      es: "El RSS respondió con HTTP 200 y XML válido, pero reúne contenido amplio del gobierno, incluidos eventos. Antes de activarlo deben verificarse la dependencia, el tipo de contenido, el filtro de países de seguimiento y las fechas reales de publicación." },
+    review: { sv: "Pausad efter kvalitetskontroll. RSS svarade HTTP 200, men de första 20 posterna var framtida kalenderposter, inte ett verifierat nyhetsurval från UD. Nyhetssökvägen räcker inte för att skilja innehållstyperna åt. Källan återaktiveras först när departement, innehållstyp, publiceringsdatum och koppling till bevakningsländerna kan verifieras. Sparat material och tidigare granskningshistorik behålls.",
+      nb: "Satt på pause etter kvalitetskontroll. RSS svarte HTTP 200, men de første 20 oppføringene var fremtidige kalenderoppføringer, ikke et bekreftet nyhetsutvalg fra UD. Nyhetsstien alene skiller ikke innholdstypene. Kilden aktiveres først når departement, innholdstype, publiseringsdato og tilknytning til overvåkingslandene kan bekreftes. Lagret materiale og tidligere vurderingshistorikk beholdes.",
+      en: "Paused following a quality review. The RSS returned HTTP 200, but its first 20 entries were future calendar events, not a verified Foreign Ministry news selection. The news URL path alone does not distinguish content types. Reactivation requires verified department, content type, publication dates and monitored-country connections. Saved material and previous review history are retained.",
+      es: "Pausada tras revisar la calidad. El RSS respondió HTTP 200, pero sus primeras 20 entradas eran eventos futuros de calendario, no una selección verificada de noticias del Ministerio de Exteriores. La ruta de noticias no distingue por sí sola los tipos de contenido. La reactivación requiere verificar la dependencia, el tipo de contenido, las fechas de publicación y los vínculos con los países observados. Se conservan el material guardado y el historial de revisión." },
   },
   {
     id: "no-mx-ud-advisory", name: "UD: Mexico – reiseinformasjon",
     url: "https://www.regjeringen.no/no/tema/utenrikssaker/reiseinformasjon/velg-land/reiseinfo_mexico/id2416296/",
-    language: "nb", group: "norway", kind: "advisory", publication: "proposed", reviewedOn,
+    language: "nb", group: "norway", kind: "advisory", publication: "proposed", reviewedOn: "2026-10-28",
     purpose: { sv: "Officiell konsulär information och förändringar i reserekommendationer.", nb: "Offisiell konsulær informasjon og endringer i reiseinformasjonen.",
       en: "Official consular information and changes to travel advice.", es: "Información consular oficial y cambios en las recomendaciones de viaje." },
-    review: { sv: "Officiell Mexikosida verifierad. Bevaka ändringar och sidans uppdateringsdatum; innehållet ska inte återpubliceras som en ny artikel vid varje kontroll.", nb: "Offisiell Mexico-side bekreftet. Overvåk endringer og sidens oppdateringsdato; innholdet skal ikke publiseres som en ny artikkel ved hver kontroll.",
-      en: "Official Mexico page verified. Monitor changes and the page's update date; do not republish unchanged content as a new article on every check.",
-      es: "Página oficial sobre México verificada. Deben observarse los cambios y la fecha de actualización, sin volver a publicar el contenido sin cambios como una noticia nueva en cada revisión." },
+    review: { sv: "Pausad: MissionDesks automatiska hämtning av den officiella Mexikosidan gav HTTP 403. Ändringsbevakningen är därför inte aktiv. Läs råd och uppdateringsdatum manuellt via originallänken. Återaktivering kräver verifierad, tillåten åtkomst; oförändrat referensmaterial ska inte publiceras som nya nyhetssignaler.",
+      nb: "Satt på pause: MissionDesks automatiske innhenting av den offisielle Mexico-siden ga HTTP 403. Endringsovervåkingen er derfor ikke aktiv. Les råd og oppdateringsdato manuelt via originallenken. Aktivering krever bekreftet, tillatt tilgang; uendret referansemateriale skal ikke publiseres som nye nyhetssignaler.",
+      en: "Paused: MissionDesk's automated retrieval of the official Mexico page returned HTTP 403. Change monitoring is therefore not active. Read advice and update dates manually via the original link. Reactivation requires verified, permitted access; unchanged reference material must not be published as new news signals.",
+      es: "Pausada: la consulta automática de MissionDesk a la página oficial de México devolvió HTTP 403. Por ello no está activo el seguimiento de cambios. Consulta manualmente las recomendaciones y fechas mediante el enlace original. La reactivación requiere acceso verificado y permitido; el material de referencia sin cambios no debe publicarse como noticias nuevas." },
   },
   {
     id: "no-mx-ssb-trade", name: "SSB: Utenrikshandel med varer",
@@ -86,12 +89,12 @@ const norwegianProposals: readonly ProfileSourceProposal[] = [
   },
   {
     id: "no-mx-innovation", name: "Innovasjon Norge", url: "https://www.innovasjonnorge.no/seksjon/nyheter",
-    language: "nb", group: "norway", kind: "news", publication: "proposed", reviewedOn,
+    language: "nb", group: "norway", kind: "news", publication: "proposed", reviewedOn: "2026-10-28",
     purpose: { sv: "Norska exportmöjligheter och företagssamarbeten i bevakningsländerna.", nb: "Norske eksportmuligheter og næringssamarbeid i overvåkingslandene.",
       en: "Norwegian export opportunities and business cooperation in the monitored countries.", es: "Oportunidades de exportación noruega y colaboración empresarial en los países de seguimiento." },
-    review: { sv: "Officiell nyhetssida finns, men artikelupptäckt kunde inte verifieras i det läsbara sidinnehållet. Kräver adapterprov och uttryckligt filter för bevakningsländerna; generell norsk näringslivsinformation ska inte fylla flödet.", nb: "Offisiell nyhetsside finnes, men artikkeloppdagelse kunne ikke bekreftes i det lesbare sideinnholdet. Krever adaptertest og uttrykkelig filter for overvåkingslandene; generelle norske næringslivsnyheter skal ikke fylle strømmen.",
-      en: "An official news page exists, but article discovery could not be verified in its readable content. Requires an adapter test and explicit monitored-country filtering; general Norwegian business news must not fill the feed.",
-      es: "Existe una página oficial de noticias, pero no pudo verificarse la detección de artículos en el contenido legible. Requiere probar el adaptador y filtrar los países de seguimiento; las noticias empresariales generales de Noruega no deben llenar el flujo." },
+    review: { sv: "Pausad: omkontrollen gav HTTP 403. Officiell nyhetssida finns, men artikelupptäckt kunde inte verifieras i det läsbara sidinnehållet. Kräver tillåten åtkomst, adapterprov och uttryckligt filter för bevakningsländerna; generell norsk näringslivsinformation ska inte fylla flödet.", nb: "Satt på pause: ny kontroll ga HTTP 403. Offisiell nyhetsside finnes, men artikkeloppdagelse kunne ikke bekreftes i det lesbare sideinnholdet. Krever tillatt tilgang, adaptertest og uttrykkelig filter for overvåkingslandene; generelle norske næringslivsnyheter skal ikke fylle strømmen.",
+      en: "Paused: the latest check returned HTTP 403. An official news page exists, but article discovery could not be verified in its readable content. Requires permitted access, an adapter test and explicit monitored-country filtering; general Norwegian business news must not fill the feed.",
+      es: "Pausada: la nueva comprobación devolvió HTTP 403. Existe una página oficial de noticias, pero no pudo verificarse la detección de artículos en el contenido legible. Requiere acceso permitido, probar el adaptador y filtrar los países de seguimiento; las noticias empresariales generales de Noruega no deben llenar el flujo." },
   },
   {
     id: "no-mx-noref", name: "NOREF", url: "https://noref.no/insights/news",
@@ -105,22 +108,22 @@ const norwegianProposals: readonly ProfileSourceProposal[] = [
   },
   {
     id: "no-mx-sre", name: "Secretaría de Relaciones Exteriores", url: "https://www.gob.mx/sre/archivo/prensa",
-    language: "es", group: "mexico", kind: "news", publication: "proposed", reviewedOn,
+    language: "es", group: "mexico", kind: "news", publication: "proposed", reviewedOn: "2026-10-28",
     evidenceUrl: "https://www.gob.mx/sre/prensa/mexico-norway-qatar-and-switzerland-meet-to-strengthen-cooperation-on-preventive-diplomacy-mediation-and-conflict-resolution?idiom=en",
     purpose: { sv: "Mexikansk utrikespolitik och officiella relationer med Norge.", nb: "Meksikansk utenrikspolitikk og offisielle forbindelser med Norge.",
       en: "Mexican foreign policy and official relations with Norway.", es: "Política exterior mexicana y relaciones oficiales con Noruega." },
-    review: { sv: "Bilateral presskommunikation verifierad, men arkivsidan gav HTTP 403 vid kontrollen. Automatisk listning är inte godkänd och spärren ska inte kringgås.", nb: "Bilateral pressekommunikasjon bekreftet, men arkivsiden ga HTTP 403 ved kontroll. Automatisk listing er ikke godkjent, og sperren skal ikke omgås.",
-      en: "Bilateral press communication verified, but the archive returned HTTP 403 during review. Automated listing is not approved and the restriction must not be bypassed.",
-      es: "Comunicación bilateral de prensa verificada, pero el archivo respondió con HTTP 403 durante la revisión. La consulta automatizada no está aprobada y no debe eludirse la restricción." },
+    review: { sv: "Pausad tills en HTML-nyhetsadapter har verifierats. Bilateral presskommunikation är belagd. Tidigare kontroll gav HTTP 403; omkontrollen gav HTTP 200 och synliga artikellänkar, men automatisk import och datumens tidszon är ännu inte verifierade. Tillåten återgivning behöver också granskas. Åtkomstspärrar kringgås inte.", nb: "Satt på pause til en HTML-nyhetsadapter er bekreftet. Bilateral pressekommunikasjon er dokumentert. Tidligere kontroll ga HTTP 403; ny kontroll ga HTTP 200 og synlige artikkellenker, men automatisk import og datoenes tidssone er ennå ikke bekreftet. Tillatt gjengivelse må også vurderes. Tilgangssperrer omgås ikke.",
+      en: "Paused until an HTML news adapter is verified. Bilateral press communication is evidenced. An earlier check returned HTTP 403; the new check returned HTTP 200 and visible article links, but automated import and the dates' time zone remain unverified. Permitted reproduction also needs review. Access restrictions are not bypassed.",
+      es: "Pausada hasta verificar un adaptador de noticias HTML. Hay evidencia de comunicación bilateral. Una comprobación anterior devolvió HTTP 403; la nueva devolvió HTTP 200 y enlaces visibles a artículos, pero la importación automática y la zona horaria de las fechas siguen sin verificarse. También debe revisarse la reproducción permitida. No se eluden restricciones de acceso." },
   },
   {
     id: "no-mx-economy", name: "Secretaría de Economía", url: "https://www.gob.mx/se/archivo/prensa",
-    language: "es", group: "mexico", kind: "news", publication: "proposed", reviewedOn,
+    language: "es", group: "mexico", kind: "news", publication: "proposed", reviewedOn: "2026-10-28",
     purpose: { sv: "Mexikansk handelspolitik, investeringar och marknadstillträde.", nb: "Meksikansk handelspolitikk, investeringer og markedsadgang.",
       en: "Mexican trade policy, investment and market access.", es: "Política comercial mexicana, inversiones y acceso al mercado." },
-    review: { sv: "Officiellt arkivförslag. Arkivsidan gav HTTP 403 vid kontrollen. Innehållsutvinning är inte verifierad och spärren ska inte kringgås.", nb: "Forslag til offisielt arkiv. Arkivsiden ga HTTP 403 ved kontroll. Innholdsuttrekk er ikke verifisert, og sperren skal ikke omgås.",
-      en: "Proposed official archive. The archive returned HTTP 403 during review. Content extraction is unverified and the restriction must not be bypassed.",
-      es: "Archivo oficial propuesto. Respondió con HTTP 403 durante la revisión. La extracción de contenido no está verificada y no debe eludirse la restricción." },
+    review: { sv: "Pausat officiellt arkiv i väntan på verifierad HTML-nyhetsadapter. Tidigare kontroll gav HTTP 403; omkontrollen gav HTTP 200 med artikellänkar. Det finns ännu ingen verifierad automatisk import med korrekt tolkning av publiceringsdatumens tidszon. Tillåten återgivning behöver granskas och åtkomstspärrar får inte kringgås.", nb: "Offisielt arkiv satt på pause i påvente av en bekreftet HTML-nyhetsadapter. Tidligere kontroll ga HTTP 403; ny kontroll ga HTTP 200 med artikkellenker. Det finnes ennå ingen bekreftet automatisk import med korrekt tolkning av publiseringsdatoenes tidssone. Tillatt gjengivelse må vurderes, og tilgangssperrer skal ikke omgås.",
+      en: "Official archive paused pending a verified HTML news adapter. An earlier check returned HTTP 403; the new check returned HTTP 200 with article links. Automated import with correct interpretation of publication time zones is not yet verified. Permitted reproduction needs review and access restrictions must not be bypassed.",
+      es: "Archivo oficial pausado hasta verificar un adaptador de noticias HTML. Una comprobación anterior devolvió HTTP 403; la nueva devolvió HTTP 200 con enlaces a artículos. Aún no está verificada la importación automática con una interpretación correcta de la zona horaria de publicación. Debe revisarse la reproducción permitida y no deben eludirse restricciones de acceso." },
   },
   {
     id: "no-mx-inegi", name: "INEGI: Sala de prensa", url: "https://www.inegi.org.mx/app/saladeprensa/",
@@ -162,11 +165,17 @@ const regionalOfficialReview: Localized = {
   en: "Official source. Distinguish the authority's own statements from independent reporting and check publication dates, content type, access and terms before any connection.",
   es: "Fuente oficial. Distinguir las declaraciones de la autoridad de la cobertura independiente y comprobar fechas de publicación, tipo de contenido, acceso y condiciones antes de conectarla.",
 };
+const blockedOfficialReview: Localized = {
+  sv: `${regionalOfficialReview.sv} Pausad: automatisk hämtning gav HTTP 403. Använd originallänken för manuell läsning tills tillåten åtkomst har verifierats.`,
+  nb: `${regionalOfficialReview.nb} Satt på pause: automatisk innhenting ga HTTP 403. Bruk originallenken for manuell lesing til tillatt tilgang er bekreftet.`,
+  en: `${regionalOfficialReview.en} Paused: automated retrieval returned HTTP 403. Use the original link for manual reading until permitted access is verified.`,
+  es: `${regionalOfficialReview.es} Pausada: la consulta automática devolvió HTTP 403. Usa el enlace original para lectura manual hasta verificar el acceso permitido.`,
+};
 const regionalAdvisoryReview: Localized = {
-  sv: "Officiell reseinformation. Ändringsbevakning jämför sidans huvudinnehåll och markerar skillnader i källistan, inte i nyhetsflödet. Den första kontrollen skapar en jämförelsebas. Kontrollera alltid originalsidans datum och råd.",
-  nb: "Offisiell reiseinformasjon. Endringsovervåking sammenligner sidens hovedinnhold og markerer forskjeller i kildelisten, ikke i nyhetsstrømmen. Første kontroll oppretter et sammenligningsgrunnlag. Kontroller alltid originalsidens dato og råd.",
-  en: "Official travel advice. Change monitoring compares the page's main content and marks differences in the source list, not the news feed. The first check establishes a baseline. Always check the original page's date and advice.",
-  es: "Información oficial de viaje. El seguimiento compara el contenido principal y señala diferencias en la lista de fuentes, no en las noticias. La primera comprobación establece una referencia. Consultar siempre la fecha y las recomendaciones originales.",
+  sv: "Pausad: MissionDesks automatiska hämtning av denna officiella resesida gav HTTP 403. Ändringsbevakningen är inte aktiv och åtkomstspärren kringgås inte. Läs tills vidare råd och uppdateringsdatum manuellt via originallänken. Verifierad, tillåten åtkomst krävs före återaktivering; referensmaterial ska inte behandlas som nya nyhetsartiklar.",
+  nb: "Satt på pause: MissionDesks automatiske innhenting av denne offisielle reisesiden ga HTTP 403. Endringsovervåkingen er ikke aktiv, og tilgangssperren omgås ikke. Les foreløpig råd og oppdateringsdato manuelt via originallenken. Bekreftet, tillatt tilgang kreves før aktivering; referansemateriale skal ikke behandles som nye nyhetsartikler.",
+  en: "Paused: MissionDesk's automated retrieval of this official travel page returned HTTP 403. Change monitoring is not active and the access restriction is not bypassed. For now, read advice and update dates manually via the original link. Verified, permitted access is required before reactivation; reference material must not be treated as new news articles.",
+  es: "Pausada: la consulta automática de MissionDesk a esta página oficial de viaje devolvió HTTP 403. El seguimiento de cambios no está activo y no se elude la restricción de acceso. Por ahora, consulta manualmente las recomendaciones y fechas mediante el enlace original. La reactivación requiere acceso verificado y permitido; el material de referencia no debe tratarse como noticias nuevas.",
 };
 const regionalAdvisoryPurpose: Localized = {
   sv: "Norska UD:s reseinformation och konsulärt relevanta förändringar.", nb: "Norske UDs reiseinformasjon og konsulært relevante endringer.",
@@ -187,8 +196,8 @@ const regionalPublicProposals: readonly ProfileSourceProposal[] = [
     purpose: { sv: "Engelskspråkiga nyheter om Costa Rica och regionen.", nb: "Engelskspråklige nyheter om Costa Rica og regionen.", en: "English-language news about Costa Rica and the region.", es: "Noticias en inglés sobre Costa Rica y la región." }, review: regionalNewsReview,
   },
   {
-    id: "no-cr-mfa", name: "Cancillería de Costa Rica", url: "https://www.rree.go.cr/", group: "CR", language: "es", kind: "news", publication: "proposed", reviewedOn,
-    purpose: { sv: "Costa Ricas officiella utrikespolitik och diplomatiska meddelanden.", nb: "Costa Ricas offisielle utenrikspolitikk og diplomatiske meldinger.", en: "Costa Rican official foreign policy and diplomatic announcements.", es: "Política exterior oficial y comunicados diplomáticos de Costa Rica." }, review: regionalOfficialReview,
+    id: "no-cr-mfa", name: "Cancillería de Costa Rica", url: "https://www.rree.go.cr/", group: "CR", language: "es", kind: "news", publication: "proposed", reviewedOn: "2026-10-28",
+    purpose: { sv: "Costa Ricas officiella utrikespolitik och diplomatiska meddelanden.", nb: "Costa Ricas offisielle utenrikspolitikk og diplomatiske meldinger.", en: "Costa Rican official foreign policy and diplomatic announcements.", es: "Política exterior oficial y comunicados diplomáticos de Costa Rica." }, review: blockedOfficialReview,
   },
   {
     id: "no-gt-plaza-publica", name: "Plaza Pública", url: "https://plazapublica.com.gt/", group: "GT", language: "es", kind: "news", publication: "proposed", reviewedOn,
@@ -213,8 +222,8 @@ const regionalPublicProposals: readonly ProfileSourceProposal[] = [
     purpose: { sv: "Granskande journalistik om El Salvador och Centralamerika.", nb: "Undersøkende journalistikk om El Salvador og Mellom-Amerika.", en: "Investigative reporting on El Salvador and Central America.", es: "Periodismo de investigación sobre El Salvador y Centroamérica." }, review: regionalNewsReview,
   },
   {
-    id: "no-sv-mfa", name: "Cancillería de El Salvador", url: "https://rree.gob.sv/", group: "SV", language: "es", kind: "news", publication: "proposed", reviewedOn,
-    purpose: { sv: "El Salvadors officiella utrikespolitik och diplomatiska meddelanden.", nb: "El Salvadors offisielle utenrikspolitikk og diplomatiske meldinger.", en: "Salvadoran official foreign policy and diplomatic announcements.", es: "Política exterior oficial y comunicados diplomáticos de El Salvador." }, review: regionalOfficialReview,
+    id: "no-sv-mfa", name: "Cancillería de El Salvador", url: "https://rree.gob.sv/", group: "SV", language: "es", kind: "news", publication: "proposed", reviewedOn: "2026-10-28",
+    purpose: { sv: "El Salvadors officiella utrikespolitik och diplomatiska meddelanden.", nb: "El Salvadors offisielle utenrikspolitikk og diplomatiske meldinger.", en: "Salvadoran official foreign policy and diplomatic announcements.", es: "Política exterior oficial y comunicados diplomáticos de El Salvador." }, review: blockedOfficialReview,
   },
   {
     id: "no-bz-love-fm", name: "Love FM Belize", url: "https://lovefm.com/", group: "BZ", language: "en", kind: "news", publication: "proposed", reviewedOn,
@@ -234,7 +243,7 @@ const regionalAdvisories: readonly ProfileSourceProposal[] = ([
   { id: "no-sv-ud-advisory", name: "UD: El Salvador – reiseinformasjon", group: "SV", url: "https://www.regjeringen.no/no/tema/utenrikssaker/reiseinformasjon/velg-land/reiseinfo_elsalvador/id2428564/" },
   { id: "no-bz-ud-advisory", name: "UD: Belize – reiseinformasjon", group: "BZ", url: "https://www.regjeringen.no/no/tema/utenrikssaker/reiseinformasjon/velg-land/belize---reiseinformasjon/id2428562/" },
 ] satisfies Array<Pick<ProfileSourceProposal, "id" | "name" | "group" | "url">>).map((source): ProfileSourceProposal => ({
-  ...source, language: "nb", kind: "advisory", publication: "proposed", reviewedOn,
+  ...source, language: "nb", kind: "advisory", publication: "proposed", reviewedOn: "2026-10-28",
   purpose: regionalAdvisoryPurpose, review: regionalAdvisoryReview,
 }));
 

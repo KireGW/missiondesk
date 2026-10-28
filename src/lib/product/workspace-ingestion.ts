@@ -37,7 +37,7 @@ export function parsePilotFeed(xml: string, source: { id: string; feedUrl: strin
   if (!items.length) throw new Error("No valid articles on the approved host");
   return { items, truncated: all.length > 20, rejected };
 }
-async function fetchPublicText(source: WorkspaceSource) {
+export async function fetchPublicText(source: WorkspaceSource) {
   if (source.mode === "paused") throw new Error("Source is paused");
   let url = new URL(source.feedUrl);
   const signal = AbortSignal.timeout(15_000);
@@ -99,7 +99,7 @@ export async function evaluateWorkspace(db: PoolClient, policy: WorkspacePolicy,
     ON CONFLICT (workspace_id,article_id,content_hash,policy_key) DO UPDATE SET status=EXCLUDED.status,score=EXCLUDED.score,reason=EXCLUDED.reason,evaluated_at=now()`,[JSON.stringify(decisions)]);
   return counts;
 }
-export interface SourceScanReport { source: string; reused?: boolean; stored?: number; truncated?: boolean; rejected?: number; monitored?: boolean; busy?: boolean; error?: string }
+export interface SourceScanReport { source: string; reused?: boolean; stored?: number; truncated?: boolean; rejected?: number; monitored?: boolean; busy?: boolean; skipped?: boolean; error?: string }
 // Caller owns the transaction and trusted account context. Source configuration is never client input.
 export async function scanPublicSource(client: PoolClient, source: WorkspaceSource): Promise<SourceScanReport> {
   await client.query("SAVEPOINT source_attempt");
