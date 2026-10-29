@@ -87,9 +87,10 @@ export async function evaluateWorkspace(db: PoolClient, policy: WorkspacePolicy,
   const result = await db.query(`SELECT a.* FROM product_public_articles a JOIN product_workspace_sources s ON s.source_id = a.source_id
     WHERE s.workspace_id = $1 AND a.fetched_at > now() - interval '7 days' AND ($2::text IS NULL OR a.source_id=$2)`, [policy.id, sourceId ?? null]);
   const counts = { selected: 0, held: 0, rejected: 0 };
+  const evaluatedAt=Date.now();
   const decisions = result.rows.map(row => {
     const decision = evaluateCandidate({ id: row.id, sourceId: row.source_id, url: row.url, title: row.title, excerpt: row.excerpt,
-      publishedAt: row.published_at?.toISOString() ?? null, contentHash: row.content_hash, countries: row.countries, contentKind: row.content_kind }, policy);
+      publishedAt: row.published_at?.toISOString() ?? null, contentHash: row.content_hash, countries: row.countries, contentKind: row.content_kind }, policy,evaluatedAt);
     counts[decision.status]++;
     return { workspace_id: policy.id, article_id: row.id, content_hash: row.content_hash, policy_key: workspacePolicyKey(policy), ...decision };
   });

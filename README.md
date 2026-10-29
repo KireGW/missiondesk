@@ -224,7 +224,7 @@ Gränssnittsspråk och språk för signaltext är fortsatt kontosparade, rediger
 
 UI-språklistan styrs av en separat kontoinställning, inte av hemlandsvalet. `product_username_logins.interface_profile` är administratörsstyrd och endast läsbar för approllen. Daniels `norwegian`-profil erbjuder engelska (`en`), bokmål (`nb`) och spanska (`es`), utan svenska. Standardkonton erbjuder engelska, svenska och bokmål. Engelska ligger först i båda listorna. Servern skickar kontots tillåtna val till formuläret och validerar dem även vid sparande; klienten får inte ange eller ändra språkprofilen. Konto, flöde, mötesvy och källkatalog har kompletta UI-texter på alla fyra språk. Källkatalogens ändamål och granskningsnoteringar finns också på engelska/spanska. Signalernas originaltext översätts inte av UI-språkvalet.
 
-`src/lib/product/profiles.ts` äger pilotprofiler, källurval för Mexiko och regelbaserad profilrelevans. Båda profilerna delar samma fem öppna Mexikokällor och samma 15-minuters publiceringscache. Profilrelevansen räknas endast i läsvyn, påverkar aldrig sparade signalpoäng och använder inte motorns Sverige- eller ambassadspecifika relevanspoäng. Hemlandskoppling kräver ordstöd i originalrubrik eller originalutdrag. Detta är en provisorisk, transparent urvalsregel, inte en validerad norsk diplomatisk AI-bedömning.
+`src/lib/product/profiles.ts` äger pilotprofiler, källurval för Mexiko och regelbaserad profilrelevans för den delade femkällesbasen. Den basens poäng räknas i läsvyn och ändrar inte motorns sparade analyser. Den anslutna arbetsytans RSS-material använder däremot egna versionsbundna bedömningar enligt avsnittet Regelbaserat Arbetsyteurval nedan. Hemlandskoppling kräver ordstöd i originalrubrik eller originalutdrag. Ingen av dessa pilotregler är en validerad norsk diplomatisk AI-bedömning.
 
 Språkvalen är uttryckligen separata: `language` är gränssnittsspråk och `contentLanguage` är antingen `original` eller `sv` (befintliga svenska rubriker/sammanfattningar). Norskt gränssnitt kan visa svenska sammanfattningar och svenskt gränssnitt kan visa originaltext. Om svensk rubrik eller sammanfattning saknas används originaltext med rätt språkmärkning. Inga nya översättningar eller AI-analyser startas av något språkval. Norska finns inte som val för signaltext förrän sådan bearbetning faktiskt är implementerad. Hemlandsprofil och relevansbedömning ändras inte av språkvalen. Detta och beräkningsgrunden framgår i inforutan, inte som utvecklartext i grundvyn.
 
@@ -317,6 +317,28 @@ npm run smoke:workspace-search
 Verifierat med riktig Postgres: båda skanningsordningar, delade hämtningar, prenumerationsavgränsning, innehållsversioner, RLS-isolering, anonym nekad läsning, delad dygnskvot mellan två kollegor, återupptagning, idempotens och oförändrade motortabeller. Appen nekas ändring av medlemskap, källadresser och kvotdatum. API-tester verifierar flaggor, autentisering, Origin, tom JSON-kropp, storleksgräns och privata felsvar. Bygge och lint passerar. Visuell slutkontroll återstår eftersom webbläsarkontrollen är avstängd.
 
 Första riktiga dagskörningen 2026-10-27 behandlade 25 källsteg med approllen: alla 13 RSS-flöden och fem referenssidor lyckades. De sju UD-reseinformationssidorna gav HTTP 403 och visas med hämtningsfel, utöver de åtta konfigurerat pausade källorna. Körningen är därför `partial`, inte helt lyckad. Sparade aktuella innehålls-/policybeslut omfattade efteråt 18 valda och 184 icke-publicerade kandidater; detta är inte en AI-kvalitetsmätning. Ny skanning kan stängas av separat med `MISSIONDESK_WORKSPACE_REFRESH=false` utan att ta bort läsvyn eller pilotdata.
+
+### Regelbaserat Arbetsyteurval
+
+Från 2026-10-29 används `public-rules-v3` för pilotens arbetsytebedömningar. Källadaptrar, dygnskvot, artikelidentifierare, råtexter och den svenska motorn ändras inte. `workspace-assessment.ts` klassar rubrik och originalutdrag med flerspråkiga ord- och frasregler. Ämnen är inte längre hårdkodade som Samhälle; otillräckligt underlag visas som Ej klassificerad.
+
+Bedömningen använder landstöd i rubrik/utdrag, profilens sakfrågor, konkreta händelseord och uttrycklig hemlandskoppling. Landnamn i förbifarten, breda regeringsord, rutinmässiga kultur-/konsumenttips och vissa historiska tillbakablickar ger inte samma vikt som relevanta politiska, ekonomiska eller konsulära händelser. Ord kan fortfarande vara tvetydiga och reglerna är inte faktagranskning eller fullständig semantisk analys.
+
+Gränssnittet visar Hög, Medelhög eller Begränsad relevans i stället för ett skenbart exakt 0–100-tal. Beräknade internpoäng används fortfarande för sortering. Nivågränserna är 75 respektive 45; material under urvalsgränsen behålls i rålagringen och är sökbart enligt arbetsytans vanliga behörigheter och tidsfönster. Relevansnivån kan öppnas för en lokaliserad förklaring utan att fylla grundvyn med extra text. Mötesunderlaget förblir fritt från relevansetiketter.
+
+Arbetsytans aktuella urval sorteras i SQL **före** planens LIMIT: internpoäng minus en aktualitetsjustering på en poäng per sex timmar, högst 24 poäng. Därmed kan en viktigare två dagar gammal artikel väljas framför nyare rutinmaterial. Samma funktion har verifierats med skrivskyddade PostgreSQL-fiksturer där den viktiga artikeln annars skulle hamna utanför de 30 senaste. Användarens därefter valda sortering gäller inom det aktuella urvalet; arkivsökningens cursorordning ändras inte.
+
+`workspacePolicyKey` innehåller regelversion, hemland och bevakningsländer. Bedömningarna är separata per arbetsyta och återberäknar landstöd ur originalet, inte från en annan profils urval. Äldre policyversioner ligger kvar. Ämnen och förklaringar härleds i läsvyn med samma regelversion; ändrad regelbetydelse kräver en ny versionsnyckel och ombedömning av sparat material. Ingen schemamigrering krävs.
+
+```bash
+npm run smoke:workspace-ranking
+npm run workspace:ranking-review -- --sample
+npm run workspace:ranking-review -- --apply
+```
+
+Granskningsverktyget är låst till Daniels verifierade pilot och approll. `--sample` är skrivskyddat; `--apply` sparar bara den nya policyversionens bedömningar inom hans arbetsyta och kontrollerar att tidigare beslut behålls. Båda lägena blockerar externa fetch-anrop och skriver lokala, ignorerade rapporter med ett 40-artiklars stickprov. Inga LLM- eller sociala anrop, nya källhämtningar eller ändringar av dygnskörningar ingår.
+
+Verifierat 2026-10-29: 40 manuellt genomgångna sparade artiklar, 40 flerspråkiga regeltestfall samt regressionsfall för bland annat dödstal/tull, matolja/energi, rättighets- och pensionsreformer, kultur-/turisttips, historiska tillbakablickar och konsulära resekrav. 396 sparade artiklar ombedömdes på piloten: 44 valda och 352 behållna, med gamla beslut kvar. Detta är en första regelkalibrering, inte ett av Daniel godkänt facit eller en garanti för innehållskvalitet.
 
 ### Lägeskontroll 2026-10-27
 

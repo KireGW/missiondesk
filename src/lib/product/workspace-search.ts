@@ -70,7 +70,8 @@ export async function searchWorkspace(accountId: string, homeCountry: HomeCountr
     await client.query("BEGIN READ ONLY");
     await client.query("SET LOCAL statement_timeout='3s'");
     await client.query("SELECT set_config('missiondesk.account_id',$1,true)",[accountId]);
-    const policy=workspacePolicyKey({id:workspace.id,homeCountry:workspace.home_country,countries:workspace.countries});
+    const workspacePolicy={id:workspace.id,homeCountry:workspace.home_country,countries:workspace.countries};
+    const policy=workspacePolicyKey(workspacePolicy);
     // Both text and home-country predicates precede LIMIT; the country comes only from the trusted profile.
     const result=await client.query(`SELECT a.id,a.title,a.excerpt,a.url,a.published_at,a.countries,a.content_kind,
       p.name,p.language,c.score,coalesce(c.status,'unassessed') AS selection,
@@ -89,6 +90,6 @@ export async function searchWorkspace(accountId: string, homeCountry: HomeCountr
     const last=rows.at(-1);
     const nextCursor=result.rows.length>30 && last ? Buffer.from(JSON.stringify({time:last.sort_time.toISOString(),id:last.id,query:queryKey(input.query,input.homeOnly)})).toString("base64url") : null;
     await client.query("COMMIT");
-    return {items:rows.map(workspaceArticleToItem),nextCursor};
+    return {items:rows.map(row=>workspaceArticleToItem(row,workspacePolicy)),nextCursor};
   } catch(error) {if (!(error instanceof WorkspaceSearchLimited)) await client.query("ROLLBACK");throw error;} finally {client.release();}
 }

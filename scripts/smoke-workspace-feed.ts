@@ -25,6 +25,8 @@ mock.module(new URL("../src/lib/product/store.ts", import.meta.url), { namedExpo
         if (fail) throw new Error("Fixture query failure");
         assert.match(sql, /c\.content_hash=a\.content_hash/);
         assert.match(sql, /c\.policy_key=\$2/);
+        assert.match(sql,/ORDER BY \(c\.score - LEAST/);
+        assert.ok(sql.indexOf("c.score -")<sql.lastIndexOf("LIMIT"),"Ranking must happen in SQL before the plan limit");
         assert.equal(values?.[0], workspace.id);
         return { rows: [{ id: "public-article", title: "Costa Rica&#8217;s Government", excerpt: "Nicaragua [&#8230;] &amp; M&eacute;xico", name: "Fixture source",
           language: "es", url: "https://fixture.example/a", score: 65, published_at: new Date("2026-10-27T10:00:00Z"), countries: ["GT"] }] };
@@ -59,6 +61,8 @@ try {
     assert.equal(calls.find(call => call.sql.includes("c.status='selected'"))?.values?.[2], productPlans[plan].feedLimit);
     assert.equal(result.items.length, Math.min(31, productPlans[plan].feedLimit));
     assert.equal(result.items[0].workspace_relevance, 65);
+    assert.equal(result.items[0].category,"domestic_politics","RSS items must be classified rather than assigned Society");
+    assert.ok(result.items[0].workspace_relevance_reasons?.includes("country_in_excerpt"),"Evidence must follow this workspace's countries, not another country's label");
     assert.equal(result.items[0].title_sv, "");
     assert.equal(result.items[0].summary_sv, "");
     assert.equal(result.items[0].title_original, "Costa Rica’s Government");

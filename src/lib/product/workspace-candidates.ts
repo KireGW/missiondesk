@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { HomeCountry, MonitoredCountry } from "@/lib/product/profiles";
 import { sourcePlainText } from "@/lib/product/source-text";
+import { assessWorkspaceText, detectWorkspaceCountries, workspaceRulesVersion } from "@/lib/product/workspace-assessment";
 
 export interface WorkspacePolicy { id: string; homeCountry: HomeCountry; countries: readonly MonitoredCountry[] }
 export interface PublicCandidate {
@@ -10,23 +11,9 @@ export interface PublicCandidate {
 }
 export type CandidateDecision = { status: "selected" | "held" | "rejected"; score: number; reason: string };
 export const digest = (value: string) => createHash("sha256").update(value).digest("hex");
-const normalize = (value: string) => value.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu, "");
-const countryTerms: Record<string, readonly string[]> = {
-  MX: ["mexico", "mexiko", "mexican", "mexicano", "mexicana"], NI: ["nicaragua", "nicaraguan", "nicaraguense"],
-  CR: ["costa rica", "costarricense", "costa rican"], GT: ["guatemala", "guatemalan", "guatemalteco", "guatemalteca"],
-  HN: ["honduras", "honduran", "hondureno", "hondurena"], SV: ["el salvador", "salvadoran", "salvadoreno", "salvadorena"],
-  BZ: ["belize", "belice", "belizean", "beliceno"], NO: ["norway", "norge", "noruega", "norwegian", "norsk"],
-  SE: ["sweden", "sverige", "suecia", "swedish", "svensk"], US: ["united states", "estados unidos"],
-};
-function contains(text: string, term: string) {
-  return new RegExp(`(^|[^a-z])${term.replace(/ /g, "\\s+")}([^a-z]|$)`).test(text);
-}
-export function detectCandidateCountries(title: string, excerpt: string) {
-  const text = normalize(`${title} ${excerpt}`);
-  return Object.entries(countryTerms).filter(([, terms]) => terms.some((term) => contains(text, term))).map(([country]) => country);
-}
+export const detectCandidateCountries = detectWorkspaceCountries;
 export function workspacePolicyKey(policy: WorkspacePolicy) {
-  return `public-rules-v2:${digest(JSON.stringify([policy.homeCountry, [...policy.countries].sort()]))}`;
+  return `${workspaceRulesVersion}:${digest(JSON.stringify([policy.homeCountry, [...policy.countries].sort()]))}`;
 }
 export function publicCandidate(input: Omit<PublicCandidate, "id" | "contentHash" | "countries">, allowedHost: string | readonly string[]): PublicCandidate {
   const url = new URL(input.url);
@@ -45,17 +32,15 @@ export function publicCandidate(input: Omit<PublicCandidate, "id" | "contentHash
 }
 export function evaluateCandidate(article: PublicCandidate, policy: WorkspacePolicy, now = Date.now()): CandidateDecision {
   if (article.contentKind === "reference") return { status: "held", score: 0, reason: "not_a_news_article" };
-  if (!article.publishedAt) return { status: "held", score: 0, reason: "missing_date" };
+  if (!article.publishedAt || !Number.isFinite(Date.parse(article.publishedAt))) return { status: "held", score: 0, reason: "missing_date" };
   const age = now - Date.parse(article.publishedAt);
   if (age < -300_000) return { status: "held", score: 0, reason: "future_date" };
   if (age > 7 * 86_400_000) return { status: "held", score: 0, reason: "outside_window" };
-  // Country labels are evidence hints, not proof of absence; retain all non-matches for review.
-  if (!article.countries.some((country) => policy.countries.includes(country as MonitoredCountry))) {
+  // Re-evaluate original text, not potentially older country hints or another profile's decision.
+  const assessment=assessWorkspaceText(article.title,article.excerpt,policy);
+  if (!assessment.inRegion) {
     return { status: "held", score: 0, reason: "country_uncertain_or_outside" };
   }
-  const text = normalize(`${article.title} ${article.excerpt}`);
-  const homeConnection = article.countries.includes(policy.homeCountry);
-  const topic = /\b(trade|comercio|econom|security|seguridad|energy|energia|investment|inversion|derechos|rights|migration|migracion|corrupcion|corruption|diploma|minister|gobierno|government)\w*/.test(text);
-  const score = Math.min(100, 45 + (homeConnection ? 35 : 0) + (topic ? 20 : 0));
-  return { status: score >= 60 ? "selected" : "held", score, reason: homeConnection ? "home_connection" : topic ? "regional_topic" : "review_needed" };
+  const {score,homeConnection}=assessment;
+  return { status: score >= 45 ? "selected" : "held", score, reason: homeConnection ? "home_connection" : score>=45 ? "regional_topic" : "review_needed" };
 }

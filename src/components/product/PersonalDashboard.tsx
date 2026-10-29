@@ -8,8 +8,8 @@ import type { IntelligenceCategory, IntelligenceItem } from "@/lib/types";
 import type { PersonalFeed } from "@/lib/product/feed";
 import { aggregatePersonalSearchItems, normalizePersonalSearchQuery, personalSelectionItems } from "@/lib/product/feed";
 import type { PersonalPreferences } from "@/lib/product/profiles";
-import { personalCategory, personalContent, personalRelevance } from "@/lib/product/profiles";
-import { personalDate, personalMessages, workspaceRefreshMessage } from "@/lib/product/messages";
+import { personalCategory, personalContent, personalRelevance, personalRelevanceLevel } from "@/lib/product/profiles";
+import { personalDate, personalMessages, personalRelevanceExplanation, workspaceRefreshMessage } from "@/lib/product/messages";
 import type { PlanId } from "@/lib/product/plans";
 import type { WorkspaceRefreshResult } from "@/lib/product/workspace-refresh";
 import type { WorkspaceSearchPage } from "@/lib/product/workspace-search";
@@ -61,7 +61,7 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
   }, [loading, feedback]);
   const t = personalMessages(preferences.language);
   const home = preferences.homeCountry === "NO" ? t.norway : t.sweden;
-  const categories = [...new Set(feed.items.map((item) => personalCategory(item.category)))];
+  const categories = [...new Set(feed.items.map((item) => item.workspace_topic_unclassified?"unclassified" as const:personalCategory(item.category)))];
   const searchView = view === "tracking";
   const workspaceSearch = searchView && Boolean(feed.workspacePilot);
   const searchTerm = normalizePersonalSearchQuery(searchQuery);
@@ -83,7 +83,7 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
         // A meeting document must retain its selected items regardless of search/filter changes.
         if (view === "meeting") return meeting.includes(item.id);
         if (view === "prioritized" && !priorities.includes(item.id)) return false;
-        if (category && personalCategory(item.category) !== category) return false;
+        if (category && (item.workspace_topic_unclassified?"unclassified":personalCategory(item.category)) !== category) return false;
         if (homeOnly && !relevance.homeConnection) return false;
         const text = `${content.title} ${content.summary} ${item.title_original} ${item.original_excerpt} ${item.source_name}`.toLocaleLowerCase();
         return terms.every((term) => text.includes(term));
@@ -224,6 +224,7 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
             <summary title={t.information} aria-label={t.information} className="flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-md border border-[var(--app-line)]"><Info className="h-4 w-4" /></summary>
             <div className="absolute right-0 top-12 z-20 max-h-[60vh] w-80 max-w-[calc(100vw-3rem)] overflow-y-auto rounded-md border border-[var(--app-line)] bg-[var(--app-panel-strong)] p-4 text-sm leading-6 text-[var(--app-soft)] shadow-xl">
               <h2 className="mb-2 font-semibold text-[var(--app-fg)]">{t.information}</h2><p>{feed.workspacePilot ? t.workspaceInfo : t.info}</p>
+              {feed.workspacePilot && <p className="mt-3">{t.relevanceRuleBased}</p>}
               {feed.workspacePilot ? <p className="mt-3">{t.heldCandidates}: {feed.workspacePilot.heldCount}. {feed.workspacePilot.attentionNeeded ? t.sourceAttention : ""}</p> : <p className="mt-3">{t.coverageInfo}</p>}
             </div>
           </details>
@@ -256,7 +257,7 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
           </label>
           <label className="min-w-0 text-xs text-[var(--app-muted)]">{t.category}
             <select value={category} onChange={(event) => updateFilters({category:event.target.value})} className={`${selectClass} mt-2 text-[var(--app-fg)]`}>
-              <option value="">{t.allCategories}</option>{categories.map((id) => <option key={id} value={id}>{t.categories[id]}</option>)}
+              <option value="">{t.allCategories}</option>{categories.map((id) => <option key={id} value={id}>{id==="unclassified"?t.topicUnclassified:t.categories[id]}</option>)}
             </select>
           </label>
           <label className="min-w-0 text-xs text-[var(--app-muted)]">{t.sort}
@@ -287,19 +288,25 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
             <div className="min-w-0">
               <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--app-muted)]">
                 <span>{item.source_name}</span><time dateTime={item.published_at}>{personalDate(item.published_at, preferences.language)}</time>
-                <span>{t.categories[personalCategory(item.category)]}</span>
+                <span>{item.workspace_topic_unclassified?t.topicUnclassified:t.categories[personalCategory(item.category)]}</span>
                 <span>{t.contentLanguage}: {t.sourceLanguages[content.language] ?? content.language}</span>
                 {view!=="meeting" && item.workspace_selection && item.workspace_selection!=="selected" && <span>{t.notInFeed}</span>}
                 {item.content_kind==="reference" && <span>{t.sourceKinds.reference}</span>}
               </div>
               <h3 lang={content.language} className="break-words text-base font-medium leading-6"><a href={item.source_url} target="_blank" rel="noopener noreferrer" className="hover:text-[var(--app-accent)]">{content.title}</a></h3>
               {content.summary && <p lang={content.language} className="mt-2 break-words text-sm leading-6 text-[var(--app-soft)]">{content.summary}</p>}
-              <div className={`mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs ${view === "meeting" ? "missiondesk-print-screen-only" : ""}`}>
+              <div className={`mt-3 flex flex-wrap items-start gap-x-4 gap-y-2 text-xs ${view === "meeting" ? "missiondesk-print-screen-only" : ""}`}>
                 {view !== "meeting" && <>
-                  {item.workspace_selection!=="unassessed" && <span className="text-[var(--app-muted)]">{t.relevance}: <strong className="font-medium text-[var(--app-fg)]">{relevance.score}</strong></span>}
+                  {item.workspace_selection!=="unassessed" && <details className="relative min-w-0 max-w-full text-[var(--app-muted)]">
+                    <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 py-1">{t.relevance}: <strong className="font-medium text-[var(--app-fg)]">{t.relevanceLevels[personalRelevanceLevel(relevance.score)]}</strong><Info className="h-3.5 w-3.5 shrink-0" /></summary>
+                    <div className="mt-1 max-h-64 w-80 max-w-full overflow-y-auto rounded-md border border-[var(--app-line)] bg-[var(--app-panel-strong)] p-3 text-sm leading-6">
+                      <p>{t.relevanceRuleBased}</p>
+                      <ul className="mt-2 list-disc space-y-1 pl-4">{personalRelevanceExplanation(item,preferences.language,preferences.homeCountry).map(reason=><li key={reason}>{reason}</li>)}</ul>
+                    </div>
+                  </details>}
                   {relevance.homeConnection && <span className="inline-flex items-center gap-1 text-[var(--app-gold)]"><Flag className="h-3 w-3" />{home}</span>}
                 </>}
-                <a href={item.source_url} target="_blank" rel="noopener noreferrer" className="missiondesk-print-screen-only inline-flex items-center gap-1 text-[var(--app-accent)]">{t.openSource}<ExternalLink className="h-3 w-3" /></a>
+                <a href={item.source_url} target="_blank" rel="noopener noreferrer" className="missiondesk-print-screen-only inline-flex min-h-6 items-center gap-1 text-[var(--app-accent)]">{t.openSource}<ExternalLink className="h-3 w-3" /></a>
               </div>
               {view === "meeting" && <p className="missiondesk-print-only missiondesk-print-source mt-3 text-xs text-[var(--app-muted)]">
                 <strong>{t.source}: {item.source_name}</strong><br />

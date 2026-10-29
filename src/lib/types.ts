@@ -190,8 +190,13 @@ export interface EmbassyConfig {
   sources: SourceDefinition[];
 }
 
+export type RelevanceReason = "country_in_title" | "country_in_excerpt" | "home_connection" | "profile_topic" |
+  "agreement" | "policy_change" | "security_event" | "economic_change" | "regional_impact" | "incidental_geography" | "low_priority" | "limited_context";
+
 export interface IntelligenceItem {
   workspace_relevance?: number;
+  workspace_relevance_reasons?: RelevanceReason[];
+  workspace_topic_unclassified?: boolean;
   workspace_selection?: "selected" | "held" | "rejected" | "unassessed";
   content_kind?: "news" | "reference";
   reference_year?: number;

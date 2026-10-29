@@ -4,6 +4,7 @@ import type { PersonalFeed } from "@/lib/product/feed";
 import type { PersonalPreferences } from "@/lib/product/profiles";
 import { productPlans, type PlanId } from "@/lib/product/plans";
 import { workspaceArticleToItem } from "@/lib/product/workspace-items";
+import { workspaceRankSql } from "@/lib/product/workspace-assessment";
 
 export async function addWorkspaceFeed(accountId: string, preferences: PersonalPreferences, feed: PersonalFeed, planId: PlanId = "free"): Promise<PersonalFeed> {
   if (process.env.MISSIONDESK_WORKSPACE_PILOT !== "true") return feed;
@@ -26,12 +27,12 @@ export async function addWorkspaceFeed(accountId: string, preferences: PersonalP
       JOIN product_public_articles a ON a.id=c.article_id JOIN product_public_sources p ON p.id=a.source_id
       WHERE c.workspace_id=$1 AND c.policy_key=$2 AND c.content_hash=a.content_hash AND c.status='selected'
         AND a.published_at > now() - interval '7 days' AND a.published_at <= now() + interval '5 minutes'
-      ORDER BY a.published_at DESC, a.id LIMIT $3`, [workspace.id, workspacePolicyKey(policy), limit])).rows;
+      ORDER BY ${workspaceRankSql} DESC, a.published_at DESC, a.id LIMIT $3`, [workspace.id, workspacePolicyKey(policy), limit])).rows;
     const held = (await client.query(`SELECT COUNT(*)::int AS count FROM product_workspace_candidates c
       JOIN product_public_articles a ON a.id=c.article_id WHERE c.workspace_id=$1 AND c.policy_key=$2
       AND c.content_hash=a.content_hash AND c.status='held' AND a.fetched_at > now() - interval '7 days'`,
     [workspace.id, workspacePolicyKey(policy)])).rows[0].count;
-    const items = candidates.map(workspaceArticleToItem);
+    const items = candidates.map(row=>workspaceArticleToItem(row,policy));
     await client.query("COMMIT");
     const fetchedAt = sources.map((source) => source.last_success_at?.toISOString()).filter(Boolean).sort().at(-1);
     const seen=new Set<string>();

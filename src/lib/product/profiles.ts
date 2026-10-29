@@ -73,7 +73,7 @@ export function personalRelevance(item: IntelligenceItem, preferences: PersonalP
   const profile = personalProfiles[preferences.homeCountry];
   const homeConnection = personalHomeConnection(item, preferences.homeCountry);
   if (item.workspace_relevance !== undefined) {
-    return { score: Math.max(0, Math.min(100, Math.round(item.workspace_relevance))), homeConnection, basis: "public-rules-v2" };
+    return { score: Math.max(0, Math.min(100, Math.round(item.workspace_relevance))), homeConnection, basis: "public-rules-v3" };
   }
   const clamp = (score: number) => Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : 0;
   const domain = Math.max(clamp(item.economic_impact_score), clamp(item.security_impact_score));
@@ -81,6 +81,10 @@ export function personalRelevance(item: IntelligenceItem, preferences: PersonalP
   const base = (domain * 0.6 + clamp(item.urgency_score) * 0.25 + clamp(item.public_attention_score) * 0.15) *
     (weights[item.category] ?? 1);
   return { score: Math.round(Math.min(99, base + (homeConnection ? 15 : 0))), homeConnection, basis: profile.id };
+}
+
+export function personalRelevanceLevel(score: number): "high" | "medium" | "limited" {
+  return score>=75?"high":score>=45?"medium":"limited";
 }
 
 export function personalContent(item: IntelligenceItem, preferences: PersonalPreferences) {

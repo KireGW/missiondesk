@@ -1,8 +1,11 @@
-import type { IntelligenceCategory } from "@/lib/types";
-import type { PersonalLanguage } from "@/lib/product/profiles";
+import type { IntelligenceCategory, IntelligenceItem, RelevanceReason } from "@/lib/types";
+import type { HomeCountry, MonitoredCountry, PersonalLanguage } from "@/lib/product/profiles";
 import type { WorkspaceRefreshResult } from "@/lib/product/workspace-refresh";
 
 const sv = {
+  relevanceLevels: { high: "Hög", medium: "Medelhög", limited: "Begränsad" }, topicUnclassified: "Ej klassificerad",
+  relevanceRuleBased: "Regelbaserat sorteringsstöd utifrån rubrik och originalutdrag, inte en AI-analys eller faktagranskning. Relevans och aktualitet styr urvalet tillsammans.",
+  relevanceReasons: { country_in_title: "Bevakningsland i rubriken", country_in_excerpt: "Bevakningsland i utdraget", home_connection: "Hemlandskoppling", profile_topic: "Ämne inom bevakningsprofilen", agreement: "Avtal eller överenskommelse", policy_change: "Politisk förändring eller val", security_event: "Säkerhetshändelse eller kris", economic_change: "Ekonomisk förändring", regional_impact: "Tecken på större regional betydelse", incidental_geography: "Annat land framträdande i rubriken", low_priority: "Lågprioriterat innehåll", limited_context: "Begränsat textunderlag" } satisfies Record<RelevanceReason,string>,
   filterCurrent: "Filtrera aktuella signaler", filterPrioritized: "Filtrera prioriterade signaler",
   manualSearch: "Sök i signaler och sparat källmaterial", searchResults: "Sökresultat", searching: "Söker...", searchMinimum: "Ange minst två tecken.", searchFailed: "Sökningen kunde inte genomföras. Försök igen.", searchLimited: "För många sökningar. Försök igen senare.", searchNotStarted: "Inga sökresultat ännu.", notInFeed: "Ej valt till nyhetsflödet",
   previousPage: "Föregående sida", nextPage: "Nästa sida", searchPages: "Sökresultatens sidor", page: "Sida",
@@ -53,6 +56,9 @@ const sv = {
 };
 
 const nb: typeof sv = {
+  relevanceLevels: { high: "Høy", medium: "Middels", limited: "Begrenset" }, topicUnclassified: "Ikke klassifisert",
+  relevanceRuleBased: "Regelbasert sorteringsstøtte fra tittel og originalutdrag, ikke KI-analyse eller faktasjekk. Relevans og aktualitet styrer utvalget sammen.",
+  relevanceReasons: { country_in_title: "Overvåkingsland i tittelen", country_in_excerpt: "Overvåkingsland i utdraget", home_connection: "Tilknytning til hjemlandet", profile_topic: "Tema i overvåkingsprofilen", agreement: "Avtale eller overenskomst", policy_change: "Politisk endring eller valg", security_event: "Sikkerhetshendelse eller krise", economic_change: "Økonomisk endring", regional_impact: "Tegn på større regional betydning", incidental_geography: "Annet land fremtredende i tittelen", low_priority: "Lavprioritert innhold", limited_context: "Begrenset tekstgrunnlag" },
   filterCurrent: "Filtrer aktuelle signaler", filterPrioritized: "Filtrer prioriterte signaler",
   manualSearch: "Søk i signaler og lagret kildemateriale", searchResults: "Søkeresultater", searching: "Søker...", searchMinimum: "Skriv minst to tegn.", searchFailed: "Søket kunne ikke gjennomføres. Prøv igjen.", searchLimited: "For mange søk. Prøv igjen senere.", searchNotStarted: "Ingen søkeresultater ennå.", notInFeed: "Ikke valgt til nyhetsstrømmen",
   previousPage: "Forrige side", nextPage: "Neste side", searchPages: "Søkeresultatsider", page: "Side",
@@ -103,6 +109,9 @@ const nb: typeof sv = {
 };
 
 const en: typeof sv = {
+  relevanceLevels: { high: "High", medium: "Medium", limited: "Limited" }, topicUnclassified: "Unclassified",
+  relevanceRuleBased: "Rule-based sorting from the headline and original excerpt, not AI analysis or fact-checking. Selection balances relevance and recency.",
+  relevanceReasons: { country_in_title: "Monitored country in the headline", country_in_excerpt: "Monitored country in the excerpt", home_connection: "Home-country connection", profile_topic: "Topic within the monitoring profile", agreement: "Agreement or treaty", policy_change: "Policy change or election", security_event: "Security event or crisis", economic_change: "Economic change", regional_impact: "Indications of wider regional impact", incidental_geography: "Another country prominent in the headline", low_priority: "Low-priority content", limited_context: "Limited source text" },
   filterCurrent: "Filter current signals", filterPrioritized: "Filter prioritized signals",
   manualSearch: "Search signals and saved source material", searchResults: "Search results", searching: "Searching...", searchMinimum: "Enter at least two characters.", searchFailed: "The search could not be completed. Please try again.", searchLimited: "Too many searches. Please try again later.", searchNotStarted: "No search results yet.", notInFeed: "Not selected for the news feed",
   previousPage: "Previous page", nextPage: "Next page", searchPages: "Search result pages", page: "Page",
@@ -153,6 +162,9 @@ const en: typeof sv = {
 };
 
 const es: typeof sv = {
+  relevanceLevels: { high: "Alta", medium: "Media", limited: "Limitada" }, topicUnclassified: "Sin clasificar",
+  relevanceRuleBased: "Ordenación por reglas a partir del titular y extracto original, no análisis de IA ni verificación de hechos. La selección combina relevancia y actualidad.",
+  relevanceReasons: { country_in_title: "País observado en el titular", country_in_excerpt: "País observado en el extracto", home_connection: "Vínculo con el país de origen", profile_topic: "Tema del perfil de seguimiento", agreement: "Acuerdo o tratado", policy_change: "Cambio político o elecciones", security_event: "Suceso de seguridad o crisis", economic_change: "Cambio económico", regional_impact: "Indicios de mayor impacto regional", incidental_geography: "Otro país destacado en el titular", low_priority: "Contenido de baja prioridad", limited_context: "Texto de origen limitado" },
   filterCurrent: "Filtrar señales actuales", filterPrioritized: "Filtrar señales prioritarias",
   manualSearch: "Buscar en señales y material guardado", searchResults: "Resultados de búsqueda", searching: "Buscando...", searchMinimum: "Escribe al menos dos caracteres.", searchFailed: "No se pudo completar la búsqueda. Inténtalo de nuevo.", searchLimited: "Demasiadas búsquedas. Inténtalo más tarde.", searchNotStarted: "Aún no hay resultados.", notInFeed: "No seleccionada para las noticias",
   previousPage: "Página anterior", nextPage: "Página siguiente", searchPages: "Páginas de resultados", page: "Página",
@@ -204,6 +216,16 @@ const es: typeof sv = {
 
 const messages: Readonly<Record<PersonalLanguage, typeof sv>> = { sv, nb, es, en };
 export const personalMessages = (language: PersonalLanguage) => messages[language];
+
+export function personalRelevanceExplanation(item: IntelligenceItem, language: PersonalLanguage, homeCountry: HomeCountry) {
+  const t=personalMessages(language);
+  const countries=(item.geographic_tags??[]).map(country=>t.monitoredCountryNames[country as MonitoredCountry]).filter(Boolean);
+  return (item.workspace_relevance_reasons??[]).map(reason=>{
+    const detail=reason==="home_connection"?(homeCountry==="NO"?t.norway:t.sweden)
+      :reason==="country_in_title"||reason==="country_in_excerpt"?countries.join(", "):reason==="profile_topic"?t.categories[item.category]:"";
+    return `${t.relevanceReasons[reason]}${detail?`: ${detail}`:""}`;
+  });
+}
 
 export function workspaceRefreshMessage(language: PersonalLanguage, result: WorkspaceRefreshResult) {
   const t = personalMessages(language);
