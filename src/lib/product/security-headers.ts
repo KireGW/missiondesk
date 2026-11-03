@@ -7,7 +7,7 @@ export function personalSecurityHeaders(request: NextRequest, auth0Domain?: stri
   const authOrigin = auth0Domain && /^[a-z0-9.-]+\.auth0\.com$/i.test(auth0Domain)
     ? ` https://${auth0Domain}` : "";
   const restrictions = `base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'${authOrigin}`;
-  const reportOnly = [
+  const policy = [
     "default-src 'self'", `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${development ? " 'unsafe-eval'" : ""}`,
     "style-src 'self' 'unsafe-inline'", "img-src 'self' data: blob:", "font-src 'self'",
     `connect-src 'self'${development ? " ws://localhost:* ws://127.0.0.1:*" : ""}`, restrictions,
@@ -17,9 +17,11 @@ export function personalSecurityHeaders(request: NextRequest, auth0Domain?: stri
   const forwarded = new Headers(request.headers);
   forwarded.set("x-nonce", nonce);
   forwarded.delete("content-security-policy");
-  forwarded.set("content-security-policy-report-only", reportOnly);
+  forwarded.delete("content-security-policy-report-only");
+  const policyHeader = development ? "Content-Security-Policy-Report-Only" : "Content-Security-Policy";
+  forwarded.set(policyHeader, policy);
   const headers = new Headers({
-    "Content-Security-Policy-Report-Only": reportOnly,
+    [policyHeader]: policy,
     "X-Frame-Options": "DENY",
     "X-Content-Type-Options": "nosniff",
     "Referrer-Policy": "no-referrer",
