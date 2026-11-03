@@ -1,0 +1,17 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    target-branch: codex/personal-profiles-norway
+    open-pull-requests-limit: 5
+    groups:
+      nextjs:
+        patterns:
+          - next
+          - eslint-config-next
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major

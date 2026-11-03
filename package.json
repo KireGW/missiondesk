@@ -10,6 +10,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
+    "security:audit": "npm audit --omit=dev --audit-level=high",
     "db:migrate": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/migrate-postgres.ts",
     "product:migrate": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/migrate-product.ts",
     "personal:check": "node scripts/run-personal-test.mjs check",
@@ -33,6 +34,7 @@
     "smoke:auth0-setup": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-auth0-setup.ts",
     "smoke:managed-account": "node --experimental-test-module-mocks scripts/smoke-managed-account.mjs",
     "smoke:pilot-access": "node --experimental-test-module-mocks --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-pilot-access.ts",
+    "smoke:security-headers": "node --experimental-test-module-mocks --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-security-headers.ts",
     "smoke:product": "node --experimental-test-module-mocks --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-product.ts",
     "smoke:postgres": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-postgres.ts",
     "smoke:sources": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-source-audit.ts",
@@ -66,7 +68,7 @@
     "entities": "8.1.0",
     "fast-xml-parser": "^5.8.0",
     "lucide-react": "latest",
-    "next": "latest",
+    "next": "16.4.4",
     "pg": "^8.21.0",
     "react": "latest",
     "react-dom": "latest",
@@ -78,7 +80,7 @@
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "eslint": "latest",
-    "eslint-config-next": "latest",
+    "eslint-config-next": "16.4.4",
     "typescript": "latest"
   }
 }
