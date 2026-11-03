@@ -13,6 +13,13 @@ assert.equal(response.status, 200);
 assert.match(response.headers.get("cache-control") ?? "", /private/);
 const $ = load(await response.text());
 assert.equal($("h2").text(), "Sign in", "Verify an anonymous English login page, not an authenticated session");
+assert.equal($("h1 a").text(), "MissionDesk");
+const logo = $("h1 img");
+assert.equal(logo.length, 1, "The brand symbol must accompany the accessible wordmark");
+assert.equal(logo.attr("alt"), "", "The decorative symbol must not duplicate the link's accessible name");
+assert.ok(logo.attr("src").includes("missiondesk-mark-v2.png"));
+assert.equal(logo.attr("width"), "36");
+assert.equal(logo.attr("height"), "36");
 const links = $("a").toArray().map(element => ({
   url: new URL($(element).attr("href"), base), label: $(element).text().trim(),
 })).filter(link => link.url.pathname === "/auth/login");

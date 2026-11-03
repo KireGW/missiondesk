@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { BrandLogo } from "@/components/product/BrandLogo";
 import { ChevronLeft, ChevronRight, ClipboardList, ExternalLink, Flag, Info, Library, Loader2, Moon, Newspaper, Printer, Radar, RefreshCw, Search, Settings, Star, Sun, Trash2, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { IntelligenceCategory, IntelligenceItem } from "@/lib/types";
@@ -202,7 +203,7 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
           <h1 className="text-2xl font-semibold"><Link href="/" onClick={event => {
             if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
             event.preventDefault();setView("signals");window.scrollTo(0,0);
-          }} className="rounded-sm hover:text-[var(--app-accent)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--app-accent)]">MissionDesk</Link></h1>
+          }} className="inline-flex rounded-sm hover:text-[var(--app-accent)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--app-accent)]"><BrandLogo /></Link></h1>
           <p className="mt-1 text-sm text-[var(--app-muted)]">{feed.workspacePilot ? t.stationNames[preferences.homeCountry] : `${home} · ${t.mexico}`} <span className="px-1">/</span> {t.profileName}</p>
         </div>
         <div className="flex items-center gap-2">

@@ -101,6 +101,10 @@ a {
   background: var(--app-bg);
 }
 
+.missiondesk:not(.light) .missiondesk-brand-mark {
+  filter: brightness(1.5);
+}
+
 .surface-strong {
   border: 1px solid var(--app-line);
   background: var(--app-panel-strong);
