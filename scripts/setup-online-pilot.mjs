@@ -70,9 +70,10 @@ const baseUrl=`https://${domain.name}`;
 if(state.APP_BASE_URL && state.APP_BASE_URL!==baseUrl) throw new Error("Saved pilot URL differs; refusing to redirect it.");
 state.APP_BASE_URL=baseUrl;save();
 
-const appName="MissionDesk Online Pilot";
+const appName="MissionDesk";
 const apps=auth0("get","clients?fields=client_id,name,app_type,client_metadata,callbacks&include_fields=true&per_page=100");
-const matches=apps.filter(item=>item.name===appName);
+const matches=apps.filter(item=>state.AUTH0_CLIENT_ID ? item.client_id===state.AUTH0_CLIENT_ID
+  : item.client_metadata?.purpose===purpose || [appName,"MissionDesk Online Pilot"].includes(item.name));
 if(matches.length>1 || (matches[0] && matches[0].client_metadata?.purpose!==purpose)) throw new Error("Conflicting Auth0 pilot app.");
 let app;
 if(matches[0]) app=auth0("get",`clients/${matches[0].client_id}`);
@@ -139,7 +140,7 @@ const configured=vercel(`/v9/projects/${projectId}`);
 const keys=configured.env?.map(item=>item.key) ?? [];
 if(envKeys.some(key=>!keys.includes(key)) || keys.some(key=>/OPENAI_API_KEY|AI_GATEWAY_API_KEY|X_.*TOKEN|TWITTER_.*TOKEN/.test(key))) throw new Error("Runtime variables missing, or paid provider credentials present.");
 if(JSON.stringify(mainBefore)!==JSON.stringify(production(vercel("/v9/projects/missiondesk")))) throw new Error("Existing production changed during configuration.");
-const report={project:projectName,projectId,baseUrl,auth0Application:appName,auth0ClientId:app.client_id,
+const report={project:projectName,projectId,baseUrl,auth0Application:app.name,auth0ClientId:app.client_id,
   inviteOnly:true,existingDanielAccountPreserved:true,localAuthPreserved:true,paidProviderKeys:false,mainProductionUnchanged:true,
   mainProduction:mainBefore,gitAutoDeploy:false,configuredAt:new Date().toISOString()};
 writeFileSync(reportPath,JSON.stringify(report,null,2)+"\n");

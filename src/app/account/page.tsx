@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Library, LogIn, LogOut, ShieldCheck, UserRound } from "lucide-react";
-import { getAccessMode, authConfigurationReady } from "@/lib/product/config";
+import { getAccessMode, authConfigurationReady, pilotInviteOnly } from "@/lib/product/config";
 import { getPersonalAccount } from "@/lib/product/account";
 import { effectivePlan } from "@/lib/product/plans";
 import { getPersonalSessionIdentity } from "@/lib/product/auth";
@@ -20,6 +20,7 @@ export default async function AccountPage() {
   const unverified = identity && !identity.accessVerified;
   const invitationRequired = identity?.invitationRequired;
   const usernameLogin = ready ? getUsernameLogin() : null;
+  const primaryUsernameLogin = pilotInviteOnly() ? usernameLogin : null;
   const needsNewSession = unverified && identity.managedUsername;
   const account = ready ? await getPersonalAccount() : null;
   const plan = account ? effectivePlan(account) : null;
@@ -40,12 +41,12 @@ export default async function AccountPage() {
             <>
               <p className="mt-4 text-sm leading-6">{invitationRequired ? t.invitationMessage : needsNewSession ? t.sessionExpired : t.verifyMessage}</p>
               <div className="mt-5 flex flex-wrap gap-3">
-                <a href={needsNewSession ? usernameLogin?.loginUrl ?? "/auth/login?prompt=login" : "/auth/login?prompt=login"} className="inline-flex items-center gap-2 rounded-md border border-[var(--app-line)] px-4 py-3"><LogIn className="h-4 w-4" />{t.signInAgain}</a>
+                <a href={needsNewSession || primaryUsernameLogin ? usernameLogin?.loginUrl ?? "/auth/login?prompt=login" : "/auth/login?prompt=login"} className="inline-flex items-center gap-2 rounded-md border border-[var(--app-line)] px-4 py-3"><LogIn className="h-4 w-4" />{t.signInAgain}</a>
                 <a href="/auth/logout" className="inline-flex items-center gap-2 rounded-md border border-[var(--app-line)] px-4 py-3"><LogOut className="h-4 w-4" />{t.signOut}</a>
               </div>
             </>
           ) : !account ? (
-            <a href="/auth/login" className="mt-5 inline-flex items-center gap-2 rounded-md border border-[var(--app-line)] px-4 py-3"><LogIn className="h-4 w-4" />{t.continueLogin}</a>
+            <a href={primaryUsernameLogin?.loginUrl ?? "/auth/login"} className="mt-5 inline-flex items-center gap-2 rounded-md border border-[var(--app-line)] px-4 py-3"><LogIn className="h-4 w-4" />{primaryUsernameLogin ? t.signIn : t.continueLogin}</a>
           ) : (
             <>
               {account.status === "active" && <ProfileSettings preferences={preferences} interfaceLanguages={interfaceLanguages} />}
@@ -61,7 +62,7 @@ export default async function AccountPage() {
               <a href="/auth/logout" className="mt-6 inline-flex items-center gap-2 rounded-md border border-[var(--app-line)] px-4 py-2"><LogOut className="h-4 w-4" />{t.signOut}</a>
             </>
           )}
-          {usernameLogin && !identity?.managedUsername && <a href={usernameLogin.loginUrl} className="mt-6 inline-flex min-h-11 items-center gap-2 text-sm text-[var(--app-accent)]"><UserRound className="h-4 w-4 shrink-0" />{t.usernameLogin}</a>}
+          {usernameLogin && !primaryUsernameLogin && !identity?.managedUsername && <a href={usernameLogin.loginUrl} className="mt-6 inline-flex min-h-11 items-center gap-2 text-sm text-[var(--app-accent)]"><UserRound className="h-4 w-4 shrink-0" />{t.usernameLogin}</a>}
           <p className="mt-8 flex items-center gap-2 text-sm text-[var(--app-muted)]"><ShieldCheck className="h-4 w-4 shrink-0" />{t.safety}</p>
         </section>
       </div>
