@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { BrandLogo } from "@/components/product/BrandLogo";
+import { ProductFooter } from "@/components/product/ProductFooter";
 import { ArrowLeft, ExternalLink, Info, Library, LockKeyhole } from "lucide-react";
 import { personalMessages } from "@/lib/product/messages";
 import { interfaceLanguageNames, type HomeCountry, type PersonalLanguage } from "@/lib/product/profiles";
@@ -17,8 +18,8 @@ export function ProfileSourceCatalog({ home, language, interfaceLanguages, sourc
     ...catalog.countries.flatMap((country) => country === "MX" ? [] : [{ id: country, label: t.monitoredCountryNames[country] }]),
     { id: "baseline", label: t.sourceBaseline }, { id: "social", label: t.sourceSocial },
   ];
-  return <main lang={language} className="missiondesk personal-desk min-h-dvh px-4 py-6 sm:px-6 lg:px-8">
-    <div className="mx-auto max-w-5xl">
+  return <main lang={language} className="missiondesk personal-desk flex min-h-dvh flex-col px-4 py-6 sm:px-6 lg:px-8">
+    <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--app-line)] pb-5">
         <div><h1 className="text-2xl font-semibold"><Link href="/" className="inline-flex rounded-sm hover:text-[var(--app-accent)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--app-accent)]"><BrandLogo /></Link></h1><p className="mt-1 text-sm text-[var(--app-muted)]">{t.sources}</p></div>
         <Link href="/account" className="inline-flex min-h-11 items-center gap-2 text-sm"><ArrowLeft className="h-4 w-4" />{t.account}</Link>
@@ -68,6 +69,7 @@ export function ProfileSourceCatalog({ home, language, interfaceLanguages, sourc
           </div>
         </section>;
       })}
+      <ProductFooter language={language} />
     </div>
   </main>;
 }

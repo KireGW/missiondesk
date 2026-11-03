@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { BrandLogo } from "@/components/product/BrandLogo";
+import { ProductFooter } from "@/components/product/ProductFooter";
 import { ArrowLeft, Library, LogIn, LogOut, ShieldCheck, UserRound } from "lucide-react";
 import { getAccessMode, authConfigurationReady, pilotInviteOnly } from "@/lib/product/config";
 import { getPersonalAccount } from "@/lib/product/account";
@@ -29,8 +30,8 @@ export default async function AccountPage() {
   const t = personalMessages(preferences.language);
   const interfaceLanguages = interfaceLanguagesForProfile(identity?.interfaceProfile);
   return (
-    <main lang={preferences.language} className="missiondesk min-h-dvh px-4 py-8 text-[var(--app-fg)] sm:px-8">
-      <div className="mx-auto max-w-2xl">
+    <main lang={preferences.language} className="missiondesk flex min-h-dvh flex-col px-4 py-8 text-[var(--app-fg)] sm:px-8">
+      <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col">
         <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--app-line)] pb-5">
           <h1 className="text-2xl font-semibold"><Link href="/" className="inline-flex rounded-sm hover:text-[var(--app-accent)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--app-accent)]"><BrandLogo /></Link></h1>
           {account?.status === "active" && <Link href="/" className="inline-flex items-center gap-2 text-sm"><ArrowLeft className="h-4 w-4" />{t.back}</Link>}
@@ -66,6 +67,7 @@ export default async function AccountPage() {
           {usernameLogin && !primaryUsernameLogin && !identity?.managedUsername && <a href={usernameLogin.loginUrl} className="mt-6 inline-flex min-h-11 items-center gap-2 text-sm text-[var(--app-accent)]"><UserRound className="h-4 w-4 shrink-0" />{t.usernameLogin}</a>}
           <p className="mt-8 flex items-center gap-2 text-sm text-[var(--app-muted)]"><ShieldCheck className="h-4 w-4 shrink-0" />{t.safety}</p>
         </section>
+        <ProductFooter language={preferences.language} />
       </div>
     </main>
   );

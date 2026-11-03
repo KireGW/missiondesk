@@ -35,6 +35,8 @@
     "smoke:managed-account": "node --experimental-test-module-mocks scripts/smoke-managed-account.mjs",
     "smoke:pilot-access": "node --experimental-test-module-mocks --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-pilot-access.ts",
     "pilot:verify-login": "node scripts/verify-login-entry.mjs",
+    "pilot:verify-legal": "node scripts/verify-legal.mjs",
+    "smoke:legal": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-legal.ts",
     "smoke:security-headers": "node --experimental-test-module-mocks --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-security-headers.ts",
     "smoke:product": "node --experimental-test-module-mocks --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-product.ts",
     "smoke:postgres": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-postgres.ts",

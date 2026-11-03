@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { BrandLogo } from "@/components/product/BrandLogo";
+import { ProductFooter } from "@/components/product/ProductFooter";
 import { ChevronLeft, ChevronRight, ClipboardList, ExternalLink, Flag, Info, Library, Loader2, Moon, Newspaper, Printer, Radar, RefreshCw, Search, Settings, Star, Sun, Trash2, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { IntelligenceCategory, IntelligenceItem } from "@/lib/types";
@@ -196,8 +197,8 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
   const filterLabel = view === "prioritized" ? t.filterPrioritized : t.filterCurrent;
   const selectClass = "min-h-11 w-full min-w-0 rounded-md border border-[var(--app-line)] bg-[var(--app-panel-strong)] px-3 text-sm";
 
-  return <main lang={preferences.language} className={`missiondesk personal-desk ${light ? "light" : ""}`}>
-    <div className="mx-auto w-full max-w-[1440px] px-4 sm:px-6 lg:px-8">
+  return <main lang={preferences.language} className={`missiondesk personal-desk flex min-h-dvh flex-col ${light ? "light" : ""}`}>
+    <div className="mx-auto flex w-full max-w-[1440px] flex-1 flex-col px-4 sm:px-6 lg:px-8">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--app-line)] py-5">
         <div className="min-w-0">
           <h1 className="text-2xl font-semibold"><Link href="/" onClick={event => {
@@ -328,6 +329,7 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
           <IconButton label={t.nextPage} icon={ChevronRight} disabled={searchPending || !hasNextSearchPage} onClick={nextSearchPage} />
         </nav>}
       </section>
+      <ProductFooter language={preferences.language} />
     </div>
   </main>;
 }
