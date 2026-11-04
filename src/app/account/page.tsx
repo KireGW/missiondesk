@@ -11,7 +11,7 @@ import { getPersonalPreferences } from "@/lib/product/preferences-store";
 import { defaultPersonalPreferences, interfaceLanguagesForProfile } from "@/lib/product/profiles";
 import { personalMessages } from "@/lib/product/messages";
 import { ProfileSettings } from "@/components/product/ProfileSettings";
-import { getUsernameLogin } from "@/lib/product/username-login";
+import { getPilotLoginRedirect, getUsernameLogin } from "@/lib/product/username-login";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +19,8 @@ export default async function AccountPage() {
   if (getAccessMode() !== "personal") redirect("/");
   const ready = authConfigurationReady();
   const identity = ready ? await getPersonalSessionIdentity() : null;
+  const login = getPilotLoginRedirect(Boolean(identity));
+  if (login) redirect(login);
   const unverified = identity && !identity.accessVerified;
   const invitationRequired = identity?.invitationRequired;
   const usernameLogin = ready ? getUsernameLogin() : null;

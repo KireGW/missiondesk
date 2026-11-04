@@ -58,11 +58,17 @@ try {
 }
 
 let authCalls = 0;
+let lastAuthRequest: NextRequest | undefined;
 mock.module(new URL("../src/lib/product/auth.ts", import.meta.url), { namedExports: {
-  getPersonalAuth: () => process.env.TEST_MISSING_AUTH ? null : { middleware: async () => { authCalls++; return NextResponse.next(); } },
+  getPersonalAuth: () => process.env.TEST_MISSING_AUTH ? null : { middleware: async (request: NextRequest) => {
+    authCalls++; lastAuthRequest = request;
+    const response = NextResponse.next();
+    response.cookies.set("missiondesk_session", "", { maxAge: 0, httpOnly: true });
+    return response;
+  } },
 } });
 const { proxy } = await import("../src/proxy");
-const keys = ["MISSIONDESK_ACCESS_MODE", "MISSIONDESK_PILOT_INVITE_ONLY", "TEST_MISSING_AUTH"];
+const keys = ["MISSIONDESK_ACCESS_MODE", "MISSIONDESK_PILOT_INVITE_ONLY", "TEST_MISSING_AUTH", "APP_BASE_URL"];
 const before = Object.fromEntries(keys.map(key => [key, process.env[key]]));
 try {
   delete process.env.MISSIONDESK_PILOT_INVITE_ONLY;
@@ -72,6 +78,24 @@ try {
   process.env.MISSIONDESK_ACCESS_MODE = "personal";
   assert.equal((await proxy(request)).headers.get("X-Frame-Options"), "DENY");
   assert.equal(authCalls, 1);
+  process.env.MISSIONDESK_PILOT_INVITE_ONLY = "true";
+  process.env.APP_BASE_URL = "https://pilot.example";
+  const logout = new NextRequest("https://pilot.example/auth/logout?returnTo=https://attacker.invalid/", {
+    headers: { cookie: "missiondesk_session=test-session", "x-nonce": "attacker" },
+  });
+  const logoutResponse = await proxy(logout);
+  assert.equal(lastAuthRequest!.nextUrl.searchParams.get("returnTo"), "https://pilot.example/signed-out");
+  assert.equal(lastAuthRequest!.headers.get("cookie"), "missiondesk_session=test-session");
+  assert.match(logoutResponse.headers.get("set-cookie")!, /missiondesk_session=;.*Max-Age=0/i);
+  assert.equal(logoutResponse.headers.get("X-Frame-Options"), "DENY");
+  await proxy(request);
+  assert.equal(lastAuthRequest, request, "Account and callback requests must not be rewritten");
+  const postLogout = new NextRequest("https://pilot.example/auth/logout", { method: "POST" });
+  await proxy(postLogout);
+  assert.equal(lastAuthRequest, postLogout, "Preserve the SDK's method handling");
+  process.env.MISSIONDESK_PILOT_INVITE_ONLY = "false";
+  await proxy(logout);
+  assert.equal(lastAuthRequest, logout, "Non-pilot logout behavior is unchanged");
   process.env.TEST_MISSING_AUTH = "true";
   assert.equal((await proxy(request)).status, 503);
   process.env.MISSIONDESK_ACCESS_MODE = "invalid";
@@ -82,4 +106,4 @@ try {
   for (const [key, value] of Object.entries(before)) if (value === undefined) delete process.env[key]; else process.env[key] = value;
   mock.restoreAll();
 }
-console.log("[smoke:security-headers] Personal-only headers, independent nonces, forged header overwrite, Auth0 cookies/redirects, production/development policies and fail-closed configuration passed; no external services.");
+console.log("[smoke:security-headers] Personal-only headers, nonces, Auth0 cookies/redirects, fixed pilot logout target, unchanged standard routes and fail-closed configuration passed; no external services.");

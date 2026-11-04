@@ -14,7 +14,7 @@ import { searchPersonalSignals } from "@/lib/product/feed";
 import { reserveUsage, settleUsage, releaseUnstartedUsage, UsageDenied } from "@/lib/product/store";
 import { productSchemaSql } from "@/lib/product/schema";
 import { getReadOnlyDb } from "@/lib/db/postgres";
-import { approvedUsernameSession, getUsernameLogin, type UsernameLoginApproval } from "@/lib/product/username-login";
+import { approvedUsernameSession, getPilotLoginRedirect, getUsernameLogin, type UsernameLoginApproval } from "@/lib/product/username-login";
 
 assert.equal(getAccessMode({}), "legacy");
 assert.equal(getAccessMode({ MISSIONDESK_ACCESS_MODE: "legacy" }), "legacy");
@@ -38,6 +38,13 @@ assert.equal(loginUrl.searchParams.get("connection"), "Managed-Users");
 assert.equal(loginUrl.searchParams.get("prompt"), "login");
 assert.equal(loginUrl.searchParams.get("max_age"), "0");
 assert.equal(loginUrl.searchParams.get("returnTo"), "/", "Username login must return to the news feed, not account settings");
+const pilotEnv = { ...usernameEnv, MISSIONDESK_PILOT_INVITE_ONLY: "true" };
+assert.equal(getPilotLoginRedirect(false, pilotEnv), usernameLogin.loginUrl);
+assert.equal(getPilotLoginRedirect(true, pilotEnv), null, "Existing sessions, including denied ones, must not auto-login again");
+assert.equal(getPilotLoginRedirect(false, usernameEnv), null, "Keep the standard account login choices");
+assert.equal(getPilotLoginRedirect(false, { ...pilotEnv, AUTH0_SECRET: "" }), null);
+assert.equal(getPilotLoginRedirect(false, { ...pilotEnv, MISSIONDESK_USERNAME_CONNECTION: "" }), null);
+assert.equal(getPilotLoginRedirect(false, { ...pilotEnv, MISSIONDESK_ACCESS_MODE: "legacy" }), null);
 for (const overrides of [{ MISSIONDESK_ACCESS_MODE: "legacy" }, { MISSIONDESK_USERNAME_CONNECTION: "" },
   { MISSIONDESK_USERNAME_CONNECTION: "bad/connection" }, { AUTH0_SECRET: "" }]) {
   assert.equal(getUsernameLogin({ ...usernameEnv, ...overrides }), null);

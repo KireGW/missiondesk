@@ -1,5 +1,6 @@
-import { authConfigurationReady, getAccessMode } from "@/lib/product/config";
+import { authConfigurationReady, getAccessMode, pilotInviteOnly } from "@/lib/product/config";
 import type { InterfaceLanguageProfile } from "@/lib/product/profiles";
+import type { Route } from "next";
 
 export function getUsernameLogin(env: Readonly<Record<string, string | undefined>> = process.env) {
   const connection = env.MISSIONDESK_USERNAME_CONNECTION ?? "";
@@ -7,8 +8,14 @@ export function getUsernameLogin(env: Readonly<Record<string, string | undefined
       !/^[a-zA-Z0-9][a-zA-Z0-9-]{0,126}[a-zA-Z0-9]$/.test(connection)) return null;
   return {
     connection,
-    loginUrl: `/auth/login?${new URLSearchParams({ connection, prompt: "login", max_age: "0", returnTo: "/" })}`,
+    // Auth0's middleware route is not included in Next's generated route types.
+    loginUrl: `/auth/login?${new URLSearchParams({ connection, prompt: "login", max_age: "0", returnTo: "/" })}` as Route,
   };
+}
+
+export function getPilotLoginRedirect(hasSession: boolean, env: Readonly<Record<string, string | undefined>> = process.env) {
+  if (hasSession || !pilotInviteOnly(env)) return null;
+  return getUsernameLogin(env)?.loginUrl ?? null;
 }
 
 export interface UsernameLoginApproval {

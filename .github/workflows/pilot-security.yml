@@ -27,6 +27,7 @@ jobs:
       - run: npm run smoke:security-headers
       - run: npm run smoke:product
       - run: npm run smoke:pilot-access
+      - run: npm run smoke:login-navigation
       - run: npm run smoke:personal-profiles
       - run: npm run smoke:legal
       - run: npm run smoke:workspace-ranking

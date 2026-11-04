@@ -32,8 +32,8 @@ for (const [query, language] of [["", "en"], ["?lang=en", "en"], ["?lang=nb", "n
   }
   assert.equal($("a[href^='mailto:'], a[href^='tel:'], form").length, 0, "Do not expose contact details or an unconnected form");
 }
-const accountResponse = await fetch(new URL("/account", base), { redirect: "manual", signal: AbortSignal.timeout(20_000) });
-assert.equal(accountResponse.status, 200);
-const account = load(await accountResponse.text());
-assert.equal(account("footer nav a").length, 2, "Show legal links before sign-in too");
-console.log("[verify-legal] Anonymous legal page, four languages, fallback, copyright anchors, company notice, login footer and enforced CSP passed. No login, scans or database mutations.");
+const signedOutResponse = await fetch(new URL("/signed-out", base), { redirect: "manual", signal: AbortSignal.timeout(20_000) });
+assert.equal(signedOutResponse.status, 200);
+const signedOut = load(await signedOutResponse.text());
+assert.equal(signedOut("footer nav a").length, 2, "Show legal links on the public signed-out confirmation too");
+console.log("[verify-legal] Anonymous legal page, four languages, fallback, copyright anchors, company notice, signed-out footer and enforced CSP passed. No login, scans or database mutations.");

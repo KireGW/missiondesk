@@ -31,10 +31,16 @@ if (existing && existing.client_metadata?.purpose !== "missiondesk-personal-test
 const app = existing
   ? auth0(["apps", "show", existing.client_id, "--reveal-secrets"])
   : auth0(["apps", "create", "--name", name, "--type", "regular", "--auth-method", "Post",
-    "--grants", "code", "--callbacks", `${baseUrl}/auth/callback`, "--logout-urls", baseUrl,
+    "--grants", "code", "--callbacks", `${baseUrl}/auth/callback`, "--logout-urls", `${baseUrl},${baseUrl}/signed-out`,
     "--organization-usage", "deny", "--metadata", "purpose=missiondesk-personal-test", "--reveal-secrets"]);
 if (!app.client_id || !app.client_secret || !app.callbacks?.includes(`${baseUrl}/auth/callback`)) {
   throw new Error("The Auth0 test application's credentials or callback URL could not be verified.");
+}
+if (!app.allowed_logout_urls?.includes(baseUrl) || app.allowed_logout_urls.some(url => ![baseUrl, `${baseUrl}/signed-out`].includes(url))) {
+  throw new Error("Unexpected local Auth0 logout URL; refusing to replace it.");
+}
+if (!app.allowed_logout_urls.includes(`${baseUrl}/signed-out`)) {
+  auth0(["api", "patch", `clients/${app.client_id}`, "--data", JSON.stringify({ allowed_logout_urls: [...app.allowed_logout_urls, `${baseUrl}/signed-out`] })]);
 }
 const old = existsSync(envPath) ? parseEnv(readFileSync(envPath, "utf8")) : {};
 const values = {

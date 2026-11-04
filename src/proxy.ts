@@ -1,6 +1,6 @@
-import { NextResponse, type NextRequest } from "next/server.js";
+import { NextResponse, NextRequest } from "next/server.js";
 import { getPersonalAuth } from "@/lib/product/auth";
-import { getAccessMode } from "@/lib/product/config";
+import { getAccessMode, pilotInviteOnly } from "@/lib/product/config";
 import { personalSecurityHeaders, securePersonalResponse } from "@/lib/product/security-headers";
 
 export async function proxy(request: NextRequest) {
@@ -14,7 +14,14 @@ export async function proxy(request: NextRequest) {
   if (!auth) {
     return securePersonalResponse(new NextResponse("Personlig inloggning ar inte konfigurerad an.", { status: 503 }), security);
   }
-  return securePersonalResponse(await auth.middleware(request), security);
+  let authRequest = request;
+  if (pilotInviteOnly() && request.method === "GET" && request.nextUrl.pathname === "/auth/logout") {
+    // Keep logout on our fixed confirmation page, including when a caller supplies returnTo.
+    const url = request.nextUrl.clone();
+    url.searchParams.set("returnTo", new URL("/signed-out", process.env.APP_BASE_URL!).href);
+    authRequest = new NextRequest(url, { method: request.method, headers: request.headers });
+  }
+  return securePersonalResponse(await auth.middleware(authRequest), security);
 }
 
 export const config = {

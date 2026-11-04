@@ -80,12 +80,15 @@ if(matches[0]) app=auth0("get",`clients/${matches[0].client_id}`);
 else {
   if(!configure || state.AUTH0_CLIENT_ID) throw new Error("Pilot Auth0 app missing; refusing to replace an identity environment.");
   app=auth0("post","clients",{name:appName,app_type:"regular_web",token_endpoint_auth_method:"client_secret_post",
-    grant_types:["authorization_code"],callbacks:[`${baseUrl}/auth/callback`],allowed_logout_urls:[baseUrl],
+    grant_types:["authorization_code"],callbacks:[`${baseUrl}/auth/callback`],allowed_logout_urls:[baseUrl,`${baseUrl}/signed-out`],
     oidc_conformant:true,organization_usage:"deny",client_metadata:{purpose}});
 }
 if(app.app_type!=="regular_web" || app.client_metadata?.purpose!==purpose || app.client_id===local.AUTH0_CLIENT_ID ||
   (state.AUTH0_CLIENT_ID && state.AUTH0_CLIENT_ID!==app.client_id) || app.callbacks?.length!==1 || app.callbacks[0]!==`${baseUrl}/auth/callback` ||
-  app.allowed_logout_urls?.length!==1 || app.allowed_logout_urls[0]!==baseUrl) throw new Error("Unexpected online Auth0 app.");
+  !app.allowed_logout_urls?.includes(baseUrl) || app.allowed_logout_urls.some(url=>![baseUrl,`${baseUrl}/signed-out`].includes(url))) throw new Error("Unexpected online Auth0 app.");
+if(configure && !app.allowed_logout_urls.includes(`${baseUrl}/signed-out`)) {
+  auth0("patch",`clients/${app.client_id}`,{allowed_logout_urls:[...app.allowed_logout_urls,`${baseUrl}/signed-out`]});
+}
 app=auth0("get",`clients/${app.client_id}`,undefined,true);
 if(!app.client_secret) throw new Error("Online client secret unavailable; no credentials printed.");
 state={...state,AUTH0_CLIENT_ID:app.client_id,AUTH0_CLIENT_SECRET:app.client_secret,

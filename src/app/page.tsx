@@ -20,6 +20,8 @@ import { getPersonalFeed } from "@/lib/product/feed-store";
 import { getPersonalPreferences } from "@/lib/product/preferences-store";
 import { PersonalDashboard } from "@/components/product/PersonalDashboard";
 import { addWorkspaceFeed } from "@/lib/product/workspace-feed";
+import { getPersonalSessionIdentity } from "@/lib/product/auth";
+import { getPilotLoginRedirect } from "@/lib/product/username-login";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +30,10 @@ export default async function Home() {
   if (mode === "invalid") throw new Error("Ogiltig MISSIONDESK_ACCESS_MODE.");
   if (mode === "personal") {
     const account = await getPersonalAccount();
-    if (!account || account.status !== "active") redirect("/account");
+    if (!account || account.status !== "active") {
+      const login = getPilotLoginRedirect(Boolean(await getPersonalSessionIdentity()));
+      redirect(login ?? "/account");
+    }
     const plan = effectivePlan(account);
     const preferences = await getPersonalPreferences(account.id);
     const feed = await addWorkspaceFeed(account.id, preferences, await getPersonalFeed(plan.id), plan.id);
