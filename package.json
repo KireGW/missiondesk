@@ -23,6 +23,7 @@
     "smoke:profile-sources": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-profile-sources.ts",
     "smoke:workspace": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-workspace-candidates.ts",
     "smoke:workspace-ranking": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-workspace-ranking.ts",
+    "smoke:workspace-selection": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-workspace-selection.ts",
     "smoke:workspace-feed": "node --experimental-test-module-mocks --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-workspace-feed.ts",
     "smoke:workspace-refresh": "node --experimental-test-module-mocks --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-workspace-refresh.ts",
     "smoke:workspace-search": "node --experimental-test-module-mocks --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/smoke-workspace-search.ts",

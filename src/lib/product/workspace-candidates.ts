@@ -12,8 +12,8 @@ export interface PublicCandidate {
 export type CandidateDecision = { status: "selected" | "held" | "rejected"; score: number; reason: string };
 export const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 export const detectCandidateCountries = detectWorkspaceCountries;
-export function workspacePolicyKey(policy: WorkspacePolicy) {
-  return `${workspaceRulesVersion}:${digest(JSON.stringify([policy.homeCountry, [...policy.countries].sort()]))}`;
+export function workspacePolicyKey(policy: WorkspacePolicy, rulesVersion: string = workspaceRulesVersion) {
+  return `${rulesVersion}:${digest(JSON.stringify([policy.homeCountry, [...policy.countries].sort()]))}`;
 }
 export function publicCandidate(input: Omit<PublicCandidate, "id" | "contentHash" | "countries">, allowedHost: string | readonly string[]): PublicCandidate {
   const url = new URL(input.url);
@@ -28,7 +28,7 @@ export function publicCandidate(input: Omit<PublicCandidate, "id" | "contentHash
   const contentKind = input.contentKind ?? "news";
   return { sourceId: input.sourceId, url: url.toString(), title, excerpt, publishedAt, contentKind,
     id: digest(`${input.sourceId}\n${url}`), contentHash: digest(JSON.stringify([title, excerpt, publishedAt, contentKind])),
-    countries: detectCandidateCountries(title, excerpt) };
+    countries: detectCandidateCountries(title, excerpt, input.sourceId) };
 }
 export function evaluateCandidate(article: PublicCandidate, policy: WorkspacePolicy, now = Date.now()): CandidateDecision {
   if (article.contentKind === "reference") return { status: "held", score: 0, reason: "not_a_news_article" };
@@ -37,7 +37,7 @@ export function evaluateCandidate(article: PublicCandidate, policy: WorkspacePol
   if (age < -300_000) return { status: "held", score: 0, reason: "future_date" };
   if (age > 7 * 86_400_000) return { status: "held", score: 0, reason: "outside_window" };
   // Re-evaluate original text, not potentially older country hints or another profile's decision.
-  const assessment=assessWorkspaceText(article.title,article.excerpt,policy);
+  const assessment=assessWorkspaceText(article.title,article.excerpt,policy,article.sourceId);
   if (!assessment.inRegion) {
     return { status: "held", score: 0, reason: "country_uncertain_or_outside" };
   }

@@ -191,7 +191,8 @@ export interface EmbassyConfig {
 }
 
 export type RelevanceReason = "country_in_title" | "country_in_excerpt" | "home_connection" | "profile_topic" |
-  "agreement" | "policy_change" | "security_event" | "economic_change" | "regional_impact" | "incidental_geography" | "low_priority" | "limited_context";
+  "agreement" | "policy_change" | "security_event" | "economic_change" | "regional_impact" | "incidental_geography" | "low_priority" | "limited_context" |
+  "local_geography" | "local_crime" | "economic_policy";
 
 export interface IntelligenceItem {
   workspace_relevance?: number;

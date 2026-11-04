@@ -5,6 +5,7 @@ import type { PersonalPreferences } from "@/lib/product/profiles";
 import { productPlans, type PlanId } from "@/lib/product/plans";
 import { workspaceArticleToItem } from "@/lib/product/workspace-items";
 import { workspaceRankSql } from "@/lib/product/workspace-assessment";
+import { canonicalSignalUrl, selectBalancedWorkspaceItems } from "@/lib/product/workspace-selection";
 
 export async function addWorkspaceFeed(accountId: string, preferences: PersonalPreferences, feed: PersonalFeed, planId: PlanId = "free"): Promise<PersonalFeed> {
   if (process.env.MISSIONDESK_WORKSPACE_PILOT !== "true") return feed;
@@ -23,22 +24,21 @@ export async function addWorkspaceFeed(accountId: string, preferences: PersonalP
     const policy: WorkspacePolicy = { id: workspace.id, homeCountry: workspace.home_country, countries: workspace.countries };
     const sources = (await client.query(`SELECT p.id, p.name, p.language, p.fetch_mode, p.last_success_at, p.truncated, p.last_error
       FROM product_public_sources p JOIN product_workspace_sources s ON s.source_id=p.id WHERE s.workspace_id=$1`, [workspace.id])).rows;
-    const candidates = (await client.query(`SELECT a.*, c.score, p.name, p.language FROM product_workspace_candidates c
+    const candidates = (await client.query(`SELECT a.id,a.source_id,a.title,a.excerpt,a.url,a.published_at,a.countries,a.content_kind,c.score,p.name,p.language FROM product_workspace_candidates c
       JOIN product_public_articles a ON a.id=c.article_id JOIN product_public_sources p ON p.id=a.source_id
       WHERE c.workspace_id=$1 AND c.policy_key=$2 AND c.content_hash=a.content_hash AND c.status='selected'
         AND a.published_at > now() - interval '7 days' AND a.published_at <= now() + interval '5 minutes'
-      ORDER BY ${workspaceRankSql} DESC, a.published_at DESC, a.id LIMIT $3`, [workspace.id, workspacePolicyKey(policy), limit])).rows;
+      ORDER BY ${workspaceRankSql} DESC, a.published_at DESC, a.id LIMIT $3`, [workspace.id, workspacePolicyKey(policy), Math.min(limit * 3, 300)])).rows;
     const held = (await client.query(`SELECT COUNT(*)::int AS count FROM product_workspace_candidates c
       JOIN product_public_articles a ON a.id=c.article_id WHERE c.workspace_id=$1 AND c.policy_key=$2
       AND c.content_hash=a.content_hash AND c.status='held' AND a.fetched_at > now() - interval '7 days'`,
     [workspace.id, workspacePolicyKey(policy)])).rows[0].count;
-    const items = candidates.map(row=>workspaceArticleToItem(row,policy));
+    const items = selectBalancedWorkspaceItems(candidates.map(row=>workspaceArticleToItem(row,policy)),policy,limit);
     await client.query("COMMIT");
     const fetchedAt = sources.map((source) => source.last_success_at?.toISOString()).filter(Boolean).sort().at(-1);
     const seen=new Set<string>();
     const combined=[...items,...feed.items].filter(item=>{
-      let key=item.source_url ?? item.id;
-      try {const url=new URL(key);url.hash="";for(const name of [...url.searchParams.keys()]) if(name.startsWith("utm_")||["fbclid","gclid"].includes(name)) url.searchParams.delete(name);key=url.toString();} catch { /* Older fixtures can lack a URL. */ }
+      const key=canonicalSignalUrl(item);
       if(seen.has(key)) return false;seen.add(key);return true;
     });
     return { ...feed, items: combined.slice(0, limit),

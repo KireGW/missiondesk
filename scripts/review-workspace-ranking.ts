@@ -6,6 +6,8 @@ import { evaluateCandidate, workspacePolicyKey, type PublicCandidate, type Works
 import { assessWorkspaceText, workspaceRank, workspaceRankSql } from "../src/lib/product/workspace-assessment";
 import { evaluateWorkspace } from "../src/lib/product/workspace-ingestion";
 import { personalRelevanceLevel } from "../src/lib/product/profiles";
+import { selectBalancedWorkspaceItems } from "../src/lib/product/workspace-selection";
+import { workspaceArticleToItem } from "../src/lib/product/workspace-items";
 
 const mode=process.argv[2];
 if(process.argv.length!==3||!["--sample","--apply"].includes(mode)) throw new Error("Use --sample or --apply");
@@ -32,9 +34,11 @@ try {
   assert.equal(workspaces[0].home_country,"NO");
   const w=workspaces[0];
   const policy: WorkspacePolicy={id:w.id,homeCountry:w.home_country,countries:w.countries};
-  const key=workspacePolicyKey(policy),oldKey=key.replace("public-rules-v3:","public-rules-v2:");
-  const rows=(await client.query(`SELECT a.*,c.score AS previous_score,c.status AS previous_status FROM product_public_articles a
+  const key=workspacePolicyKey(policy),oldKey=workspacePolicyKey(policy,"public-rules-v3");
+  assert.notEqual(key,oldKey,"New assessments must not replace the previous policy history");
+  const rows=(await client.query(`SELECT a.*,p.name,p.language,c.score AS previous_score,c.status AS previous_status,c.reason AS previous_reason FROM product_public_articles a
     JOIN product_workspace_sources s ON s.source_id=a.source_id AND s.workspace_id=$1
+    JOIN product_public_sources p ON p.id=a.source_id
     LEFT JOIN product_workspace_candidates c ON c.workspace_id=$1 AND c.article_id=a.id AND c.content_hash=a.content_hash AND c.policy_key=$2
     WHERE a.fetched_at>now()-interval '7 days' ORDER BY a.published_at DESC NULLS LAST,a.id LIMIT 2000`,[w.id,oldKey])).rows;
   assert.ok(rows.length>0&&rows.length<2000,"Review must cover a bounded, complete pilot window");
@@ -48,10 +52,10 @@ try {
     const article: PublicCandidate={id:row.id,sourceId:row.source_id,url:row.url,title:row.title,excerpt:row.excerpt,
       publishedAt:row.published_at?.toISOString()??null,contentHash:row.content_hash,countries:row.countries,contentKind:row.content_kind};
     const decision=evaluateCandidate(article,policy,now);
-    const details=assessWorkspaceText(article.title,article.excerpt,policy);
+    const details=assessWorkspaceText(article.title,article.excerpt,policy,article.sourceId);
     return {articleId:article.id,sourceId:article.sourceId,title:article.title,excerpt:article.excerpt,publishedAt:article.publishedAt,
-      previousScore:row.previous_score,previousStatus:row.previous_status,...decision,category:details.category,classified:details.classified,
-      evidence:details.evidence,level:personalRelevanceLevel(decision.score),rank:article.publishedAt?workspaceRank(decision.score,article.publishedAt,now):null};
+      previousScore:row.previous_score,previousStatus:row.previous_status,previousReason:row.previous_reason,...decision,category:details.category,classified:details.classified,
+      countries:details.countries,evidence:details.evidence,level:personalRelevanceLevel(decision.score),rank:article.publishedAt?workspaceRank(decision.score,article.publishedAt,now):null};
   });
   const groups=new Map<string,typeof assessed>();
   for(const entry of assessed) {const bucket=groups.get(entry.sourceId)??[];bucket.push(entry);groups.set(entry.sourceId,bucket);}
@@ -59,6 +63,10 @@ try {
   for(let offset=0;sample.length<40&&offset<assessed.length;offset++)
     for(const entries of groups.values()) if(entries[offset]&&sample.length<40)sample.push(entries[offset]);
   const before=(await client.query("SELECT count(*)::int AS count FROM product_workspace_candidates WHERE workspace_id=$1 AND policy_key=$2",[w.id,oldKey])).rows[0].count;
+  mkdirSync("reports",{recursive:true});
+  const backupPath=`reports/workspace-ranking-before-${Date.now()}.json`;
+  if(mode==="--apply") writeFileSync(backupPath,JSON.stringify({createdAt:new Date().toISOString(),policy:oldKey,
+    rows:rows.map(row=>({articleId:row.id,contentHash:row.content_hash,score:row.previous_score,status:row.previous_status,reason:row.previous_reason}))},null,2)+"\n",{mode:0o600});
   let applied: unknown=null;
   if(mode==="--apply") {
     applied=await evaluateWorkspace(client,policy);
@@ -69,12 +77,22 @@ try {
     const value=(a:typeof assessed[number])=>key==="category"&&!a.classified?"unclassified":a[key];
     return Object.fromEntries([...new Set(assessed.map(value))].map(label=>[label,assessed.filter(a=>value(a)===label).length]));
   };
-  const selected=assessed.filter(a=>a.status==="selected").sort((a,b)=>(b.rank??-Infinity)-(a.rank??-Infinity)||Date.parse(b.publishedAt??"")-Date.parse(a.publishedAt??"")||a.articleId.localeCompare(b.articleId)).slice(0,30);
-  const report={createdAt:new Date().toISOString(),mode,version:key,assessed:assessed.length,categoryCounts:groupCounts("category"),levels:groupCounts("level"),statuses:groupCounts("status"),postgresRankingVerified:true,applied,previousDecisionsPreserved:before,sample,selected};
-  mkdirSync("reports",{recursive:true});
+  const rankedPool=assessed.filter(a=>a.status==="selected").sort((a,b)=>(b.rank??-Infinity)-(a.rank??-Infinity)||Date.parse(b.publishedAt??"")-Date.parse(a.publishedAt??"")||a.articleId.localeCompare(b.articleId)).slice(0,90);
+  const byId=new Map(rows.map(row=>[row.id,row]));
+  const selectedItems=selectBalancedWorkspaceItems(rankedPool.map(entry=>workspaceArticleToItem({...byId.get(entry.articleId),score:entry.score},policy)),policy,30,now);
+  const selected=selectedItems.map(item=>assessed.find(entry=>`workspace:${entry.articleId}`===item.id)!);
+  const previous=rows.filter(row=>row.previous_status==="selected"&&row.published_at&&now-row.published_at.getTime()<7*86400000&&row.published_at.getTime()<=now+300000)
+    .sort((a,b)=>workspaceRank(b.previous_score,b.published_at.toISOString(),now)-workspaceRank(a.previous_score,a.published_at.toISOString(),now)||b.published_at-a.published_at||a.id.localeCompare(b.id)).slice(0,30);
+  const countryCounts=(entries:Array<{countries:string[]}>)=>Object.fromEntries(policy.countries.map(country=>[country,entries.filter(entry=>entry.countries.includes(country)).length]));
+  const sourceCounts=(entries:Array<{sourceId:string}>)=>Object.fromEntries([...new Set(entries.map(entry=>entry.sourceId))].sort().map(source=>[source,entries.filter(entry=>entry.sourceId===source).length]));
+  const comparison={before:{count:previous.length,countries:countryCounts(previous),sources:sourceCounts(previous.map(row=>({sourceId:row.source_id})))},
+    after:{count:selected.length,countries:countryCounts(selected),sources:sourceCounts(selected),localCrime:selected.filter(entry=>entry.evidence.includes("local_crime")).length},
+    rescued:selected.filter(entry=>entry.previousStatus!=="selected").map(entry=>({title:entry.title,sourceId:entry.sourceId,reason:entry.previousReason,score:entry.score}))};
+  const report={createdAt:new Date().toISOString(),mode,version:key,previousVersion:oldKey,assessed:assessed.length,categoryCounts:groupCounts("category"),levels:groupCounts("level"),statuses:groupCounts("status"),postgresRankingVerified:true,applied,previousDecisionsPreserved:before,
+    ...(mode==="--apply"?{backupPath}:{}),comparison,sample,selected};
   const path=`reports/workspace-ranking-${Date.now()}.json`;
   writeFileSync(path,JSON.stringify(report,null,2)+"\n");
-  console.log(JSON.stringify({report:path,mode,assessed:assessed.length,sample:sample.length,categoryCounts:report.categoryCounts,levels:report.levels,statuses:report.statuses,applied,paidCalls:0,sourceFetches:0}));
+  console.log(JSON.stringify({report:path,mode,assessed:assessed.length,sample:sample.length,categoryCounts:report.categoryCounts,levels:report.levels,statuses:report.statuses,comparison,applied,paidCalls:0,sourceFetches:0}));
 } catch {
   await client?.query("ROLLBACK").catch(()=>{});
   console.error("Ranking operation could not be completed; private details withheld");process.exitCode=1;

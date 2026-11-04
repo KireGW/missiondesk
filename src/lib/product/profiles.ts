@@ -73,7 +73,7 @@ export function personalRelevance(item: IntelligenceItem, preferences: PersonalP
   const profile = personalProfiles[preferences.homeCountry];
   const homeConnection = personalHomeConnection(item, preferences.homeCountry);
   if (item.workspace_relevance !== undefined) {
-    return { score: Math.max(0, Math.min(100, Math.round(item.workspace_relevance))), homeConnection, basis: "public-rules-v3" };
+    return { score: Math.max(0, Math.min(100, Math.round(item.workspace_relevance))), homeConnection, basis: "public-rules-v4" };
   }
   const clamp = (score: number) => Number.isFinite(score) ? Math.max(0, Math.min(100, score)) : 0;
   const domain = Math.max(clamp(item.economic_impact_score), clamp(item.security_impact_score));

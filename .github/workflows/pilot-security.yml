@@ -31,6 +31,7 @@ jobs:
       - run: npm run smoke:personal-profiles
       - run: npm run smoke:legal
       - run: npm run smoke:workspace-ranking
+      - run: npm run smoke:workspace-selection
       - run: npm run smoke:workspace-feed
       - run: npm run smoke:workspace-refresh
       - run: npm run smoke:workspace-search

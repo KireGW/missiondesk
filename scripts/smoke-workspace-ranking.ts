@@ -86,7 +86,7 @@ assert.equal(evaluateCandidate({...article("No geographic evidence"),countries:[
 for(const [date,reason] of [[null,"missing_date"],["invalid","missing_date"],[new Date(now+86400000).toISOString(),"future_date"],[new Date(now-8*86400000).toISOString(),"outside_window"]] as const)
   assert.equal(evaluateCandidate({...original,publishedAt:date},no,now).reason,reason);
 assert.equal(evaluateCandidate({...original,contentKind:"reference"},no,now).status,"held");
-assert.ok(workspacePolicyKey(no).startsWith("public-rules-v3:"));
+assert.ok(workspacePolicyKey(no).startsWith("public-rules-v4:"));
 assert.notEqual(workspacePolicyKey(no),workspacePolicyKey(se));
 assert.equal(workspacePolicyKey(no),workspacePolicyKey({...no,countries:[...no.countries].reverse()}));
 const older=workspaceRank(88,new Date(now-2*86400000).toISOString(),now);

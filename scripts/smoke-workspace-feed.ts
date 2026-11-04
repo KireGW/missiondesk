@@ -58,7 +58,7 @@ try {
     calls.length = 0;
     const result = await addWorkspaceFeed("server-account", preferences, feed, plan);
     assert.deepEqual(calls[1], { sql: "SELECT set_config('missiondesk.account_id', $1, true)", values: ["server-account"] });
-    assert.equal(calls.find(call => call.sql.includes("c.status='selected'"))?.values?.[2], productPlans[plan].feedLimit);
+    assert.equal(calls.find(call => call.sql.includes("c.status='selected'"))?.values?.[2], Math.min(productPlans[plan].feedLimit * 3, 300));
     assert.equal(result.items.length, Math.min(31, productPlans[plan].feedLimit));
     assert.equal(result.items[0].workspace_relevance, 65);
     assert.equal(result.items[0].category,"domestic_politics","RSS items must be classified rather than assigned Society");

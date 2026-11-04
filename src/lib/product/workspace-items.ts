@@ -7,12 +7,13 @@ export interface WorkspaceArticleRow {
   id: string; title: string; excerpt: string; url: string; name: string; language: string;
   published_at: Date | null; countries: string[]; score: number | null;
   content_kind?: "news" | "reference";
+  source_id?: string;
   selection?: "selected" | "held" | "rejected" | "unassessed";
 }
 export function workspaceArticleToItem(row: WorkspaceArticleRow, policy?: WorkspacePolicy): IntelligenceItem {
-  const assessment=policy?assessWorkspaceText(row.title,row.excerpt,policy):null;
+  const assessment=policy?assessWorkspaceText(row.title,row.excerpt,policy,row.source_id):null;
   const topic=assessment??classifyWorkspaceText(row.title,row.excerpt);
-  const countries=assessment?.countries??detectWorkspaceCountries(row.title,row.excerpt);
+  const countries=assessment?.countries??detectWorkspaceCountries(row.title,row.excerpt,row.source_id);
   return {
     id: `workspace:${row.id}`, title_original: sourcePlainText(row.title), original_excerpt: sourcePlainText(row.excerpt), title_sv: "", summary_sv: "",
     source_name: row.name, source_url: row.url, source_country: "", source_language: row.language,

@@ -73,7 +73,7 @@ export async function searchWorkspace(accountId: string, homeCountry: HomeCountr
     const workspacePolicy={id:workspace.id,homeCountry:workspace.home_country,countries:workspace.countries};
     const policy=workspacePolicyKey(workspacePolicy);
     // Both text and home-country predicates precede LIMIT; the country comes only from the trusted profile.
-    const result=await client.query(`SELECT a.id,a.title,a.excerpt,a.url,a.published_at,a.countries,a.content_kind,
+    const result=await client.query(`SELECT a.id,a.source_id,a.title,a.excerpt,a.url,a.published_at,a.countries,a.content_kind,
       p.name,p.language,c.score,coalesce(c.status,'unassessed') AS selection,
       date_trunc('milliseconds',coalesce(a.published_at,a.fetched_at)) AS sort_time
       FROM product_public_articles a JOIN product_workspace_sources s ON s.source_id=a.source_id AND s.workspace_id=$1
