@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { BrainCircuit, History, Info, Newspaper, Radio, X } from "lucide-react";
+import { BrainCircuit, History, Newspaper, Radio, X } from "lucide-react";
 import type { PersonalLanguage } from "@/lib/product/profiles";
 import { personalMessages } from "@/lib/product/messages";
 import { productPlans } from "@/lib/product/plans";
@@ -38,8 +38,7 @@ export function FreePlanDialog({ language }: { language: PersonalLanguage }) {
     <button type="button" aria-haspopup="dialog" aria-expanded={open} aria-controls={id}
       onClick={() => setOpen(true)}
       className="mr-2 inline-flex min-h-10 shrink-0 cursor-pointer items-center gap-1 whitespace-nowrap rounded-sm px-0.5 text-xs text-[var(--app-muted)] underline-offset-4 hover:text-[var(--app-fg)] hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-accent)]">
-      <span>{t.currentPlan}: <span className="text-[var(--app-positive)]">{t.free}</span></span>
-      <Info aria-hidden="true" className="h-3 w-3" />
+      <span className="text-xs font-normal">{t.currentPlan}: <span className="text-[var(--app-positive)]">{t.free}</span></span>
     </button>
     <dialog ref={dialog} id={id} lang={language} aria-labelledby={titleId} aria-describedby={descriptionId}
       onClose={() => setOpen(false)}
