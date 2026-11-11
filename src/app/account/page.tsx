@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { BrandLogo } from "@/components/product/BrandLogo";
 import { ProductFooter } from "@/components/product/ProductFooter";
+import { PremiumInfo } from "@/components/product/PremiumInfo";
 import { ArrowLeft, Library, LogIn, LogOut, ShieldCheck, UserRound } from "lucide-react";
 import { getAccessMode, authConfigurationReady, pilotInviteOnly } from "@/lib/product/config";
 import { getPersonalAccount } from "@/lib/product/account";
@@ -62,7 +63,9 @@ export default async function AccountPage() {
                 <div className="flex flex-wrap justify-between gap-3 py-3"><dt>{t.social}</dt><dd>{t.inactive}</dd></div>
                 <div className="flex flex-wrap justify-between gap-3 py-3"><dt>{t.ai}</dt><dd>{t.inactive}</dd></div>
               </dl>
-              <p className="mt-4 text-xs text-[var(--app-muted)]">{t.premiumLater}</p>
+              <section aria-label={t.premium.title} className="mt-6 rounded-xl border border-[var(--app-line)] bg-[var(--app-panel)] p-5 sm:p-6">
+                <PremiumInfo language={preferences.language} headingLevel="h3" />
+              </section>
               <a href="/auth/logout" className="mt-6 inline-flex items-center gap-2 rounded-md border border-[var(--app-line)] px-4 py-2"><LogOut className="h-4 w-4" />{t.signOut}</a>
             </>
           )}
