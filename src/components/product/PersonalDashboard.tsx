@@ -229,10 +229,16 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
           <IconButton label={feed.workspacePilot?.refreshEnabled ? t.refreshFeed : t.latest} icon={loading ? Loader2 : RefreshCw} onClick={() => void refresh()} disabled={loading} />
           <details className="relative">
             <summary title={t.information} aria-label={t.information} className="flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-md border border-[var(--app-line)]"><Info className="h-4 w-4" /></summary>
-            <div className="absolute right-0 top-12 z-20 max-h-[60vh] w-80 max-w-[calc(100vw-3rem)] overflow-y-auto rounded-md border border-[var(--app-line)] bg-[var(--app-panel-strong)] p-4 text-sm leading-6 text-[var(--app-soft)] shadow-xl">
+            <div className="absolute right-0 top-12 z-20 max-h-[60vh] w-96 max-w-[calc(100vw-3rem)] overflow-y-auto rounded-md border border-[var(--app-line)] bg-[var(--app-panel-solid)] p-4 text-sm leading-6 text-[var(--app-soft)] shadow-xl">
               <h2 className="mb-2 font-semibold text-[var(--app-fg)]">{t.information}</h2><p>{feed.workspacePilot ? t.workspaceInfo : t.info}</p>
-              {feed.workspacePilot && <p className="mt-3">{t.relevanceRuleBased}</p>}
-              {feed.workspacePilot ? <p className="mt-3">{t.heldCandidates}: {feed.workspacePilot.heldCount}. {feed.workspacePilot.attentionNeeded ? t.sourceAttention : ""}</p> : <p className="mt-3">{t.coverageInfo}</p>}
+              {feed.workspacePilot ? <>
+                <p className="mt-3"><span className="font-medium text-[var(--app-fg)]">{t.refreshFeed}</span> {t.workspaceRefreshInfo}</p>
+                <p className="mt-3">{t.workspaceCoverageInfo}</p>
+                <Link href={{ pathname: "/account/sources", query: { lang: preferences.language } }} prefetch={false}
+                  className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-accent)]">
+                  <span className="text-[var(--app-accent)] underline underline-offset-4 hover:text-[var(--app-accent-strong)]">{t.sourceStatusLink}</span><span aria-hidden="true" className="text-[var(--app-accent)]">→</span>
+                </Link>
+              </> : <p className="mt-3">{t.coverageInfo}</p>}
             </div>
           </details>
         </div>

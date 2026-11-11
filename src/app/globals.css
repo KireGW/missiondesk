@@ -54,6 +54,7 @@ a {
   --app-line: rgba(255, 255, 255, 0.1);
   --app-panel: rgba(17, 22, 28, 0.78);
   --app-panel-strong: rgba(19, 25, 32, 0.94);
+  --app-panel-solid: #131920;
   --app-panel-muted: rgba(255, 255, 255, 0.045);
   --app-accent: #8fb7ff;
   --app-accent-strong: #d0deff;
@@ -77,6 +78,7 @@ a {
   --app-line: rgba(22, 25, 29, 0.12);
   --app-panel: rgba(255, 255, 255, 0.78);
   --app-panel-strong: rgba(255, 255, 255, 0.96);
+  --app-panel-solid: #ffffff;
   --app-panel-muted: rgba(22, 25, 29, 0.045);
   --app-accent: #315c9d;
   --app-accent-strong: #12376d;
