@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { BrandLogo } from "@/components/product/BrandLogo";
 import { ProductFooter } from "@/components/product/ProductFooter";
@@ -32,7 +32,6 @@ function IconButton({ label, icon: Icon, onClick, disabled = false }: {
 export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
   initialFeed: PersonalFeed; initialPreferences: PersonalPreferences; plan: PlanId;
 }) {
-  const searchScopeId = useId();
   const [feed, setFeed] = useState(initialFeed);
   const [preferences, setPreferences] = useState(initialPreferences);
   const [view, setView] = useState<View>("signals");
@@ -254,15 +253,13 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
       </nav>
 
       {searchView ? <section aria-label={t.manualSearch} className="border-b border-[var(--app-line)] py-5">
-        <label className="block min-w-0 text-xs text-[var(--app-muted)]">{t.manualSearch}
+        <label className="block min-w-0 text-xs text-[var(--app-muted)]">
+          <span className="block">{workspaceSearch ? t.searchScope.replace("{days}", String(productPlans[plan].archiveDays)).replace("{limit}", String(productPlans[plan].feedLimit)) : t.manualSearch}</span>
           <span className="relative mt-2 block"><Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4" />
-            <input type="search" value={searchQuery} onChange={event=>changeSearch(event.target.value)} maxLength={120} autoComplete="off" placeholder={t.query} aria-describedby={workspaceSearch ? searchScopeId : undefined} className={`${selectClass} pl-10 pr-10 text-[var(--app-fg)]`} />
+            <input type="search" value={searchQuery} onChange={event=>changeSearch(event.target.value)} maxLength={120} autoComplete="off" placeholder={t.query} className={`${selectClass} pl-10 pr-10 text-[var(--app-fg)]`} />
             {searchPending && <span role="status" aria-label={t.searching} className="pointer-events-none absolute right-3 top-3.5"><Loader2 className="h-4 w-4 animate-spin" /></span>}
           </span>
         </label>
-        {workspaceSearch && <p id={searchScopeId} className="mt-2 text-xs leading-5 text-[var(--app-muted)]">
-          {t.searchScope.replace("{days}", String(productPlans[plan].archiveDays)).replace("{limit}", String(productPlans[plan].feedLimit))}
-        </p>}
         <label className="mt-3 inline-flex min-h-8 cursor-pointer items-center gap-2 text-sm text-[var(--app-soft)]"><input type="checkbox" checked={searchHomeOnly} onChange={event=>changeSearchHomeOnly(event.target.checked)} className="h-4 w-4 accent-[var(--app-positive)]" />{t.homeOnly} · {home}</label>
         {searchError && <p role="alert" className="mt-3 text-sm text-[var(--app-danger)]">{searchError}</p>}
       </section> : view !== "meeting" && <section aria-label={filterLabel} className="border-b border-[var(--app-line)] py-5">
