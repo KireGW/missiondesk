@@ -30,6 +30,24 @@ const events: ReadonlyArray<{reason: RelevanceReason; terms: readonly string[]}>
   {reason:"economic_change",terms:["aumenta","aumentan","aumento","cae","caida","sube","crece","growth","surge","rises","falls","cuts","recorte","record","crisis","anuncia inversion","announces investment"]},
   {reason:"regional_impact",terms:["estado de emergencia","state of emergency","state of public emergency","estado de excepcion","emergencia nacional","national emergency","free trade agreement","tratado de libre comercio","masacre","massacre","terremoto","earthquake","huracan","hurricane","crimenes de lesa humanidad","crimes against humanity","cierre de frontera","border closure"]},
 ];
+const economicChangeTerms = events.find(event=>event.reason==="economic_change")!.terms;
+const economicChangePattern = new RegExp(`\\b(?:${economicChangeTerms.join("|")})\\b`, "g");
+const economicContextTerms = [
+  ...topics.filter(topic=>["economy","trade","investment_climate","markets","energy"].includes(topic.category)).flatMap(topic=>topic.terms)
+    .filter(term=>!["clima","climate","klima","emisiones","emissions","oceano","ocean","oceans"].includes(term)),
+  "precio","precios","price","prices","costo","costos","cost","costs","salario","salarios","wages","spending",
+  "peso","dolar","dolares","dollar","dollars","currency","interest rates","combustible","fuel","crudo","crude",
+];
+function contextualEconomicChange(text: string, economicTopic: boolean) {
+  // A direction/change word needs nearby economic evidence in the same clause.
+  // In particular, an unrelated economic sentence cannot qualify an arrest headline.
+  return text.split(/(?<!\d)[.!?,;:\n]|[.!?,;:\n](?!\d)/).some(clause=>
+    [...clause.matchAll(economicChangePattern)].some(match=>{
+      const nearby = `${clause.slice(0,match.index).split(/\s+/).slice(-8).join(" ")} ${match[0]} ${clause.slice(match.index+match[0].length).split(/\s+/).slice(0,9).join(" ")}`;
+      return economicContextTerms.some(term=>occurrences(nearby,term)>0)
+        || (economicTopic && /\b(?:tasa|tasas|rate|rates|referencial)\b/.test(nearby));
+    }));
+}
 export function classifyWorkspaceText(title: string, excerpt: string) {
   const heading=normalize(title), body=normalize(excerpt);
   const foodOil=/\b(cooking oil|soybean|olive oil|aceite de cocina|aceite comestible|matolje)\b/.test(`${heading} ${body}`);
@@ -44,7 +62,8 @@ export function classifyWorkspaceText(title: string, excerpt: string) {
     titleHits:best?.titleHits??0,bodyHits:best?.bodyHits??0};
 }
 
-export function assessWorkspaceText(title: string, excerpt: string, policy: {homeCountry: HomeCountry;countries:readonly MonitoredCountry[]}, sourceId?: string) {
+export function assessWorkspaceText(title: string, excerpt: string, policy: {homeCountry: HomeCountry;countries:readonly MonitoredCountry[]}, sourceId?: string,
+  options: { contextualEconomicEvents?: boolean } = {}) {
   const heading=normalize(title), body=normalize(excerpt);
   const titleCountries=detectWorkspaceCountries(title,"",sourceId);
   const geography=workspaceGeography(title,excerpt,sourceId);
@@ -53,14 +72,22 @@ export function assessWorkspaceText(title: string, excerpt: string, policy: {hom
   const inRegion=countries.some(country=>policy.countries.includes(country as MonitoredCountry));
   const homeConnection=countries.includes(policy.homeCountry);
   const topic=classifyWorkspaceText(title,excerpt);
+  const economicTopic=["economy","markets"].includes(topic.category);
   const evidence: RelevanceReason[]=[];
   if(inRegion) evidence.push(inTitle?"country_in_title":"country_in_excerpt");
   if(geography.localMexicoEvidence && policy.countries.includes("MX")) evidence.push("local_geography");
   if(homeConnection) evidence.push("home_connection");
   if(topic.classified&&!topic.broad) evidence.push("profile_topic");
-  const eventMatches=events.filter(event=>event.terms.some(term=>occurrences(heading,term)>0||occurrences(body,term)>0));
+  // Opt-in presentation correction. Existing ingestion/search decisions keep the
+  // original versioned rules and stored scores unless a caller explicitly opts in.
+  const eventMatches=events.map(event=>({ ...event,
+    inTitle: event.reason==="economic_change" && options.contextualEconomicEvents ? contextualEconomicChange(heading,economicTopic) : event.terms.some(term=>occurrences(heading,term)>0),
+    inBody: event.reason==="economic_change" && options.contextualEconomicEvents ? contextualEconomicChange(body,economicTopic) : event.terms.some(term=>occurrences(body,term)>0),
+  })).filter(event=>event.inTitle||event.inBody);
   for(const event of eventMatches) evidence.push(event.reason);
-  const titleEvents=eventMatches.filter(event=>event.terms.some(term=>occurrences(heading,term)>0)).length;
+  const titleEvents=eventMatches.filter(event=>event.inTitle).length;
+  const priorityTitleEvents=options.contextualEconomicEvents
+    ? events.filter(event=>event.terms.some(term=>occurrences(heading,term)>0)).length : titleEvents;
   const outsideLead=!inTitle&&titleCountries.some(country=>country!==policy.homeCountry&&!policy.countries.includes(country as MonitoredCountry));
   if(outsideLead) evidence.push("incidental_geography");
   const crossBorder=inTitle&&titleCountries.some(country=>country!==policy.homeCountry&&!policy.countries.includes(country as MonitoredCountry))&&["foreign_policy","security","trade","migration"].includes(topic.category);
@@ -70,7 +97,7 @@ export function assessWorkspaceText(title: string, excerpt: string, policy: {hom
   const historicalOpinion=(/\b19\d{2}\b/.test(body)&&(heading.includes(":")||/\b(history|historia|memoria|recuerdo)\b/.test(heading))
     || /\b(a \d+ anos de|\d+ years (after|since)|anniversary|aniversario)\b/.test(heading))
     &&!/\b(trial|juicio|sentencia|condena|court|tribunal|corte|investigation|investigacion)\b/.test(heading);
-  const lowPriority=(/\b(football|futbol|soccer|horoscope|horoscopo|lottery|loteria|recipe|receta|celebrity|celebridades)\b/.test(`${heading} ${body}`)&&titleEvents===0)||lifestyle||historicalOpinion||localRoutine;
+  const lowPriority=(/\b(football|futbol|soccer|horoscope|horoscopo|lottery|loteria|recipe|receta|celebrity|celebridades)\b/.test(`${heading} ${body}`)&&priorityTitleEvents===0)||lifestyle||historicalOpinion||localRoutine;
   if(lowPriority) evidence.push("low_priority");
   if(!excerpt.trim()) evidence.push("limited_context");
   const combined=`${heading} ${body}`;

@@ -5,6 +5,10 @@ the former rule for one particular tariff threat. Production matching contains
 no event, person, country or topic-specific cases and makes no AI/LLM or external
 API calls.
 
+The subsequent [ordering correction](./current-signals-ordering.md) adjusts only
+the Current signals copy before deduplication; the deduplication matcher itself
+is unchanged.
+
 `workspace-feed.ts` still returns the original plan-sized `items`. Only the
 optional `currentItems` presentation is filtered and backfilled from the same
 existing ordered candidate pool. Search, candidate decisions, scores, ingestion,

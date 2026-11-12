@@ -5,6 +5,7 @@ import type { IntelligenceItem } from "../src/lib/types";
 import type { PersonalFeed } from "../src/lib/product/feed";
 import { aggregatePersonalSearchItems, personalSelectionItems } from "../src/lib/product/feed";
 import { selectCurrentSignalItems } from "../src/lib/product/current-signals";
+import { orderCurrentSignalItems } from "../src/lib/product/current-signals-order";
 import { selectBalancedWorkspaceItems } from "../src/lib/product/workspace-selection";
 import { workspaceArticleToItem, type WorkspaceArticleRow } from "../src/lib/product/workspace-items";
 import type { WorkspacePolicy } from "../src/lib/product/workspace-candidates";
@@ -22,6 +23,8 @@ assert.deepEqual(original.map(item => item.id), fixture.expectedOriginalIds, "Fr
 const ordered = selectBalancedWorkspaceItems(items, fixture.policy, items.length, now);
 assert.deepEqual(ordered.slice(0, 30), original, "Extending the existing ordering must preserve its original prefix");
 const current = selectCurrentSignalItems(ordered, 30);
+const presentation = selectCurrentSignalItems(orderCurrentSignalItems(ordered,fixture.policy,now,
+  new Map(rows.map(row=>[`workspace:${row.id}`,row.source_id!]))),30);
 assert.equal(current.length, 30, "Backfill the two freed slots from the same ordered pool");
 assert.ok(current.some(item => item.id === fixture.responseId), "Sheinbaum's response is a separate development and must survive");
 assert.ok(current.some(item => item.id === fixture.keptThreatId), "The first existing representative remains Reforma");
@@ -98,7 +101,7 @@ try {
   const preferences = { homeCountry: "NO", targetCountry: "MX", language: "en", contentLanguage: "original" } as const;
   const result = await addWorkspaceFeed("fixture-account", preferences, feed);
   assert.deepEqual(result.items, original, "The API's original search/selection material remains byte-for-byte equivalent");
-  assert.deepEqual(result.currentItems, current, "Only the optional Current signals presentation is filtered");
+  assert.deepEqual(result.currentItems, presentation, "Only the optional Current signals presentation is filtered and reordered");
   assert.deepEqual(aggregatePersonalSearchItems(result.items, [], "Trump"), aggregatePersonalSearchItems(original, [], "Trump"), "Signal search retains all original variants");
   const allFourIds = [fixture.keptThreatId, fixture.responseId, ...fixture.suppressedIds];
   assert.equal(aggregatePersonalSearchItems(result.items, [], "Trump").filter(item => allFourIds.includes(item.id)).length, 4);

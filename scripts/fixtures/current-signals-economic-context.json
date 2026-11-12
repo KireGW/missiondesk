@@ -1,0 +1,195 @@
+{
+  "description": "Curated editorial examples for contextual economic-event evidence. Names and subjects are illustrative; no event-specific production rules.",
+  "cases": [
+    {
+      "title": "México: cae la inflación al 3%",
+      "excerpt": "",
+      "economicChange": true
+    },
+    {
+      "title": "México: cae el precio del petróleo tras informe",
+      "excerpt": "",
+      "economicChange": true
+    },
+    {
+      "title": "México anuncia inversión para nuevas fábricas",
+      "excerpt": "",
+      "economicChange": true
+    },
+    {
+      "title": "México recorte de presupuesto reduce el gasto público",
+      "excerpt": "",
+      "economicChange": true
+    },
+    {
+      "title": "México: sube el dólar frente al peso",
+      "excerpt": "",
+      "economicChange": true
+    },
+    {
+      "title": "México: aumenta la producción de petróleo",
+      "excerpt": "",
+      "economicChange": true
+    },
+    {
+      "title": "Mexico GDP growth slows after investment report",
+      "excerpt": "",
+      "economicChange": true
+    },
+    {
+      "title": "Mexico stock market rises after central bank announcement",
+      "excerpt": "",
+      "economicChange": true
+    },
+    {
+      "title": "Mexico fuel costs surge after supply disruptions",
+      "excerpt": "",
+      "economicChange": true
+    },
+    {
+      "title": "Mexico interest rate cuts support exports",
+      "excerpt": "",
+      "economicChange": true
+    },
+    {
+      "title": "Mexico oil production falls after refinery closure",
+      "excerpt": "",
+      "economicChange": true
+    },
+    {
+      "title": "Mexico reports record exports after trade deal",
+      "excerpt": "",
+      "economicChange": true
+    },
+    {
+      "title": "México: cae la inversión pese a la violencia del cártel",
+      "excerpt": "",
+      "economicChange": true
+    },
+    {
+      "title": "Mexico budget cuts affect military spending",
+      "excerpt": "",
+      "economicChange": true
+    },
+    {
+      "title": "Mexico reports inflation growth despite security crisis",
+      "excerpt": "",
+      "economicChange": true
+    },
+    {
+      "title": "México: cae líder del cártel tras operativo policial",
+      "excerpt": "",
+      "economicChange": false
+    },
+    {
+      "title": "México: sube el número de desaparecidos tras ataque",
+      "excerpt": "",
+      "economicChange": false
+    },
+    {
+      "title": "México: aumenta la violencia contra periodistas",
+      "excerpt": "",
+      "economicChange": false
+    },
+    {
+      "title": "México: crece el temor tras asesinato de un alcalde",
+      "excerpt": "",
+      "economicChange": false
+    },
+    {
+      "title": "México enfrenta crisis política por reforma electoral",
+      "excerpt": "",
+      "economicChange": false
+    },
+    {
+      "title": "Mexico reports record arrests after cartel raid",
+      "excerpt": "",
+      "economicChange": false
+    },
+    {
+      "title": "Mexico death toll rises after bus crash",
+      "excerpt": "",
+      "economicChange": false
+    },
+    {
+      "title": "Mexico gang membership growth concerns police",
+      "excerpt": "",
+      "economicChange": false
+    },
+    {
+      "title": "Mexico crime surge prompts security response",
+      "excerpt": "",
+      "economicChange": false
+    },
+    {
+      "title": "Mexico gang cuts road access after confrontation",
+      "excerpt": "",
+      "economicChange": false
+    },
+    {
+      "title": "Mexico football team sets new record",
+      "excerpt": "",
+      "economicChange": false
+    },
+    {
+      "title": "México: cae líder del cártel tras operativo policial",
+      "excerpt": "El gobierno publicó un informe de inflación y precios.",
+      "economicChange": false
+    },
+    {
+      "title": "México: cae líder del cártel tras operativo policial",
+      "excerpt": "El precio del petróleo cae tras un informe de producción.",
+      "economicChange": true
+    },
+    {
+      "title": "México informa sobre detención de un líder del cártel",
+      "excerpt": "El número de detenidos crece. El gobierno publicó datos de inflación.",
+      "economicChange": false
+    },
+    {
+      "title": "México: cae líder del cártel; el precio del petróleo cambia",
+      "excerpt": "",
+      "economicChange": false
+    },
+    {
+      "title": "México: cae el precio del petróleo; la policía detiene a un sospechoso",
+      "excerpt": "",
+      "economicChange": true
+    },
+    {
+      "title": "Banxico dice que recorte a la tasa se ‘cocinaba’ desde septiembre: Evaluación de inflación es ‘rigurosa’",
+      "excerpt": "Victoria Rodríguez Ceja explicó que Banxico evaluaba desde septiembre bajar la tasa de interés y que persisten condiciones de holgura económica.",
+      "economicChange": true
+    },
+    {
+      "title": "Barclays prevé otro recorte de Banxico en marzo y anticipa una tasa de 6% en 2027",
+      "excerpt": "La firma espera que el banco central mantenga sin cambios el referencial en diciembre y febrero, pese a que la Junta de gobierno anticipó que permanecerá en ese nivel por un periodo prolongado.",
+      "economicChange": true
+    },
+    {
+      "title": "México: sube la tasa de homicidios tras violencia del cártel",
+      "excerpt": "Las autoridades de seguridad publicaron su informe.",
+      "economicChange": false
+    },
+    {
+      "title": "Mexico death rate rises after violence",
+      "excerpt": "Police publish murder figures.",
+      "economicChange": false
+    },
+    {
+      "title": "Mexico childhood mortality rate rises",
+      "excerpt": "Health authorities publish new figures.",
+      "economicChange": false
+    },
+    {
+      "title": "México: aumentan tasas de mortalidad infantil",
+      "excerpt": "Las autoridades de salud publicaron nuevas cifras.",
+      "economicChange": false
+    },
+    {
+      "title": "Mexico climate change: death rate rises",
+      "excerpt": "Scientists report a climate change study.",
+      "economicChange": false
+    }
+  ]
+}

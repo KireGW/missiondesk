@@ -7,6 +7,7 @@ import { workspaceArticleToItem } from "@/lib/product/workspace-items";
 import { workspaceRankSql } from "@/lib/product/workspace-assessment";
 import { canonicalSignalUrl, selectBalancedWorkspaceItems } from "@/lib/product/workspace-selection";
 import { selectCurrentSignalItems } from "@/lib/product/current-signals";
+import { orderCurrentSignalItems } from "@/lib/product/current-signals-order";
 
 export async function addWorkspaceFeed(accountId: string, preferences: PersonalPreferences, feed: PersonalFeed, planId: PlanId = "free"): Promise<PersonalFeed> {
   if (process.env.MISSIONDESK_WORKSPACE_PILOT !== "true") return feed;
@@ -46,8 +47,9 @@ export async function addWorkspaceFeed(accountId: string, preferences: PersonalP
       if(seen.has(key)) return false;seen.add(key);return true;
     });
     const originalItems = combined.slice(0, limit);
-    const currentItems = selectCurrentSignalItems([...ordered, ...feed.items], limit);
-    const presentationChanged = currentItems.length !== originalItems.length || currentItems.some((item,index)=>item.id !== originalItems[index]?.id);
+    const sourceIds = new Map<string,string>(candidates.map(row=>[`workspace:${row.id}`,row.source_id]));
+    const currentItems = selectCurrentSignalItems([...orderCurrentSignalItems(ordered,policy,Date.now(),sourceIds), ...feed.items], limit);
+    const presentationChanged = currentItems.length !== originalItems.length || currentItems.some((item,index)=>item !== originalItems[index]);
     return { ...feed, items: originalItems, ...(presentationChanged ? { currentItems } : {}),
       updatedAt: [feed.updatedAt, fetchedAt].filter(Boolean).sort().at(-1),
       workspacePilot: { connectedSourceIds: sources.filter((source) => source.last_success_at).map((source) => source.id), heldCount: held,

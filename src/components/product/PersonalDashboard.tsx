@@ -82,6 +82,8 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
   const rows = useMemo(() => {
     const terms = query.toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
     const items=searchView ? aggregated.slice(searchPageIndex*30,(searchPageIndex+1)*30) : view==="meeting" || view==="prioritized" ? personalSelectionItems(feed.items,retained,[...priorities,...meeting]) : currentItems;
+    // Current signals already has the server's age-adjusted, balanced order.
+    const preserveServerOrder = searchView || (view === "signals" && sort === "relevance" && Boolean(feed.workspacePilot));
     return items.map((item) => ({ item, content: personalContent(item, preferences), relevance: personalRelevance(item, preferences) }))
       .filter(({ item, content, relevance }) => {
         if (searchView) return true;
@@ -92,9 +94,9 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
         if (homeOnly && !relevance.homeConnection) return false;
         const text = `${content.title} ${content.summary} ${item.title_original} ${item.original_excerpt} ${item.source_name}`.toLocaleLowerCase();
         return terms.every((term) => text.includes(term));
-      }).sort((a, b) => searchView ? 0 : (sort === "relevance" ? b.relevance.score - a.relevance.score : 0) ||
+      }).sort((a, b) => preserveServerOrder ? 0 : (sort === "relevance" ? b.relevance.score - a.relevance.score : 0) ||
         Date.parse(b.item.published_at) - Date.parse(a.item.published_at) || a.item.id.localeCompare(b.item.id));
-  }, [feed.items, currentItems, preferences, query, category, homeOnly, sort, view, meeting, priorities, aggregated, searchPageIndex, searchView, retained]);
+  }, [feed.items, feed.workspacePilot, currentItems, preferences, query, category, homeOnly, sort, view, meeting, priorities, aggregated, searchPageIndex, searchView, retained]);
 
   function selectItem(kind: "priority" | "meeting", item: IntelligenceItem, checked: boolean) {
     const setIds=kind==="priority" ? setPriorities : setMeeting;
