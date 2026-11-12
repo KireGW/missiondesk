@@ -1,0 +1,1355 @@
+{
+  "description": "Public RSS candidate pool after the 2026-11-12 update; no account IDs or credentials. Captured before the presentation-only filter.",
+  "now": "2026-11-12T14:43:13.881Z",
+  "policy": {
+    "id": "fixture-workspace",
+    "homeCountry": "NO",
+    "countries": [
+      "MX",
+      "NI",
+      "CR",
+      "GT",
+      "HN",
+      "SV",
+      "BZ"
+    ]
+  },
+  "rows": [
+    {
+      "id": "29c751fb3c0d5d49545e39decfa7b59a108d0c7843041b6d221bc433447cfe7c",
+      "source_id": "no-ni-confidencial",
+      "name": "Confidencial",
+      "language": "es",
+      "title": "Después del terremoto electoral en EE.UU. ¿Qué podemos esperar en Nicaragua?",
+      "excerpt": "La derrota electoral de Trump y del partido republicano abre un nuevo escenario que obliga a la oposición democrática nicaragüense a hacer una revisión crítica de sus enfoques y líneas de acción, superar el sectarismo y la polarización, y acordar una estrategia y una agenda centrada en los problemas reales de nuestra gente, como bases […] La entrada Después del terremoto electoral en EE.UU. ¿Qué podemos esperar en Nicaragua? se publicó primero en Confidencial .",
+      "url": "https://confidencial.digital/opinion/despues-del-terremoto-electoral-en-ee-uu-que-podemos-esperar-en-nicaragua/",
+      "published_at": "2026-11-12T07:30:00.000Z",
+      "countries": [
+        "NI"
+      ],
+      "content_kind": "news",
+      "score": 78
+    },
+    {
+      "id": "07ad9c253babedb340df59929efb9c37abcca994fff05feba64b7c966ea8d579",
+      "source_id": "no-mx-el-pais",
+      "name": "El País México",
+      "language": "es",
+      "title": "Nuevo golpe al Cartel Jalisco: cae en Zapopan ‘El R-2′, vinculado al asesinato de Carlos Manzo",
+      "excerpt": "El gabinete de seguridad ha capturado al líder de una célula que extorsionaba en Jalisco y Michoacán, vinculado al asesinato del exalcalde de Uruapan, Carlos Manzo",
+      "url": "https://elpais.com/mexico/2026-11-08/nuevo-golpe-al-cartel-jalisco-nueva-generacion-cae-en-zapopan-rafael-n-alias-r2.html",
+      "published_at": "2026-11-08T23:26:50.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 82
+    },
+    {
+      "id": "b90a4f6022e11c174e547829b1273c7cf4305471e204ab53873159fd3f5b1b4f",
+      "source_id": "no-mx-el-pais",
+      "name": "El País México",
+      "language": "es",
+      "title": "Sheinbaum acelera su reforma anticorrupción en plena crisis por el escándalo del INE",
+      "excerpt": "Un bloque del oficialismo en el Congreso alista una batería de cambios legales y constitucionales para reforzar el discurso del Gobierno de combate a los actos ilícitos, a menos de un año de las elecciones de 2027",
+      "url": "https://elpais.com/mexico/2026-11-10/sheinbaum-acelera-su-reforma-anticorrupcion-en-plena-crisis-por-el-escandalo-del-ine.html",
+      "published_at": "2026-11-10T09:30:00.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 76
+    },
+    {
+      "id": "37033e5ea6d0a2887149100031f7f536ac2a2f368f897e5fdb2502fbd10d716c",
+      "source_id": "el-financiero",
+      "name": "El Financiero",
+      "language": "es",
+      "title": "Inflación en EU aviva apuestas de aumento de tasas de interés de la Fed: ¿Cómo afectaría al peso mexicano?",
+      "excerpt": "Ven riesgo de alza de hasta 50 pb en la tasa de interés de EU, lo que dispararía el nivel del dólar frente al peso.",
+      "url": "https://www.elfinanciero.com.mx/economia/2026/11/11/inflacion-en-eu-aviva-apuestas-de-aumento-de-tasas-de-interes-de-la-fed-como-afectaria-al-peso-mexicano/",
+      "published_at": "2026-11-11T13:49:06.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 68
+    },
+    {
+      "id": "52e59c4487ef8ca2b66ceb5580730261ce0e1fd60bebdf5a0992b530619be048",
+      "source_id": "no-mx-el-pais",
+      "name": "El País México",
+      "language": "es",
+      "title": "Detenidos dos líderes y 12 integrantes del Cartel de Sinaloa en Chiapas",
+      "excerpt": "El Gabinete de Seguridad informa que los agentes han incautado, además, 12 armas largas",
+      "url": "https://elpais.com/mexico/2026-11-11/detenidos-dos-lideres-y-12-integrantes-del-cartel-de-sinaloa-en-chiapas.html",
+      "published_at": "2026-11-11T13:57:03.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 66
+    },
+    {
+      "id": "20aef7863809d2af655d852adddc43bf36d0964c4464b8c9b4c9fefb16dd910d",
+      "source_id": "no-mx-reforma",
+      "name": "Reforma",
+      "language": "es",
+      "title": "Duplicaría Trump aranceles a México si no detiene caravanas",
+      "excerpt": "Donald Trump amenazó con duplicar aranceles a México si el País no detiene el avance de las caravanas migrantes que se dirigen hacia EU.",
+      "url": "https://www.reforma.com/duplicaria-trump-aranceles-a-mexico-si-no-detiene-caravanas/ar3313261",
+      "published_at": "2026-11-12T12:44:42.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 62
+    },
+    {
+      "id": "01c032b9f7ed125e01071a8618e9b5ff8eeff0b7df0c65971452b1350f27abb7",
+      "source_id": "no-bz-love-fm",
+      "name": "Love FM Belize",
+      "language": "en",
+      "title": "Mexico’s CFE Assures Belize of Continued Electricity Supply Following High-Level Talks",
+      "excerpt": "Mexico’s Federal Electricity Commission, CFE, has assured Belize that it will continue supplying electricity following talks with Public Utilities Minister Michel Chebat in Mexico City. According to the Embassy of Belize in Mexico, Chebat met with CFE Director General Emilia Esther Calleja Alor at the company’s headquarters, where both sides reached agreement on several issues […]",
+      "url": "https://lovefm.com/mexicos-cfe-assures-belize-of-continued-electricity-supply-following-high-level-talks/",
+      "published_at": "2026-11-11T04:02:19.000Z",
+      "countries": [
+        "MX",
+        "BZ"
+      ],
+      "content_kind": "news",
+      "score": 66
+    },
+    {
+      "id": "93014ed2d78a1a74734f9a5c7f1aa4713a68ed97fecd176c926d7729d003d6d3",
+      "source_id": "el-financiero",
+      "name": "El Financiero",
+      "language": "es",
+      "title": "Trump amenaza a México con duplicar araranceles si no detiene caravana migrante: ‘No habrá indulgencia’",
+      "excerpt": "Trump no dio un plazo para que México actúe, pero exigió frenar la migración.",
+      "url": "https://www.elfinanciero.com.mx/mundo/2026/11/12/trump-amenaza-a-mexico-con-duplicar-araranceles-si-no-detiene-caravana-migrante-no-habra-indulgencia/",
+      "published_at": "2026-11-12T13:37:19.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 60
+    },
+    {
+      "id": "f498f571639a70154b611ff20f40d32465d06a530b30bcca09f30f1864d0e851",
+      "source_id": "el-financiero",
+      "name": "El Financiero",
+      "language": "es",
+      "title": "Sheinbaum responde a amenaza de aranceles de Trump: Caravana de migrantes será desactivada",
+      "excerpt": "Estos fueron los temas más importantes de la mañanera de Claudia Sheinbaum este jueves 12 de noviembre.",
+      "url": "https://www.elfinanciero.com.mx/nacional/2026/11/12/claudia-sheinbaum-mananera-temas-hoy-12-de-noviembre-de-2026-en-vivo/",
+      "published_at": "2026-11-12T14:36:19.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 58
+    },
+    {
+      "id": "5b2fbf46162107956fa34d4773a74d742ef748d7fcf282650d655d967a0c73d8",
+      "source_id": "el-financiero",
+      "name": "El Financiero",
+      "language": "es",
+      "title": "Banxico dice que recorte a la tasa se ‘cocinaba’ desde septiembre: Evaluación de inflación es ‘rigurosa’",
+      "excerpt": "Victoria Rodríguez Ceja explicó que Banxico evaluaba desde septiembre bajar la tasa de interés y que persisten condiciones de holgura económica.",
+      "url": "https://www.elfinanciero.com.mx/economia/2026/11/08/banxico-evaluaba-bajar-la-tasa-desde-septiembre/",
+      "published_at": "2026-11-09T13:50:04.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 70
+    },
+    {
+      "id": "3cee330a9fd53304290a5bb90a156929a736ece4a8280a4e9a26a02b06668267",
+      "source_id": "el-universal-national",
+      "name": "El Universal",
+      "language": "es",
+      "title": "Trump amenaza con \"duplicar inmediatamente\" aranceles a México; pide detener caravanas de migrantes",
+      "excerpt": "“Se están formando enormes caravanas que han comenzado su marcha ilegal a través de México”, escribió Trump este jueves en la red Truth Social",
+      "url": "https://www.eluniversal.com.mx/mundo/trump-amenaza-con-duplicar-inmediatamente-aranceles-a-mexico-pide-detener-caravanas-de-migrantes/",
+      "published_at": "2026-11-12T12:58:01.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 58
+    },
+    {
+      "id": "daacbe49553ec2420f0386158ab551f181146f38b927606e5e331ed322d89aab",
+      "source_id": "no-bz-love-fm",
+      "name": "Love FM Belize",
+      "language": "en",
+      "title": "Immigration Minister Meets Belizean Diaspora During South Florida Passport Mission",
+      "excerpt": "Immigration Minister Kareem Musa met with members of the Belizean diaspora last night in the Miramar area of South Florida. The meet-and-greet was hosted by Bridge 501 and the Florida chapter of the Belize Justices of the Peace Association, giving Belizeans living in South Florida an opportunity to hear directly from the minister and speak […]",
+      "url": "https://lovefm.com/immigration-minister-meets-belizean-diaspora-during-south-florida-passport-mission/",
+      "published_at": "2026-11-12T03:17:37.000Z",
+      "countries": [
+        "BZ"
+      ],
+      "content_kind": "news",
+      "score": 58
+    },
+    {
+      "id": "50950933633bc24df8f7bb35d0c4b10b1e80b9388be31a6e3357ff526fd39f18",
+      "source_id": "no-mx-el-pais",
+      "name": "El País México",
+      "language": "es",
+      "title": "50 obras maestras del Thyssen visitan Paseo de Reforma en Ciudad de México",
+      "excerpt": "Una exposición callejera acerca a la capital un recorrido por la historia del arte occidental e incluye el préstamo temporal de la pieza original ‘Vestidos simultáneos‘ de Sonia Delaunay",
+      "url": "https://elpais.com/mexico/2026-11-11/50-obras-maestras-del-thyssen-visitan-paseo-de-reforma-en-ciudad-de-mexico.html",
+      "published_at": "2026-11-11T09:30:00.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 60
+    },
+    {
+      "id": "df2541f5ebe382da7318d2a4d338aa37a9a7f2a73ca1f2826913e81e289c2361",
+      "source_id": "expansion-mexico",
+      "name": "Expansion Mexico",
+      "language": "es",
+      "title": "Gina Hinojosa abre una vía al T-MEC en Texas, pero deja dudas sobre exportaciones mexicanas para la IA",
+      "excerpt": "México lleva al menos 18 años como principal socio comercial de Texas. En 2025, el estado le vendió 124,700 millones de dólares y le compró 177,100 millones.",
+      "url": "https://expansion.mx/economia/2026/11/10/gina-hinojosa-texas-tmec-exportaciones-mexicanas-ia",
+      "published_at": "2026-11-10T21:00:38.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 62
+    },
+    {
+      "id": "df00bcbb4cd00f41b1d1fbe6524f7985bb5767d52d9ea69f9e1658d5a4113584",
+      "source_id": "no-bz-love-fm",
+      "name": "Love FM Belize",
+      "language": "en",
+      "title": "Senate Approves Special Committee to Investigate Belize’s Electricity Shortages",
+      "excerpt": "In related news, a Senate Special Select Committee will investigate why Belize continues to face electricity shortages and power outages. Senators supported a motion brought by Business Senator Kevin Herrera to examine the country’s energy sector and the decisions made over the past ten years. The inquiry will look at power purchase agreements, official communications, […]",
+      "url": "https://lovefm.com/senate-approves-special-committee-to-investigate-belizes-electricity-shortages/",
+      "published_at": "2026-11-07T04:16:05.000Z",
+      "countries": [
+        "BZ"
+      ],
+      "content_kind": "news",
+      "score": 76
+    },
+    {
+      "id": "915dd62ba20603ff3d229c9ba40cb08e3e33ca979bba4880c9609b2ce134edcb",
+      "source_id": "no-bz-love-fm",
+      "name": "Love FM Belize",
+      "language": "en",
+      "title": "Belize Launches Project to Strengthen National Human Rights Protection",
+      "excerpt": "In other news from the Ministry of Foreign Affairs, Belize has launched a three-year project to turn the Office of the Ombudsman into a National Human Rights Institution. The idea is to give the office a broader role in protecting human rights and make it easier for people to bring forward complaints, particularly those who […]",
+      "url": "https://lovefm.com/belize-launches-project-to-strengthen-national-human-rights-protection/",
+      "published_at": "2026-11-10T03:22:39.000Z",
+      "countries": [
+        "BZ"
+      ],
+      "content_kind": "news",
+      "score": 64
+    },
+    {
+      "id": "9fccdf63378e0947873d1d4b4d198410ba03acf09d0a3cb232f7b1bc95fc05fd",
+      "source_id": "el-universal-national",
+      "name": "El Universal",
+      "language": "es",
+      "title": "Nadia Beller sale de Bolivia rumbo a México; recibe asilo diplomático en medio del escándalo",
+      "excerpt": "Beller sobrevivió a los disparos de sicarios que la atacaron presuntamente por orden de Cerimedo el 17 de agosto",
+      "url": "https://www.eluniversal.com.mx/mundo/nadia-beller-sale-de-bolivia-rumbo-a-mexico-recibe-asilo-diplomatico-en-medio-del-escandalo/",
+      "published_at": "2026-11-11T14:47:22.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 58
+    },
+    {
+      "id": "5f034d98cce2308c62fc5925b6af102bbf3bfe3f43af213bea57aa6483af582a",
+      "source_id": "el-universal-national",
+      "name": "El Universal",
+      "language": "es",
+      "title": "Continúa la violencia en Sinaloa: reportan dos muertos y dos heridos en Culiacán; una de las víctimas es un estudiante del Conalep",
+      "excerpt": "Dos jóvenes fueron blanco de un ataque armado por personas que viajaban en una motocicleta",
+      "url": "https://www.eluniversal.com.mx/estados/continua-la-violencia-en-sinaloa-reportan-dos-muertos-y-dos-heridos-en-culiacan-una-de-las-victimas-es-un-estudiante-del-conalep/",
+      "published_at": "2026-11-11T14:13:25.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 58
+    },
+    {
+      "id": "bdda8d11587ed3e0d709e3cd957e8fbd9a8cabb8ddffbcc7ce3f30f027a57f3f",
+      "source_id": "el-financiero",
+      "name": "El Financiero",
+      "language": "es",
+      "title": "Detienen a ‘El Gio’, presunto segundo al mando del Cártel de Santa Rosa de Lima en Guanajuato",
+      "excerpt": "Yovani Uriel ‘N’, alias ‘El Gio’, presunto segundo al mando del Cártel de Santa Rosa de Lima, fue detenido en Yuriria, Guanajuato.",
+      "url": "https://www.elfinanciero.com.mx/estados/2026/11/10/detienen-a-el-gio-presunto-segundo-al-mando-del-cartel-de-santa-rosa-de-lima-en-guanajuato/",
+      "published_at": "2026-11-10T21:55:49.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 60
+    },
+    {
+      "id": "86132dfd75546767c654f3d09eb915c8dfd31e1b251a0410dc8eac7200fd7814",
+      "source_id": "la-jornada-politica",
+      "name": "La Jornada Politica",
+      "language": "es",
+      "title": "Retomará Sheinbaum propuesta de reforma electoral",
+      "excerpt": "La presidenta Claudia Shein- baum Pardo adelantó que una vez que concluya el proceso electoral 2026-2027 enviará nuevamente una iniciativa de reforma en la materia.",
+      "url": "https://www.jornada.com.mx/2026/11/10/politica/004n3pol?partner=rss",
+      "published_at": "2026-11-10T08:36:00.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 62
+    },
+    {
+      "id": "2b50472ac6fa07b2b617024f490c43ea991791d3612298eb5b5de5503a0908bd",
+      "source_id": "no-bz-love-fm",
+      "name": "Love FM Belize",
+      "language": "en",
+      "title": "Belizean Soldiers Trained to Respond to Guatemalan Military Confrontations",
+      "excerpt": "Video of Saturday’s confrontation on the Sarstoon captured more than the close approach of Guatemalan military vessels. It also recorded the verbal exchanges as Belizean soldiers stood their ground. But what do troops say during these tense encounters? According to National Security CEO, Major Retired Francis Usher, military personnel are trained to understand and deliver […]",
+      "url": "https://lovefm.com/belizean-soldiers-trained-to-respond-to-guatemalan-military-confrontations/",
+      "published_at": "2026-11-11T03:51:28.000Z",
+      "countries": [
+        "GT",
+        "BZ"
+      ],
+      "content_kind": "news",
+      "score": 58
+    },
+    {
+      "id": "d41021765860602237f6245de83aa10d6ff26679a9251e285901cce43aecee9a",
+      "source_id": "no-bz-love-fm",
+      "name": "Love FM Belize",
+      "language": "en",
+      "title": "Foreign Minister Says Belize Shifting to Individual Contracts With Cuban Medical Personnel",
+      "excerpt": "Belize is changing the arrangement under which Cuban medical personnel serve in the country, bringing an end to the longstanding Medical Brigade agreement while seeking to retain its doctors, nurses and other healthcare workers. Foreign Affairs Minister Francis Fonseca says more than ninety Cuban medical personnel are currently in Belize and will be individually contracted […]",
+      "url": "https://lovefm.com/foreign-minister-says-belize-shifting-to-individual-contracts-with-cuban-medical-personnel/",
+      "published_at": "2026-11-11T03:50:44.000Z",
+      "countries": [
+        "BZ"
+      ],
+      "content_kind": "news",
+      "score": 58
+    },
+    {
+      "id": "64c893572fcda652db3210ff3804008c91394b059e7641fceab28a33b075b395",
+      "source_id": "no-bz-love-fm",
+      "name": "Love FM Belize",
+      "language": "en",
+      "title": "Police Investigate Theft of 25-Foot Boat From Belize River",
+      "excerpt": "In Belize City, police are investigating the theft of a twenty-five-foot boat from the Belize River behind the Save U compound on the Philip Goldson Highway. Michael Garbutt told police he had been looking after the boat for its owner, Evan Baptist, when a noise woke him around five-thirty Saturday morning. He says he went […]",
+      "url": "https://lovefm.com/police-investigate-theft-of-25-foot-boat-from-belize-river/",
+      "published_at": "2026-11-12T02:55:57.000Z",
+      "countries": [
+        "BZ"
+      ],
+      "content_kind": "news",
+      "score": 54
+    },
+    {
+      "id": "0ae5838be82885eb357fad0a89f3ac1040f9a39ba9a0ed0cdc91a779b895998d",
+      "source_id": "no-bz-love-fm",
+      "name": "Love FM Belize",
+      "language": "en",
+      "title": "Man Escapes Police Custody in Cayo While Handcuffed, Later Detained in Belize City",
+      "excerpt": "In Cayo, Police Constable Herman Choc says he was struck in the head while trying to detain twenty-three-year-old Rene Castillo early Tuesday morning. Choc says he stopped Castillo on the George Price Highway as he was carrying a hundred-pound butane cylinder. Castillo reportedly told the officer it belonged to his uncle, who later told police […]",
+      "url": "https://lovefm.com/man-escapes-police-custody-in-cayo-while-handcuffed-later-detained-in-belize-city/",
+      "published_at": "2026-11-12T02:55:46.000Z",
+      "countries": [
+        "BZ"
+      ],
+      "content_kind": "news",
+      "score": 54
+    },
+    {
+      "id": "61c51826b2b55c7d4c5f61e789b66eabeba09afe2a988e276c38a40a9f86d913",
+      "source_id": "el-universal-national",
+      "name": "El Universal",
+      "language": "es",
+      "title": "Alistan operativo de seguridad con más de 6 mil elementos para la Feria Ganadera en Sinaloa; habrá exposiciones de animales de 43 ranchos",
+      "excerpt": "Por tercer año consecutivo fue cancelado el Palenque de Culiacán, que tradicionalmente forma parte de la Feria",
+      "url": "https://www.eluniversal.com.mx/estados/alistan-operativo-de-seguridad-con-mas-de-6-mil-elementos-para-la-feria-ganadera-en-sinaloa-habra-exposiciones-de-animales-de-43-ranchos/",
+      "published_at": "2026-11-12T14:29:07.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 52
+    },
+    {
+      "id": "c2b790ad4255fdae839256a80339d7e14cebd9a1324ee8bbe774f5a40ebd156e",
+      "source_id": "bbc-latin-america",
+      "name": "BBC Latin America",
+      "language": "en",
+      "title": "Haitian PM praises El Salvador after joint strike on alleged home of gang leader",
+      "excerpt": "The 400 Mawozo gang was targeted by El Salvador's military, which has deployed thousands of troops to combat Haiti's gang violence crisis.",
+      "url": "https://www.bbc.co.uk/news/articles/cmvg2xdwnwezo?at_medium=RSS&at_campaign=rss",
+      "published_at": "2026-11-11T12:14:12.000Z",
+      "countries": [
+        "SV",
+        "HT"
+      ],
+      "content_kind": "news",
+      "score": 56
+    },
+    {
+      "id": "c0919a040b84a156f5ade6df861653b9aeb18670eb4c13b6326e1fc4c41ad88a",
+      "source_id": "expansion-mexico",
+      "name": "Expansion Mexico",
+      "language": "es",
+      "title": "Productores de California quieren limitar la entrada de aguacates mexicanos en el T-MEC",
+      "excerpt": "Agricultores de San Diego dicen que la fruta mexicana ya está en las empacadoras cuando empieza su cosecha y piden al representante comercial de EU que intervenga. Calculan que el condado pierde una finca cada tres días.",
+      "url": "https://expansion.mx/economia/2026/11/10/aguacate-mexicano-disputa-cosecha-california-tmec",
+      "published_at": "2026-11-10T11:55:56.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 60
+    },
+    {
+      "id": "d54e896d6589de69a6d3f661cca4261929fe1eee4c1d18514ca1f5456c7178b1",
+      "source_id": "no-ni-confidencial",
+      "name": "Confidencial",
+      "language": "es",
+      "title": "Régimen impone nuevos controles a la salida de capitales de Nicaragua",
+      "excerpt": "El régimen actualizó y unificó su normativa destinada a combatir el lavado de dinero. El nuevo texto legal, además de mantener el espionaje sobre las remesas que reciben los nicaragüenses, impone nuevos controles sobre la salida de capitales de Nicaragua, e insiste en tratar de proteger a quienes hayan recibido sanciones internacionales. “Ortega no puede […] La entrada Régimen impone nuevos controles a la salida de capitales de Nicaragua se publicó primero en Confidencial .",
+      "url": "https://confidencial.digital/analisis/regimen-impone-nuevos-controles-a-la-salida-de-capitales-de-nicaragua/",
+      "published_at": "2026-11-12T07:25:00.000Z",
+      "countries": [
+        "NI"
+      ],
+      "content_kind": "news",
+      "score": 52
+    },
+    {
+      "id": "b58a578f35edda1a875926c289f976d7d6cf0408d086204aa8a862f5d6c0436a",
+      "source_id": "no-bz-love-fm",
+      "name": "Love FM Belize",
+      "language": "en",
+      "title": "PM Briceño Responds to Latest Guatemalan Military Aggression on Sarstoon",
+      "excerpt": "Speaking following an event in Orange Walk earlier today, the PM acknowledged the gravity of the aggression by the Guatemalans and spoke to the media on what is being done. John Briceño, Prime Minister of Belize: “Well certainly it’s of grave concern to all Belizeans including us, including us as a government. And I have […]",
+      "url": "https://lovefm.com/pm-briceno-responds-to-latest-guatemalan-military-aggression-on-sarstoon/",
+      "published_at": "2026-11-12T03:33:34.000Z",
+      "countries": [
+        "GT",
+        "BZ"
+      ],
+      "content_kind": "news",
+      "score": 52
+    },
+    {
+      "id": "9ad551a63f6a9722e3c8d8d8f6370c3fc00150a58dafd71e839c9c1171136ab7",
+      "source_id": "el-universal-national",
+      "name": "El Universal",
+      "language": "es",
+      "title": "Embajada de Israel habla sobre supuesta presencia de exmilitares en Chiapas; acusa \"campaña alarmante\" de odio contra su país",
+      "excerpt": "El embajador Yoed Magen destacó viajes que hacen jóvenes israelíes a esta entidad",
+      "url": "https://www.eluniversal.com.mx/nacion/embajada-de-israel-habla-sobre-supuesta-presencia-de-exmilitares-en-chiapas-acusa-campana-alarmante-de-odio-contra-su-pais/",
+      "published_at": "2026-11-11T14:30:45.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 54
+    },
+    {
+      "id": "4fb35ba9b86d2a4b59b798f2ba5d3389418d92507cf533f77c47afe37015c3cc",
+      "source_id": "expansion-mexico",
+      "name": "Expansion Mexico",
+      "language": "es",
+      "title": "Pemex deja de reportar producción exclusiva de petróleo crudo para elevar cifras con condensados",
+      "excerpt": "El director de la petrolera, Juan Carlos Carpio, no ofreció una respuesta clara sobre los cambios realizados en los reportes de su base de datos.",
+      "url": "https://expansion.mx/empresas/2026/11/10/pemex-deja-de-reportar-produccion-exclusiva-de-petroleo-crudo-para-elevar-cifras-con-condensados",
+      "published_at": "2026-11-11T01:04:24.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 56
+    },
+    {
+      "id": "4bd4cf80829719d5094aed046c37fb0ffad84c93873d47e9adb236f590a7685c",
+      "source_id": "no-sv-gato-encerrado",
+      "name": "GatoEncerrado",
+      "language": "es",
+      "title": "Medidas para frenar la subida de precios y la pobreza extrema en El Salvador",
+      "excerpt": "La pobreza extrema y el costo de la vida aumentan en El Salvador. Estas son 4 medidas urgentes propuestas por Ciudadanos Salvadoreños para frenar el alza de los precios. La entrada Medidas para frenar la subida de precios y la pobreza extrema en El Salvador se publicó primero en GatoEncerrado .",
+      "url": "https://gatoencerrado.news/2026/11/09/medidas-para-frenar-precios-y-pobreza-extrema-en-el-salvador/",
+      "published_at": "2026-11-10T00:10:45.000Z",
+      "countries": [
+        "SV"
+      ],
+      "content_kind": "news",
+      "score": 60
+    },
+    {
+      "id": "a0b424f249829d433434a0e124e7072dcc6850781f4af568ff4737dd023df7a5",
+      "source_id": "expansion-mexico",
+      "name": "Expansion Mexico",
+      "language": "es",
+      "title": "Mientras retrasan el gasto a Pemex y trenes, el gobierno acelera el del IMSS Bienestar",
+      "excerpt": "Al cierre de septiembre, la petrolera mexicana reportó un menor gasto a lo aprobado por la Cámara de Diputados, en tanto las instituciones de salud pública gastaron más.",
+      "url": "https://expansion.mx/economia/2026/11/11/menos-gasto-pemex-trenes-mas-imss-bienestar",
+      "published_at": "2026-11-11T11:55:38.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 54
+    },
+    {
+      "id": "3c6592998e368de7ca9e7135ce93efc023b72dc1b0c95c6de2e0f32edf48f203",
+      "source_id": "no-cr-tico-times",
+      "name": "The Tico Times",
+      "language": "en",
+      "title": "US Warns Costa Rica Town Halls Off Chinese Cameras, China Pushes Back",
+      "excerpt": "The US Embassy warned Costa Rican town halls about Chinese security cameras, plate readers and software. China's embassy called the warning unfounded.",
+      "url": "https://ticotimes.net/2026/11/11/us-china-embassies-chinese-cameras-costa-rica-municipalities",
+      "published_at": "2026-11-11T23:12:00.000Z",
+      "countries": [
+        "CR",
+        "CN"
+      ],
+      "content_kind": "news",
+      "score": 52
+    },
+    {
+      "id": "59f935b2138fc028f998699cb8e3ca7a4a6d1ac9c028478c95a077aeef80852b",
+      "source_id": "el-financiero",
+      "name": "El Financiero",
+      "language": "es",
+      "title": "Así adapta el Ejército su maquinaria para retirar explosivos del narco en Michoacán (FOTOS)",
+      "excerpt": "El Ejército reportó avances en la Operación Corredor Seguro en Michoacán, donde busca retirar explosivos de rutas utilizadas por habitantes y fuerzas de seguridad.",
+      "url": "https://www.elfinanciero.com.mx/estados/2026/11/10/asi-adapta-el-ejercito-mexicano-su-maquinaria-para-retirar-explosivos-del-narco-en-michoacan-fotos/",
+      "published_at": "2026-11-10T22:04:02.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 56
+    },
+    {
+      "id": "cbfd7b0267b72393b7cdd7089c4c22ef6ea4818058fc1a6a01b71a65fa13d0f1",
+      "source_id": "el-financiero",
+      "name": "El Financiero",
+      "language": "es",
+      "title": "Deer Park ‘da frutos’ a Pemex: Ganó 1,882 millones de dólares en 9 meses, más de lo que costó su compra",
+      "excerpt": "La refinería Deer Park obtuvo un rendimiento de mil 882 millones de dólares durante los primeros 9 meses de 2026, monto que superó los mil 816 millones de dólares que le costó a Pemex.",
+      "url": "https://www.elfinanciero.com.mx/economia/2026/11/10/deer-park-da-frutos-a-pemex-gano-1882-millones-de-dolares-en-9-meses-mas-de-lo-que-costo-su-compra/",
+      "published_at": "2026-11-10T21:12:30.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 56
+    },
+    {
+      "id": "114b773961868045506e2c7c833282a8ac69aa88327c751c3f0900714732a531",
+      "source_id": "no-bz-love-fm",
+      "name": "Love FM Belize",
+      "language": "en",
+      "title": "U.S. Eyes Joint Military Operations With Belize to Combat Drug Trafficking",
+      "excerpt": "The United States has expressed interest in conducting joint military operations with Belize to combat drug trafficking and other cross-border crimes. Foreign Affairs Minister Francis Fonseca says the government is considering how the two countries could work together, including what support Washington could provide to help Belize tackle drug and human trafficking. Asked whether the […]",
+      "url": "https://lovefm.com/u-s-eyes-joint-military-operations-with-belize-to-combat-drug-trafficking/",
+      "published_at": "2026-11-11T03:56:09.000Z",
+      "countries": [
+        "BZ",
+        "US"
+      ],
+      "content_kind": "news",
+      "score": 54
+    },
+    {
+      "id": "da6fa2891ac7a921ec9bf48cab1e0e4c71bf9418101528fcae71c46276539dac",
+      "source_id": "no-bz-love-fm",
+      "name": "Love FM Belize",
+      "language": "en",
+      "title": "Belize Deploys Additional Military Vessels Following Sarstoon Confrontation",
+      "excerpt": "Belize has sent more Defence Force and Coast Guard vessels to the Sarstoon after two Guatemalan military boats approached a BDF patrol with 6 personnel on board, near the Sarstoon Island on Saturday. Belize says both boats crossed into its waters. Guatemala disputes that account. National Security CEO Retired Major Francis Usher says his ministry […]",
+      "url": "https://lovefm.com/belize-deploys-additional-military-vessels-following-sarstoon-confrontation/",
+      "published_at": "2026-11-10T15:30:44.000Z",
+      "countries": [
+        "GT",
+        "BZ"
+      ],
+      "content_kind": "news",
+      "score": 56
+    },
+    {
+      "id": "53c38fe74df069fb7cb32e5df8545a5f6033077017abf30895d5d0928ba0a6bd",
+      "source_id": "no-bz-love-fm",
+      "name": "Love FM Belize",
+      "language": "en",
+      "title": "U.S. Ambassador Praises BDF Restraint, Hopes for Resolution to Belize-Guatemala Dispute",
+      "excerpt": "And staying with the Sarstoon, U.S. Ambassador André Bauer says it will be a relief when the International Court of Justice settles the case between Belize and Guatemala. Speaking this morning on The Morning Show on Love FM and Love Television, Bauer condemned Saturday’s encounter and praised the Belize Defence Force patrol for keeping its […]",
+      "url": "https://lovefm.com/u-s-ambassador-praises-bdf-restraint-hopes-for-resolution-to-belize-guatemala-dispute/",
+      "published_at": "2026-11-10T15:28:27.000Z",
+      "countries": [
+        "GT",
+        "BZ"
+      ],
+      "content_kind": "news",
+      "score": 56
+    },
+    {
+      "id": "f00982ebfbadfae52ae5b1fd595e74d028c1a229925cca6a404b537c6e1c8d29",
+      "source_id": "el-financiero",
+      "name": "El Financiero",
+      "language": "es",
+      "title": "‘Nada más que pasen las elecciones’: Sheinbaum volverá a mandar iniciativa para acabar con ‘pluris’",
+      "excerpt": "Durante la conferencia matutina de la presidenta Sheinbaum se presentó el informe de Profeco sobre el precio de la gasolina.",
+      "url": "https://www.elfinanciero.com.mx/nacional/2026/11/09/claudia-sheinbaum-mananera-temas-hoy-9-de-noviembre-de-2026-en-vivo/",
+      "published_at": "2026-11-09T15:10:59.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 60
+    },
+    {
+      "id": "3f1f69341963d652c066a2d10f30b217943d550c57c75a232d83f6bc2b36c7eb",
+      "source_id": "el-universal-national",
+      "name": "El Universal",
+      "language": "es",
+      "title": "Coachella 2027 revela su cartel: Dua Lipa, Madonna y Daddy Yankee encabezan el festival; La Texana representará a México",
+      "excerpt": "",
+      "url": "https://www.eluniversal.com.mx/espectaculos/coachella-2027-revela-su-cartel-dua-lipa-madonna-y-daddy-yankee-encabezan-el-festival-la-texana-representara-a-mexico/",
+      "published_at": "2026-11-11T15:07:45.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 52
+    },
+    {
+      "id": "609f0c54dedb06978507fa0c96219e2d80e0250710966801057adb47782b990a",
+      "source_id": "la-jornada-politica",
+      "name": "La Jornada Politica",
+      "language": "es",
+      "title": "Van 363 casos y 2 decesos por influenza estacional; CDMX, con más covid-19",
+      "excerpt": "En esta temporada de aumento de enfermedades respiratorias se han confirmado 363 casos positivos a influenza estacional por laboratorio y dos defunciones, establece la Secretaría de Salud (Ssa) en su último informe sobre la situación epidemiológica de covid-19, influenza y otros virus respiratorios. Respecto a los casos de SARS-CoV-2, en lo que va del año indica que son 3 mil 50 contagios y 120 decesos.",
+      "url": "https://www.jornada.com.mx/2026/11/11/politica/010n2pol?partner=rss",
+      "published_at": "2026-11-11T09:19:22.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 52
+    },
+    {
+      "id": "0511e1a3a9b71420e05b6c52b72c26579db1964888be0feff922fd2844a4a761",
+      "source_id": "el-financiero",
+      "name": "El Financiero",
+      "language": "es",
+      "title": "Sheinbaum justifica millonaria compra de aviones Black Hawk y Super Hercules: ‘Son para seguridad’",
+      "excerpt": "El gobierno de Claudia Sheinbaum planea adquirir 11 helicópteros Black Hawk, dos aviones Super Hercules y otras aeronaves para reforzar las tareas de seguridad, el Plan DN-III y el Plan Marina.",
+      "url": "https://www.elfinanciero.com.mx/nacional/2026/11/10/sheinbaum-justifica-millonaria-compra-de-aviones-black-hawk-y-super-hercules-son-para-seguridad/",
+      "published_at": "2026-11-10T18:56:10.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 54
+    },
+    {
+      "id": "912ead5cca5adbb4da97722788ef2ced37dd3132d94af6b555bac18b00876a02",
+      "source_id": "no-bz-love-fm",
+      "name": "Love FM Belize",
+      "language": "en",
+      "title": "Foreign Minister Francis Fonseca Rejects Calls to Boycott Guatemalan Products",
+      "excerpt": "Foreign Affairs Minister Francis Fonseca is rejecting suggestions that Belize boycotts Guatemala products following the confrontation between Guatemalan military vessels and a Belize Defence Force patrol on the Sarstoon River over the weekend. Fonseca says the government must act responsibly and avoid allowing those seeking confrontation to undermine the broader relationship between the two countries. […]",
+      "url": "https://lovefm.com/foreign-minister-francis-fonseca-rejects-calls-to-boycott-guatemalan-products/",
+      "published_at": "2026-11-11T03:54:01.000Z",
+      "countries": [
+        "GT",
+        "BZ"
+      ],
+      "content_kind": "news",
+      "score": 52
+    },
+    {
+      "id": "6bb5722425fed22147d7779c0ed68b15ed9aa6dc4d9aba1443c913931a4b800e",
+      "source_id": "no-bz-love-fm",
+      "name": "Love FM Belize",
+      "language": "en",
+      "title": "Godfrey Smith Details How China Visit Led to Study Tour Programme for Belizeans",
+      "excerpt": "In explaining why he suspects his work with mainland China may have drawn Washington’s attention, Godfrey Smith described how a visit to Beijing led to study tours for Belizeans. The former foreign minister says he met with senior Chinese Foreign Ministry officials in January to discuss ways for more Belizeans to learn about the country. […]",
+      "url": "https://lovefm.com/godfrey-smith-details-how-china-visit-led-to-study-tour-programme-for-belizeans/",
+      "published_at": "2026-11-11T03:46:01.000Z",
+      "countries": [
+        "BZ",
+        "CN"
+      ],
+      "content_kind": "news",
+      "score": 52
+    },
+    {
+      "id": "ad6566cc4ddd84ca14cdad37cf8780669199367be8bd9c6a204195088a2e0cfa",
+      "source_id": "no-bz-love-fm",
+      "name": "Love FM Belize",
+      "language": "en",
+      "title": "Belize’s Foreign Minister Condemns Guatemalan Military Aggression in Sarstoon",
+      "excerpt": "Foreign Affairs Minister Francis Fonseca says he’s angry and disgusted by what he describes as repeated acts of aggression by the Guatemalan military on the Sarstoon. Speaking today with the media, Fonseca praised the Belize Defence Force and the Belize Coast Guard for how they handled the confrontation. He also spoke about what Belize plans […]",
+      "url": "https://lovefm.com/belizes-foreign-minister-condemns-guatemalan-military-aggression-in-sarstoon/",
+      "published_at": "2026-11-10T15:29:45.000Z",
+      "countries": [
+        "GT",
+        "BZ"
+      ],
+      "content_kind": "news",
+      "score": 54
+    },
+    {
+      "id": "53d71d08ce87a99fb25b6706d1ef9c87f2c44201af59751cf024e0608965e9a4",
+      "source_id": "la-jornada-politica",
+      "name": "La Jornada Politica",
+      "language": "es",
+      "title": "Nada cambió con EU tras debacle electoral de Trump, dice Sheinbaum",
+      "excerpt": "Tras las elecciones intermedias en Estados Unidos, que dieron la mayoría legislativa a los demócratas, “no ha cambiado” la relación con el gobierno de Donald Trump ni con el Congreso de ese país, y “no ha habido nada que nos alerte de que algo está cambiando”, aseguró ayer la presidenta Claudia Sheinbaum.",
+      "url": "https://www.jornada.com.mx/2026/11/11/politica/008n1pol?partner=rss",
+      "published_at": "2026-11-11T09:19:22.000Z",
+      "countries": [
+        "US",
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 50
+    },
+    {
+      "id": "bb40f7f06b37532141bde8cfc6e0a307b1874fd9c49f93972af20e15a64dc849",
+      "source_id": "no-ni-confidencial",
+      "name": "Confidencial",
+      "language": "es",
+      "title": "El informe de S&P: ¿campo pagado o miopía económica sobre Nicaragua?",
+      "excerpt": "El informe de la Calificadora de Riesgo Standard and Poor (S&P Global Ratings) sobre la economía de Nicaragua pinta un paisaje extraño, con una mezcla de advertencias de un gobierno no democrático y enemigo del sector privado, pero con una política fiscal sana y con una economía robusta. Los puntos que resaltan merecen algunas observaciones […] La entrada El informe de S&P: ¿campo pagado o miopía económica sobre Nicaragua? se publicó primero en Confidencial .",
+      "url": "https://confidencial.digital/opinion/el-informe-de-sp-campo-pagado-o-miopia-economica-sobre-nicaragua/",
+      "published_at": "2026-11-10T06:15:00.000Z",
+      "countries": [
+        "NI"
+      ],
+      "content_kind": "news",
+      "score": 54
+    },
+    {
+      "id": "30bcdefcfe8c0ae81f2cd2d8ad11115bc7d065b9beb992174efd800b6635514a",
+      "source_id": "no-bz-love-fm",
+      "name": "Love FM Belize",
+      "language": "en",
+      "title": "National Disaster Preparedness Exercise Tests Belize’s Emergency Response System",
+      "excerpt": "As Belize continues to strengthen its disaster preparedness, a national exercise is putting the country’s emergency response system to the test, with particular attention to protecting children and other vulnerable populations. NEMO, in collaboration with UNICEF and UNDP, brought together government ministries and partner organisations for a series of activities aimed at identifying gaps in […]",
+      "url": "https://lovefm.com/national-disaster-preparedness-exercise-tests-belizes-emergency-response-system/",
+      "published_at": "2026-11-07T04:04:17.000Z",
+      "countries": [
+        "BZ"
+      ],
+      "content_kind": "news",
+      "score": 66
+    },
+    {
+      "id": "9613b979d42b65fd4ba752696fdb8a68adc8ab942bd0ff926ab326f6f43b74f8",
+      "source_id": "no-mx-el-pais",
+      "name": "El País México",
+      "language": "es",
+      "title": "La detención del R2, el último golpe de una larga cadena contra el Cartel Jalisco Nueva Generación",
+      "excerpt": "Como resultado de la cooperación en inteligencia con Estados Unidos, las autoridades mexicanas llevan casi un año ejecutando capturas de objetivos prioritarios vinculados con este grupo criminal",
+      "url": "https://elpais.com/mexico/2026-11-10/la-detencion-del-r2-el-ultimo-golpe-de-una-larga-cadena-contra-el-cartel-jalisco-nueva-generacion.html",
+      "published_at": "2026-11-10T09:30:00.000Z",
+      "countries": [
+        "MX",
+        "US"
+      ],
+      "content_kind": "news",
+      "score": 52
+    },
+    {
+      "id": "23a2b111c3cdad66951e72d65d8930266e4975033e6afbdd0a728741cf742bf3",
+      "source_id": "la-jornada-politica",
+      "name": "La Jornada Politica",
+      "language": "es",
+      "title": "Caravana de hondureños pide libre tránsito a Sheinbaum",
+      "excerpt": "Tapachula, Chis., La tercera caravana de migrantes hondureños que ingresó el fin de semana a México pidió al gobierno que encabeza la presidenta Claudia Sheinbaum que les conceda un permiso de tránsito por el país, con el que puedan llegar a la frontera norte y no tengan que enfrentarse a la dura travesía de avanzar a pie por la costa de Chiapas.",
+      "url": "https://www.jornada.com.mx/2026/11/10/politica/016n3pol?partner=rss",
+      "published_at": "2026-11-10T08:36:00.000Z",
+      "countries": [
+        "MX",
+        "HN"
+      ],
+      "content_kind": "news",
+      "score": 52
+    },
+    {
+      "id": "ec9f37bc5264b7deec2574350f55d0413ca621906f8f0821a6f6dfb2fe5207a8",
+      "source_id": "no-bz-love-fm",
+      "name": "Love FM Belize",
+      "language": "en",
+      "title": "Three Detained Following Early-Morning Break-In at Belize City Post Office",
+      "excerpt": "Three of the five men believed to have been involved in an early-morning break-in at the Belize Post Office in Belize City were detained after police responded quickly. Officers got to the building at North Front and Pickstock Streets around two forty-seven this morning, about seventeen minutes after the alarm alerted the security guard. When […]",
+      "url": "https://lovefm.com/three-detained-following-early-morning-break-in-at-belize-city-post-office/",
+      "published_at": "2026-11-11T03:55:09.000Z",
+      "countries": [
+        "BZ"
+      ],
+      "content_kind": "news",
+      "score": 48
+    },
+    {
+      "id": "3ae4f1d1b92f20773d3091b8ba2f146811e8524252e93e0d47ba12108884404f",
+      "source_id": "no-gt-plaza-publica",
+      "name": "Plaza Pública",
+      "language": "es",
+      "title": "Guatemala 2027: el voto como poder ciudadano y su dilema",
+      "excerpt": "«No es solo el dinero lo que ha corrompido nuestra política. Es una corrupción moral: la indiferencia cínica de las personas poderosas.» Jon Osoff, Senador de Georgia, Estados Unidos. La movilización social está expresando, a nivel global, el rechazo a la democracia vacía de resultados. Además, las recientes elecciones de medio término en los Estados […]",
+      "url": "https://plazapublica.com.gt/opinion/editorial/guatemala-2027-el-poder-ciudadano-y-su-dilema/",
+      "published_at": "2026-11-10T12:29:00.000Z",
+      "countries": [
+        "GT",
+        "US"
+      ],
+      "content_kind": "news",
+      "score": 50
+    },
+    {
+      "id": "39caaa038184ef767e702439c9961ad66d7799db5265642f743f1af661179fe7",
+      "source_id": "expansion-mexico",
+      "name": "Expansion Mexico",
+      "language": "es",
+      "title": "Barclays prevé otro recorte de Banxico en marzo y anticipa una tasa de 6% en 2027",
+      "excerpt": "La firma espera que el banco central mantenga sin cambios el referencial en diciembre y febrero, pese a que la Junta de gobierno anticipó que permanecerá en ese nivel por un periodo prolongado.",
+      "url": "https://expansion.mx/economia/2026/11/09/banxico-promete-mantener-tasa-barclays-preve-otro-recorte",
+      "published_at": "2026-11-09T11:55:46.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 54
+    },
+    {
+      "id": "f9d399586382b69c9d94e6ac86b82be1cd387b546f0e5259d0fea71a304c0062",
+      "source_id": "no-ni-confidencial",
+      "name": "Confidencial",
+      "language": "es",
+      "title": "Corte IDH ordenó liberar a presos políticos condenados por la masacre del 19 de julio de 2014",
+      "excerpt": "La Corte Interamericana de Derechos Humanos (Corte IDH) ordenó al Estado de Nicaragua liberar de forma “inmediata” a los nueve presos políticos condenados por la masacre del 19 de julio de 2014. Debido a que se encuentran en riesgo de sufrir “daños irreparables” en el Sistema Penitenciario Nacional y, además, uno de ellos ya cumplió […] La entrada Corte IDH ordenó liberar a presos políticos condenados por la masacre del 19 de julio de 2014 se publicó primero en Confidencial .",
+      "url": "https://confidencial.digital/noticias/corte-idh-ordeno-liberar-a-presos-politicos-condenados-por-la-masacre-del-19-de-julio-de-2014/",
+      "published_at": "2026-11-06T22:44:30.000Z",
+      "countries": [
+        "NI"
+      ],
+      "content_kind": "news",
+      "score": 64
+    },
+    {
+      "id": "2b6398c7c3e115a8b6bf72c5839180d2497c8021946b55e48fba7127703690b4",
+      "source_id": "el-universal-national",
+      "name": "El Universal",
+      "language": "es",
+      "title": "Supera Michoacán el promedio nacional de crecimiento económico; alcanza 15.59% según INEGI",
+      "excerpt": "",
+      "url": "https://www.eluniversal.com.mx/estados/supera-michoacan-el-promedio-nacional-de-crecimiento-economico-alcanza-1559-segun-inegi/",
+      "published_at": "2026-11-10T21:35:36.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 48
+    },
+    {
+      "id": "771ca3c4ec69e37e0d2628ab880f464af004fd7f17eb6588541d666de9a52b9d",
+      "source_id": "no-mx-el-pais",
+      "name": "El País México",
+      "language": "es",
+      "title": "La salud quebrada de México: un país sin derecho a enfermarse",
+      "excerpt": "Una investigación del Colegio de México y del Instituto Nacional de Salud Pública, revela el impacto de la fragmentación del sistema y de la falta de inversión del Gobierno en los municipios más pobres, en las personas con diabetes o cáncer, y en las muertes maternas",
+      "url": "https://elpais.com/mexico/2026-11-09/la-salud-quebrada-de-mexico-un-pais-sin-derecho-a-enfermarse.html",
+      "published_at": "2026-11-09T09:30:00.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 54
+    },
+    {
+      "id": "8c4b420636c4fb3f3ef674d35fb86b441f660e93a83fe3676ecdfc9a01561853",
+      "source_id": "no-mx-el-pais",
+      "name": "El País México",
+      "language": "es",
+      "title": "El ‘boom’ exportador de la inteligencia artificial y el alza de la inversión dan un nuevo impulso a la economía mexicana",
+      "excerpt": "Las exportaciones de México a Estados Unidos crecieron un 20% en los primeros nueve meses de 2026 y alcanzaron el récord de 481.586 millones de dólares",
+      "url": "https://elpais.com/mexico/economia/2026-11-09/el-boom-exportador-de-la-inteligencia-artificial-y-el-alza-de-la-inversion-dan-un-nuevo-impulso-a-la-economia-mexicana.html",
+      "published_at": "2026-11-09T09:30:00.000Z",
+      "countries": [
+        "MX",
+        "US"
+      ],
+      "content_kind": "news",
+      "score": 54
+    },
+    {
+      "id": "6a22654ae6e338d1ecc0f284cd93d998d1aead06140e9423f179e430196b0323",
+      "source_id": "la-jornada-politica",
+      "name": "La Jornada Politica",
+      "language": "es",
+      "title": "Alcanzar la educación universal para 2050 exige reforma fiscal: rector de la UNAM",
+      "excerpt": "El rector de la Universidad Nacional Autónoma de México, Leonardo Lomelí Vanegas, consideró factible alcanzar la cobertura universal en la educación superior para 2050, si hubiera una política de Estado con una planeación adecuada y un esfuerzo constante en términos de gasto público.",
+      "url": "https://www.jornada.com.mx/2026/11/09/politica/008n1pol?partner=rss",
+      "published_at": "2026-11-09T08:59:19.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 54
+    },
+    {
+      "id": "b63a1f070eb85982fb8b08f0ad38a8a64319fef3d4fc113951aecbe779bca36f",
+      "source_id": "expansion-mexico",
+      "name": "Expansion Mexico",
+      "language": "es",
+      "title": "Secretaría de Hacienda busca mayor inversión en Plan México y las Afores jugarían un papel relevante",
+      "excerpt": "Édgar Amador dijo en el encuentro Amafore 2026 que el desarrollo de infraestructura y el ahorro pensionario son socios naturales, con lo que las Afore son fuente de financiamiento a largo plazo",
+      "url": "https://expansion.mx/economia/2026/11/10/secretaria-de-hacienda-busca-mayor-inversion-en-plan-mexico-y-las-afores-jugarian-un-papel-relevante",
+      "published_at": "2026-11-10T19:24:18.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 48
+    },
+    {
+      "id": "b4c8a60f62eb2b446b7c3c8c71df529a60abfb2f07eac02743e48ab3b5bdf8da",
+      "source_id": "expansion-mexico",
+      "name": "Expansion Mexico",
+      "language": "es",
+      "title": "¿El Buen fin tiene algún efecto en la inflación? esto dicen especialistas y Banco de México",
+      "excerpt": "El precio de la electricidad, el tipo de cambio y la intensidad de las rebajas influyen en el resultado de noviembre, más allá de los descuentos en tiendas y ofertas en internet.",
+      "url": "https://expansion.mx/economia/2026/11/10/el-buen-fin-tiene-algun-efecto-en-la-inflacion-esto-dicen-especialistas-y-banco-de-mexico",
+      "published_at": "2026-11-10T15:30:04.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 48
+    },
+    {
+      "id": "ca232f691296abc6b6ce53e99e2955f28c5fdb13c1bf3ea12d50dcf806dcf353",
+      "source_id": "no-bz-love-fm",
+      "name": "Love FM Belize",
+      "language": "en",
+      "title": "U.S. Revokes Visa of Senior Counsel Godfrey Smith",
+      "excerpt": "Senior Counsel Godfrey Smith says he will issue a statement after the United States revoked his visitor visa. Smith confirmed his plans to Love News this morning. As of news time this evening, our newsroom had yet to receive his statement. Smith shared an email from the U.S. Embassy’s consular section in Belmopan saying the […]",
+      "url": "https://lovefm.com/u-s-revokes-visa-of-senior-counsel-godfrey-smith/",
+      "published_at": "2026-11-10T03:20:36.000Z",
+      "countries": [
+        "BZ",
+        "US"
+      ],
+      "content_kind": "news",
+      "score": 50
+    },
+    {
+      "id": "5228fbdddd8ca3a6748ecfa97aaac5ba0cec5386aae099184f2ea27244a9090f",
+      "source_id": "expansion-mexico",
+      "name": "Expansion Mexico",
+      "language": "es",
+      "title": "Honda ensamblará en Jalisco motos que traía de China; el ajuste evitará despidos tras caída en producción de autopartes",
+      "excerpt": "La marca japonesa abrió una segunda línea para producir 66,000 motocicletas de mayor cilindrada en Jalisco, con la que busca compensar la caída en la fabricación de autopartes que realiza en la misma planta.",
+      "url": "https://expansion.mx/empresas/2026/11/07/honda-produccion-motos-jalisco-traia-china-evita-despidos",
+      "published_at": "2026-11-07T15:18:55.000Z",
+      "countries": [
+        "CN",
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 60
+    },
+    {
+      "id": "ae586efb18e60769171039304b2c8c45e9df74157be084eaa3e8efd3c03b142b",
+      "source_id": "no-cr-tico-times",
+      "name": "The Tico Times",
+      "language": "en",
+      "title": "Costa Rica Has Seized 74 Tons of Drugs This Year, a Total the US Calls Historic",
+      "excerpt": "Costa Rica has seized more than 74 metric tons of drugs in 2026, a total the US Embassy calls historic, as President Fernández met with DEA officials.",
+      "url": "https://ticotimes.net/2026/11/10/costa-rica-74-tons-drugs-seized-2026-us-embassy",
+      "published_at": "2026-11-11T00:39:00.000Z",
+      "countries": [
+        "CR"
+      ],
+      "content_kind": "news",
+      "score": 46
+    },
+    {
+      "id": "c649dd987f99027857fd981e042a1e58f51a85f886542ec567380c6ef68efa1b",
+      "source_id": "no-mx-el-pais",
+      "name": "El País México",
+      "language": "es",
+      "title": "Bukele afirma que las fuerzas militares salvadoreñas destruyeron el cuartel general de una poderosa banda criminal haitiana",
+      "excerpt": "El secretario de Estado estadounidense, Marco Rubio, negó la posibilidad inmediata de un despliegue militar para apoyar al líder salvadoreño. “No estamos involucrados en eso”, dijo",
+      "url": "https://elpais.com/america/2026-11-10/bukele-afirma-que-las-fuerzas-militares-salvadorenas-destruyeron-el-cuartel-general-de-una-poderosa-banda-criminal-haitiana.html",
+      "published_at": "2026-11-10T21:37:18.000Z",
+      "countries": [
+        "SV"
+      ],
+      "content_kind": "news",
+      "score": 46
+    },
+    {
+      "id": "62765bb60eb2689b794dcd9adbf64e2db52c8a8a689ac201e564cde1f9a2f966",
+      "source_id": "el-financiero",
+      "name": "El Financiero",
+      "language": "es",
+      "title": "Trump quería expandir la CIA en México: Agentes de EU buscaban crear unidad especial en Chihuahua",
+      "excerpt": "Trump buscaba ampliar las operaciones de la CIA en México mediante la capacitación y participación de agentes estadounidenses en operativos de seguridad en Chihuahua, publicó el diario NYT.",
+      "url": "https://www.elfinanciero.com.mx/nacional/2026/11/10/trump-queria-expandir-la-cia-en-mexico-agentes-de-eu-buscaban-crear-unidad-especial-en-chihuahua/",
+      "published_at": "2026-11-10T18:56:21.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 46
+    },
+    {
+      "id": "264cc8ed76c2d2e3baca98c2a18f021eb661edcd5aea196d0e357f549fc51d8d",
+      "source_id": "no-bz-love-fm",
+      "name": "Love FM Belize",
+      "language": "en",
+      "title": "Belizean and Guatemalan Tour Operators Discuss Improving Border Crossings",
+      "excerpt": "And in a separate development involving Belize and Guatemala, tour operators from both countries sat down with border officials to talk about what makes it difficult for visitors to cross from one country to the other. Belize Tourism Industry Association (BTIA) President Efren Perez says he organized the consultation with Belize’s Ambassador to Guatemala, José […]",
+      "url": "https://lovefm.com/belizean-and-guatemalan-tour-operators-discuss-improving-border-crossings/",
+      "published_at": "2026-11-10T15:23:26.000Z",
+      "countries": [
+        "GT",
+        "BZ"
+      ],
+      "content_kind": "news",
+      "score": 46
+    },
+    {
+      "id": "e49aee4f054126743427f00cdfe0e0f01ec174a7af5ed4cb2cce43f5d1fb9763",
+      "source_id": "no-bz-love-fm",
+      "name": "Love FM Belize",
+      "language": "en",
+      "title": "Belize Honours Fallen Soldiers and Veterans at Remembrance Day Ceremony",
+      "excerpt": "Belize joined other Commonwealth nations yesterday in marking Remembrance Day, taking time to honour the men and women who gave their lives in military service and to recognise the sacrifices made by veterans. The morning’s observance at Memorial Park in Belize City brought together serving members of the security forces, veterans, government officials, diplomats and […]",
+      "url": "https://lovefm.com/belize-honours-fallen-soldiers-and-veterans-at-remembrance-day-ceremony/",
+      "published_at": "2026-11-10T03:17:10.000Z",
+      "countries": [
+        "BZ"
+      ],
+      "content_kind": "news",
+      "score": 48
+    },
+    {
+      "id": "482b6008729b7e60c9de763ee40f717801cb208777008d0c34cd31af6547917e",
+      "source_id": "no-bz-love-fm",
+      "name": "Love FM Belize",
+      "language": "en",
+      "title": "Police Officer Rescues Teen From House Fire Following Gas Explosion",
+      "excerpt": "A police officer pulled his seventeen-year-old brother-in-law to safety after an explosion started a house fire on King Street in Belize City early Saturday morning. The teenager, Abel Caal, suffered burns to his right arm and was treated and discharged from the Karl Heusner Memorial Hospital. Police say Caal and twenty-one-year-old Darnel Chun were inside […]",
+      "url": "https://lovefm.com/police-officer-rescues-teen-from-house-fire-following-gas-explosion/",
+      "published_at": "2026-11-10T03:16:29.000Z",
+      "countries": [
+        "BZ"
+      ],
+      "content_kind": "news",
+      "score": 48
+    },
+    {
+      "id": "418c7225dd46667aa257110819fd7d3af2ab72486f58ce9184bf878a76f688bd",
+      "source_id": "el-financiero",
+      "name": "El Financiero",
+      "language": "es",
+      "title": "Tomate verde, ‘por los cielos’: Inflación en México se acelera a 3.75%, más de lo esperado en octubre",
+      "excerpt": "La inflación México se aceleró a 3.75%, más de lo esperado en octubre, lo que probablemente intensificará el escrutinio de la decisión de Banxico.",
+      "url": "https://www.elfinanciero.com.mx/economia/2026/11/09/inflacion-en-mexico-se-acelera-a-375-mas-de-lo-esperado-en-octubre/",
+      "published_at": "2026-11-09T13:50:12.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 50
+    },
+    {
+      "id": "7a356495e9b29c78e0ee156e517995c945a4d5efe07f11ddd9a072d0b3e1a08f",
+      "source_id": "la-jornada-politica",
+      "name": "La Jornada Politica",
+      "language": "es",
+      "title": "Magdalena Gómez: Gira por la Vida, capítulo México: lección de dignidad",
+      "excerpt": "Están en curso los preparativos de una más de las iniciativas estratégicas que el Ejército Zapatista de Liberación Nacional (EZLN) ha promovido y realizado junto a amplios sectores sociales dentro y fuera del país, en su ya muy próximo 33 aniversario.",
+      "url": "https://www.jornada.com.mx/2026/11/10/politica/018a1pol?partner=rss",
+      "published_at": "2026-11-10T08:36:00.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 46
+    },
+    {
+      "id": "b3558143c628e03e4cff86770abf889e5d281f3841ea653a4ccd92d0595c6edd",
+      "source_id": "no-ni-confidencial",
+      "name": "Confidencial",
+      "language": "es",
+      "title": "Situación de Nicaragua sigue siendo una “amenaza” para EE. UU.",
+      "excerpt": "Estados Unidos mantendrá por un año más la emergencia nacional declarada sobre Nicaragua desde noviembre de 2018, debido a que considera que la situación del país continúa representando una “amenaza” para su seguridad nacional y su política exterior. La decisión fue firmada por el presidente Donald Trump el 3 de noviembre de 2026 y publicada […] La entrada Situación de Nicaragua sigue siendo una “amenaza” para EE. UU. se publicó primero en Confidencial .",
+      "url": "https://confidencial.digital/noticias/situacion-de-nicaragua-sigue-siendo-una-amenaza-para-ee-uu/",
+      "published_at": "2026-11-06T20:31:01.000Z",
+      "countries": [
+        "NI",
+        "US"
+      ],
+      "content_kind": "news",
+      "score": 60
+    },
+    {
+      "id": "e2eae65585c46d3901cd8da077ece7bca27a02b8bffae6f91aa0f6acda86de25",
+      "source_id": "no-mx-reforma",
+      "name": "Reforma",
+      "language": "es",
+      "title": "Acelera inflación de México a 3.75% en octubre",
+      "excerpt": "El Índice de Precios al Consumidor de México avanzó más de lo esperado a 3.75% a tasa anual, desde el 3.45% de septiembre, informó INEGI.",
+      "url": "https://www.reforma.com/acelera-inflacion-de-mexico-a-3-75-en-octubre/ar3310962",
+      "published_at": "2026-11-09T13:35:18.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 48
+    },
+    {
+      "id": "85e00b8d62cf14ba41f79e6753bb90a5035a750dc427e6f9d0182b8fd4d85bb9",
+      "source_id": "no-cr-tico-times",
+      "name": "The Tico Times",
+      "language": "en",
+      "title": "Costa Rica Paid $701 Million More for Fuel This Year as Diesel Soared",
+      "excerpt": "Costa Rica fuel imports cost $2,267 million through September, $701 million more than 2025, as the average barrel rose 37% and diesel led.",
+      "url": "https://ticotimes.net/2026/11/09/costa-rica-fuel-import-bill-701-million-2026",
+      "published_at": "2026-11-10T00:38:00.000Z",
+      "countries": [
+        "CR"
+      ],
+      "content_kind": "news",
+      "score": 46
+    },
+    {
+      "id": "a1fae4ca115c8b5dc798c767c95452c08bbbfda4d7d57500b59de96361ebcf42",
+      "source_id": "el-financiero",
+      "name": "El Financiero",
+      "language": "es",
+      "title": "Morena debe aprender a cabildear al Capitolio",
+      "excerpt": "Hasta la fecha, no se ha presentado ninguna iniciativa de ley para reducir o eliminar los aranceles a México, mientras que el Senado ya aprobó dos en favor de Canadá y Brasil.",
+      "url": "https://www.elfinanciero.com.mx/opinion/jorge-molina-larrondo/2026/11/09/morena-debe-aprender-a-cabildear-al-capitolio/",
+      "published_at": "2026-11-09T10:47:23.000Z",
+      "countries": [
+        "MX",
+        "BR"
+      ],
+      "content_kind": "news",
+      "score": 48
+    },
+    {
+      "id": "06f8027c6c2d622b67953541dbf82d547f3ccfe9b0eb1e65d693ddfe334762ac",
+      "source_id": "no-cr-tico-times",
+      "name": "The Tico Times",
+      "language": "en",
+      "title": "Prison Cases at Costa Rica’s Constitutional Court Jump 124% Amid Crackdown",
+      "excerpt": "Costa Rica prison conditions cases at the Constitutional Court rose 124% in five years, as food limits and overcrowding test the state's duty to inmates.",
+      "url": "https://ticotimes.net/2026/11/07/costa-rica-prison-cases-constitutional-court-124-percent",
+      "published_at": "2026-11-07T21:00:00.000Z",
+      "countries": [
+        "CR"
+      ],
+      "content_kind": "news",
+      "score": 54
+    },
+    {
+      "id": "f2824546c1497da5da7c399b44713fec391691b72e607add0cdb797ec6d8dac3",
+      "source_id": "no-bz-press-office",
+      "name": "Government of Belize Press Office",
+      "language": "en",
+      "title": "Belize Targets Lower Trade Costs and Expanded Export Opportunities Following WTO Mission",
+      "excerpt": "Belmopan, November 6, 2026. Belize is taking steps to turn the findings of its latest World Trade Organization (WTO) Trade Policy Review into practical improvements aimed at reducing trade costs, strengthening local businesses, and expanding export opportunities. From November 3 to 5, 2026, the Government of Belize, through the Directorate General for Foreign Trade, hosted […]",
+      "url": "https://www.pressoffice.gov.bz/belize-targets-lower-trade-costs-and-expanded-export-opportunities-following-wto-mission/",
+      "published_at": "2026-11-06T16:50:35.000Z",
+      "countries": [
+        "BZ"
+      ],
+      "content_kind": "news",
+      "score": 58
+    },
+    {
+      "id": "ea80f3b1d15e0b61e8b1aebb6f3a7200b4c5cbcb1347b12c95423c09de7d0f22",
+      "source_id": "el-universal-national",
+      "name": "El Universal",
+      "language": "es",
+      "title": "Empresa privada acumula inhabilitaciones por irregularidades en contratos públicos; busca adjudicarse licitación de 600 mdp en Veracruz",
+      "excerpt": "Grupo de Seguridad Privada Pryse de México, señalada por procedimientos sancionadores en el IMSS, INAH y AICM, participa en una licitación para prestar servicios de vigilancia en la ASIPONA Veracruz",
+      "url": "https://www.eluniversal.com.mx/estados/empresa-privada-busca-contrato-de-600-mdp-en-puerto-de-veracruz-acumula-inhabilitaciones-por-irregularidades/",
+      "published_at": "2026-11-09T14:13:58.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 46
+    },
+    {
+      "id": "a32835c9b528caa7162341f4347f10a3da1ba9b144ee1cf204d4d7d9be5c7fe7",
+      "source_id": "no-cr-tico-times",
+      "name": "The Tico Times",
+      "language": "en",
+      "title": "Costa Rica’s First Female Extradition Suspect Faces Legal Battle Over Transfer to United States",
+      "excerpt": "An appeal has paused the extradition of La Güera, the first Costa Rican woman ordered sent to the US, in a new test of the 2025 reform on retroactivity.",
+      "url": "https://ticotimes.net/2026/11/08/costa-rica-first-female-extradition-suspect-appeal",
+      "published_at": "2026-11-08T13:49:14.000Z",
+      "countries": [
+        "CR",
+        "US"
+      ],
+      "content_kind": "news",
+      "score": 48
+    },
+    {
+      "id": "7a4eb612220968d5573fdbc396170d39b23c582bc2671d3f9baa8ac67531fd4b",
+      "source_id": "no-ni-confidencial",
+      "name": "Confidencial",
+      "language": "es",
+      "title": "Una política exterior para América Latina",
+      "excerpt": "“La mejor política exterior es la política interior,” declaró Andrés Manuel López Obrador en una reunión de diplomáticos mexicanos al comienzo de 2024. Parece que muchos de los nuevos presidentes latinoamericanos de derechas están de acuerdo con él. En la práctica han tercerizado la política exterior de sus países a la Casa Blanca. Es un […] La entrada Una política exterior para América Latina se publicó primero en Confidencial .",
+      "url": "https://confidencial.digital/opinion/una-politica-exterior-para-america-latina/",
+      "published_at": "2026-11-07T07:15:00.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 48
+    },
+    {
+      "id": "f2ad127061efe5d127b1d5cf9694e59563c9d4e9c2e61889bbca59359da89f53",
+      "source_id": "no-bz-love-fm",
+      "name": "Love FM Belize",
+      "language": "en",
+      "title": "Belize Bus Association Says Proposed Amendments Were About Inclusion, Not Opposition",
+      "excerpt": "The Belize Bus Association says its position on the Public Transportation Investment Bill was about inclusion, not opposition. The association says it wanted amendments to the legislation to ensure both the National Bus Company and independent bus operators are recognised under the same framework. BBA President Froylan Gilharry says the association’s concern was that the […]",
+      "url": "https://lovefm.com/belize-bus-association-says-proposed-amendments-were-about-inclusion-not-opposition/",
+      "published_at": "2026-11-07T04:25:45.000Z",
+      "countries": [
+        "BZ"
+      ],
+      "content_kind": "news",
+      "score": 48
+    },
+    {
+      "id": "14d2359bc250a8132a06e6471a3ec50ed855640e9e62b3c5e2498ddf824497a2",
+      "source_id": "no-hn-criterio",
+      "name": "Criterio.hn",
+      "language": "es",
+      "title": "Corrupción y Estado de derecho, los indicadores en los que Honduras continúa reprobando en la Cuenta del Milenio",
+      "excerpt": "Aunque Honduras aprobó 14 de los 22 indicadores de la Cuenta Desafío del Milenio para 2027, continúa reprobando en áreas fundamentales como el control de...",
+      "url": "https://criterio.hn/corrupcion-y-estado-de-derecho-los-indicadores-en-los-que-honduras-continua-reprobando-en-la-cuenta-del-milenio/",
+      "published_at": "2026-11-06T22:27:39.000Z",
+      "countries": [
+        "HN"
+      ],
+      "content_kind": "news",
+      "score": 48
+    },
+    {
+      "id": "792d8cd48d4690ca3be7757bf6a834fa1903fa46978c706b9061a30959b551e5",
+      "source_id": "no-bz-love-fm",
+      "name": "Love FM Belize",
+      "language": "en",
+      "title": "Former Police Commissioner Chester Williams Weighs In on Proposed Bukele Meeting",
+      "excerpt": "Former Commissioner of Police Chester Williams has weighed in on National Security Minister Michel Chebat’s proposed meeting with El Salvador’s President Nayib Bukele as Belize looks for ways to tackle gang violence. Williams did not condemn or reject the idea, but rather, noted the need to engage before criticizing. Chester Williams, CEO, Ministry of […]",
+      "url": "https://lovefm.com/former-police-commissioner-chester-williams-weighs-in-on-proposed-bukele-meeting/",
+      "published_at": "2026-11-07T04:26:40.000Z",
+      "countries": [
+        "SV",
+        "BZ"
+      ],
+      "content_kind": "news",
+      "score": 46
+    },
+    {
+      "id": "60caa62ba64395b5aceb8ffdb15b5d52526772e3baf8b5b02c4201df884c26cd",
+      "source_id": "no-bz-love-fm",
+      "name": "Love FM Belize",
+      "language": "en",
+      "title": "Belize Seeks to Bridge Skills Gap Through New National Employment Policy",
+      "excerpt": "Closing the gap between education and the experience employers require is among the priorities being discussed as Belize develops its National Employment Policy for 2027 to 2031. The Ministry of Immigration, Governance and Labour says its Labour Department, working with the International Labour Organization, has begun a three-day stakeholder consultation to help shape the policy. […]",
+      "url": "https://lovefm.com/belize-seeks-to-bridge-skills-gap-through-new-national-employment-policy/",
+      "published_at": "2026-11-07T03:58:50.000Z",
+      "countries": [
+        "BZ"
+      ],
+      "content_kind": "news",
+      "score": 46
+    },
+    {
+      "id": "fe86f282620dc8256a58b4d0da405a1c92adc0c15ef9b8594f8086343267a8bb",
+      "source_id": "expansion-mexico",
+      "name": "Expansion Mexico",
+      "language": "es",
+      "title": "Canadá quiere contratar maestras mexicanas: ofrece 110,000 dólares al año y siete semanas de vacaciones",
+      "excerpt": "Para aplicar a la vacante es necesario tener conocimiento avanzado del idioma francés y contar con autorización del Ministerio de Educación.",
+      "url": "https://expansion.mx/finanzas-personales/2026/11/06/canada-da-trabajo-a-maestras-con-sueldo-de-110-mil-dolares",
+      "published_at": "2026-11-06T20:36:17.000Z",
+      "countries": [
+        "MX"
+      ],
+      "content_kind": "news",
+      "score": 46
+    }
+  ],
+  "expectedOriginalIds": [
+    "workspace:29c751fb3c0d5d49545e39decfa7b59a108d0c7843041b6d221bc433447cfe7c",
+    "workspace:07ad9c253babedb340df59929efb9c37abcca994fff05feba64b7c966ea8d579",
+    "workspace:b90a4f6022e11c174e547829b1273c7cf4305471e204ab53873159fd3f5b1b4f",
+    "workspace:37033e5ea6d0a2887149100031f7f536ac2a2f368f897e5fdb2502fbd10d716c",
+    "workspace:52e59c4487ef8ca2b66ceb5580730261ce0e1fd60bebdf5a0992b530619be048",
+    "workspace:20aef7863809d2af655d852adddc43bf36d0964c4464b8c9b4c9fefb16dd910d",
+    "workspace:01c032b9f7ed125e01071a8618e9b5ff8eeff0b7df0c65971452b1350f27abb7",
+    "workspace:93014ed2d78a1a74734f9a5c7f1aa4713a68ed97fecd176c926d7729d003d6d3",
+    "workspace:daacbe49553ec2420f0386158ab551f181146f38b927606e5e331ed322d89aab",
+    "workspace:df00bcbb4cd00f41b1d1fbe6524f7985bb5767d52d9ea69f9e1658d5a4113584",
+    "workspace:f498f571639a70154b611ff20f40d32465d06a530b30bcca09f30f1864d0e851",
+    "workspace:c2b790ad4255fdae839256a80339d7e14cebd9a1324ee8bbe774f5a40ebd156e",
+    "workspace:d54e896d6589de69a6d3f661cca4261929fe1eee4c1d18514ca1f5456c7178b1",
+    "workspace:3cee330a9fd53304290a5bb90a156929a736ece4a8280a4e9a26a02b06668267",
+    "workspace:915dd62ba20603ff3d229c9ba40cb08e3e33ca979bba4880c9609b2ce134edcb",
+    "workspace:4bd4cf80829719d5094aed046c37fb0ffad84c93873d47e9adb236f590a7685c",
+    "workspace:3c6592998e368de7ca9e7135ce93efc023b72dc1b0c95c6de2e0f32edf48f203",
+    "workspace:df2541f5ebe382da7318d2a4d338aa37a9a7f2a73ca1f2826913e81e289c2361",
+    "workspace:bb40f7f06b37532141bde8cfc6e0a307b1874fd9c49f93972af20e15a64dc849",
+    "workspace:6bb5722425fed22147d7779c0ed68b15ed9aa6dc4d9aba1443c913931a4b800e",
+    "workspace:9fccdf63378e0947873d1d4b4d198410ba03acf09d0a3cb232f7b1bc95fc05fd",
+    "workspace:3ae4f1d1b92f20773d3091b8ba2f146811e8524252e93e0d47ba12108884404f",
+    "workspace:5f034d98cce2308c62fc5925b6af102bbf3bfe3f43af213bea57aa6483af582a",
+    "workspace:f9d399586382b69c9d94e6ac86b82be1cd387b546f0e5259d0fea71a304c0062",
+    "workspace:5b2fbf46162107956fa34d4773a74d742ef748d7fcf282650d655d967a0c73d8",
+    "workspace:ae586efb18e60769171039304b2c8c45e9df74157be084eaa3e8efd3c03b142b",
+    "workspace:2b50472ac6fa07b2b617024f490c43ea991791d3612298eb5b5de5503a0908bd",
+    "workspace:86132dfd75546767c654f3d09eb915c8dfd31e1b251a0410dc8eac7200fd7814",
+    "workspace:c0919a040b84a156f5ade6df861653b9aeb18670eb4c13b6326e1fc4c41ad88a",
+    "workspace:50950933633bc24df8f7bb35d0c4b10b1e80b9388be31a6e3357ff526fd39f18"
+  ],
+  "keptThreatId": "workspace:20aef7863809d2af655d852adddc43bf36d0964c4464b8c9b4c9fefb16dd910d",
+  "responseId": "workspace:f498f571639a70154b611ff20f40d32465d06a530b30bcca09f30f1864d0e851",
+  "suppressedIds": [
+    "workspace:93014ed2d78a1a74734f9a5c7f1aa4713a68ed97fecd176c926d7729d003d6d3",
+    "workspace:3cee330a9fd53304290a5bb90a156929a736ece4a8280a4e9a26a02b06668267"
+  ]
+}

@@ -6,6 +6,7 @@ import { productPlans, type PlanId } from "@/lib/product/plans";
 import { workspaceArticleToItem } from "@/lib/product/workspace-items";
 import { workspaceRankSql } from "@/lib/product/workspace-assessment";
 import { canonicalSignalUrl, selectBalancedWorkspaceItems } from "@/lib/product/workspace-selection";
+import { selectCurrentSignalItems } from "@/lib/product/current-signals";
 
 export async function addWorkspaceFeed(accountId: string, preferences: PersonalPreferences, feed: PersonalFeed, planId: PlanId = "free"): Promise<PersonalFeed> {
   if (process.env.MISSIONDESK_WORKSPACE_PILOT !== "true") return feed;
@@ -33,7 +34,10 @@ export async function addWorkspaceFeed(accountId: string, preferences: PersonalP
       JOIN product_public_articles a ON a.id=c.article_id WHERE c.workspace_id=$1 AND c.policy_key=$2
       AND c.content_hash=a.content_hash AND c.status='held' AND a.fetched_at > now() - interval '7 days'`,
     [workspace.id, workspacePolicyKey(policy)])).rows[0].count;
-    const items = selectBalancedWorkspaceItems(candidates.map(row=>workspaceArticleToItem(row,policy)),policy,limit);
+    // Extending the existing ordered list preserves its original plan-sized prefix.
+    // Keep that prefix as items; only Current signals receives the filtered/backfilled presentation.
+    const ordered = selectBalancedWorkspaceItems(candidates.map(row=>workspaceArticleToItem(row,policy)),policy,candidates.length);
+    const items = ordered.slice(0, limit);
     await client.query("COMMIT");
     const fetchedAt = sources.map((source) => source.last_success_at?.toISOString()).filter(Boolean).sort().at(-1);
     const seen=new Set<string>();
@@ -41,7 +45,10 @@ export async function addWorkspaceFeed(accountId: string, preferences: PersonalP
       const key=canonicalSignalUrl(item);
       if(seen.has(key)) return false;seen.add(key);return true;
     });
-    return { ...feed, items: combined.slice(0, limit),
+    const originalItems = combined.slice(0, limit);
+    const currentItems = selectCurrentSignalItems([...ordered, ...feed.items], limit);
+    const presentationChanged = currentItems.length !== originalItems.length || currentItems.some((item,index)=>item.id !== originalItems[index]?.id);
+    return { ...feed, items: originalItems, ...(presentationChanged ? { currentItems } : {}),
       updatedAt: [feed.updatedAt, fetchedAt].filter(Boolean).sort().at(-1),
       workspacePilot: { connectedSourceIds: sources.filter((source) => source.last_success_at).map((source) => source.id), heldCount: held,
         attentionNeeded: sources.some((source) => source.last_error || source.truncated || source.fetch_mode==="paused"),

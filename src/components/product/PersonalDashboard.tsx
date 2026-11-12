@@ -65,7 +65,8 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
   }, [loading, feedback]);
   const t = personalMessages(preferences.language);
   const home = preferences.homeCountry === "NO" ? t.norway : t.sweden;
-  const categories = [...new Set(feed.items.map((item) => item.workspace_topic_unclassified?"unclassified" as const:personalCategory(item.category)))];
+  const currentItems = feed.currentItems ?? feed.items;
+  const categories = [...new Set((view === "signals" ? currentItems : feed.items).map((item) => item.workspace_topic_unclassified?"unclassified" as const:personalCategory(item.category)))];
   const searchView = view === "tracking";
   const workspaceSearch = searchView && Boolean(feed.workspacePilot);
   const searchTerm = normalizePersonalSearchQuery(searchQuery);
@@ -80,7 +81,7 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
   }
   const rows = useMemo(() => {
     const terms = query.toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
-    const items=searchView ? aggregated.slice(searchPageIndex*30,(searchPageIndex+1)*30) : view==="meeting" || view==="prioritized" ? personalSelectionItems(feed.items,retained,[...priorities,...meeting]) : feed.items;
+    const items=searchView ? aggregated.slice(searchPageIndex*30,(searchPageIndex+1)*30) : view==="meeting" || view==="prioritized" ? personalSelectionItems(feed.items,retained,[...priorities,...meeting]) : currentItems;
     return items.map((item) => ({ item, content: personalContent(item, preferences), relevance: personalRelevance(item, preferences) }))
       .filter(({ item, content, relevance }) => {
         if (searchView) return true;
@@ -93,7 +94,7 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
         return terms.every((term) => text.includes(term));
       }).sort((a, b) => searchView ? 0 : (sort === "relevance" ? b.relevance.score - a.relevance.score : 0) ||
         Date.parse(b.item.published_at) - Date.parse(a.item.published_at) || a.item.id.localeCompare(b.item.id));
-  }, [feed.items, preferences, query, category, homeOnly, sort, view, meeting, priorities, aggregated, searchPageIndex, searchView, retained]);
+  }, [feed.items, currentItems, preferences, query, category, homeOnly, sort, view, meeting, priorities, aggregated, searchPageIndex, searchView, retained]);
 
   function selectItem(kind: "priority" | "meeting", item: IntelligenceItem, checked: boolean) {
     const setIds=kind==="priority" ? setPriorities : setMeeting;
@@ -190,7 +191,7 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
   }
 
   const tabs: Array<{ id: View; label: string; icon: LucideIcon; count?: number }> = [
-    { id: "signals", label: t.current, icon: Newspaper, count: feed.items.length },
+    { id: "signals", label: t.current, icon: Newspaper, count: currentItems.length },
     { id: "prioritized", label: t.prioritized, icon: Star, count: priorities.length },
     { id: "tracking", label: t.tracking, icon: Radar },
     { id: "meeting", label: t.meeting, icon: ClipboardList, count: meeting.length },

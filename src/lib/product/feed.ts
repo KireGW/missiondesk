@@ -7,6 +7,8 @@ import { personalHomeConnection, type HomeCountry } from "@/lib/product/profiles
 export interface PersonalFeed {
   workspacePilot?: { connectedSourceIds: string[]; heldCount: number; attentionNeeded: boolean; refreshEnabled?: boolean };
   items: IntelligenceItem[];
+  /** Optional presentation for Current signals; items remains the original search/selection material. */
+  currentItems?: IntelligenceItem[];
   briefings: Briefing[];
   activeSourceCount: number;
   updatedAt?: string;
