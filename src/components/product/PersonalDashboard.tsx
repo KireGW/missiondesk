@@ -293,9 +293,10 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
             <button type="button" onClick={() => window.print()} disabled={!rows.length} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-[var(--app-line)] px-3 text-sm disabled:opacity-50"><Printer className="h-4 w-4" />{t.print}</button>
           </div>}
         </div>
+        {view === "meeting" && <p className="missiondesk-print-screen-only mb-4 text-sm leading-6 text-[var(--app-muted)]">{t.meetingHelp}</p>}
         {view === "meeting" && <><h2 className="missiondesk-print-title text-xl font-semibold">{t.meeting}</h2><p className="missiondesk-print-meta">MissionDesk · {feed.workspacePilot ? t.stationNames[preferences.homeCountry] : `${home} · ${t.mexico}`}</p></>}
         {!rows.length && !(searchView && searchError) && <div className="border-t border-[var(--app-line)] py-10 text-sm text-[var(--app-muted)]">
-          <p>{view === "meeting" ? t.emptyMeeting : searchPending ? t.searching : searchView && searchTerm.length===1 ? t.searchMinimum : searchView && !searchTerm && !searchHomeOnly ? t.searchNotStarted : t.empty}</p>
+          <p>{view === "meeting" ? t.emptyMeeting.replace("{meeting}", t.meeting).replace("{current}", t.current).replace("{prioritized}", t.prioritized) : searchPending ? t.searching : searchView && searchTerm.length===1 ? t.searchMinimum : searchView && !searchTerm && !searchHomeOnly ? t.searchNotStarted : t.empty}</p>
         </div>}
         <div className="missiondesk-print-list divide-y divide-[var(--app-line)] border-t border-[var(--app-line)]">
           {rows.map(({ item, content, relevance }) => <article key={item.id} className={`${view === "meeting" ? "missiondesk-print-item " : ""}grid min-w-0 gap-4 py-5 md:grid-cols-[minmax(0,1fr)_10rem]`}>

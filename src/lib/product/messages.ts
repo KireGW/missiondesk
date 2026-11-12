@@ -72,7 +72,8 @@ const sv = {
   homeOnly: "Enbart hemlandskoppling", sort: "Sortera", relevance: "Profilrelevans", newest: "Senaste först",
   prioritize: "Prioritera", source: "Källa", contentLanguage: "Textspråk", original: "Originaltext", summary: "Sammanfattning",
   openSource: "Öppna källa", remove: "Ta bort", clearSelection: "Töm urval", print: "Skriv ut", theme: "Växla färgtema",
-  empty: "Inga signaler matchar urvalet.", emptyMeeting: "Inga signaler är valda till mötesunderlaget.",
+  meetingHelp: "Samla relevanta signaler inför ett möte. Granska ditt urval och skriv ut det som mötesunderlag.",
+  empty: "Inga signaler matchar urvalet.", emptyMeeting: "Lägg till signaler genom att markera ”{meeting}” under {current} eller {prioritized}.",
   refreshError: "Flödet kunde inte läsas in. Försök igen.", selected: "valda", connection: "Hemlandskoppling",
   sourceLanguages: { sv: "svenska", nb: "norska", no: "norska", es: "spanska", en: "engelska" } as Record<string, string>,
   categories: {
@@ -152,7 +153,8 @@ const nb: typeof sv = {
   homeOnly: "Kun tilknytning til hjemlandet", sort: "Sorter", relevance: "Profilrelevans", newest: "Nyeste først",
   prioritize: "Prioriter", source: "Kilde", contentLanguage: "Tekstspråk", original: "Originaltekst", summary: "Sammendrag",
   openSource: "Åpne kilde", remove: "Fjern", clearSelection: "Tøm utvalg", print: "Skriv ut", theme: "Bytt fargetema",
-  empty: "Ingen signaler samsvarer med utvalget.", emptyMeeting: "Ingen signaler er valgt til møteunderlaget.",
+  meetingHelp: "Samle relevante saker til et kommende møte. Se gjennom utvalget og skriv det ut som møteunderlag.",
+  empty: "Ingen signaler samsvarer med utvalget.", emptyMeeting: "Legg til saker ved å krysse av for «{meeting}» under {current} eller {prioritized}.",
   refreshError: "Nyhetsstrømmen kunne ikke lastes. Prøv igjen.", selected: "valgte", connection: "Tilknytning til hjemlandet",
   sourceLanguages: { sv: "svensk", nb: "norsk", no: "norsk", es: "spansk", en: "engelsk" },
   categories: {
@@ -232,7 +234,8 @@ const en: typeof sv = {
   homeOnly: "Home-country connections only", sort: "Sort", relevance: "Profile relevance", newest: "Newest first",
   prioritize: "Prioritize", source: "Source", contentLanguage: "Text language", original: "Original text", summary: "Summary",
   openSource: "Open source", remove: "Remove", clearSelection: "Clear selection", print: "Print", theme: "Switch color theme",
-  empty: "No signals match your selection.", emptyMeeting: "No signals selected for the meeting brief.",
+  meetingHelp: "Collect stories for an upcoming meeting. Select relevant signals, then review and print your meeting brief.",
+  empty: "No signals match your selection.", emptyMeeting: "Add stories using “{meeting}” in {current} or {prioritized}.",
   refreshError: "Could not load the feed. Please try again.", selected: "selected", connection: "Home-country connection",
   sourceLanguages: { sv: "Swedish", nb: "Norwegian", no: "Norwegian", es: "Spanish", en: "English" },
   categories: {
@@ -312,7 +315,8 @@ const es: typeof sv = {
   homeOnly: "Solo vínculos con el país de origen", sort: "Ordenar", relevance: "Relevancia del perfil", newest: "Más recientes primero",
   prioritize: "Priorizar", source: "Fuente", contentLanguage: "Idioma del texto", original: "Texto original", summary: "Resumen",
   openSource: "Abrir fuente", remove: "Quitar", clearSelection: "Vaciar selección", print: "Imprimir", theme: "Cambiar tema de color",
-  empty: "No hay señales que coincidan con la selección.", emptyMeeting: "No hay señales seleccionadas para el informe.",
+  meetingHelp: "Reúne noticias para una próxima reunión. Selecciona las señales relevantes, revisa tu selección e imprime el informe.",
+  empty: "No hay señales que coincidan con la selección.", emptyMeeting: "Añade noticias marcando «{meeting}» en {current} o {prioritized}.",
   refreshError: "No se pudieron cargar las noticias. Inténtalo de nuevo.", selected: "seleccionadas", connection: "Vínculo con el país de origen",
   sourceLanguages: { sv: "sueco", nb: "noruego", no: "noruego", es: "español", en: "inglés" },
   categories: {
