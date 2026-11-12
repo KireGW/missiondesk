@@ -17,6 +17,9 @@ import { personalDate, personalMessages, personalRelevanceExplanation, workspace
 import { productPlans, type PlanId } from "@/lib/product/plans";
 import type { WorkspaceRefreshResult } from "@/lib/product/workspace-refresh";
 import type { WorkspaceSearchPage } from "@/lib/product/workspace-search";
+import type { PersonalSelections } from "@/lib/product/selections";
+import { personalSelectionMessages } from "@/lib/product/selection-messages";
+import { usePersonalSelections } from "@/components/product/usePersonalSelections";
 
 type View = "signals" | "prioritized" | "tracking" | "meeting";
 
@@ -29,8 +32,9 @@ function IconButton({ label, icon: Icon, onClick, disabled = false }: {
   </button>;
 }
 
-export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
+export function PersonalDashboard({ initialFeed, initialPreferences, plan, selectionAccountId, initialSelections }: {
   initialFeed: PersonalFeed; initialPreferences: PersonalPreferences; plan: PlanId;
+  selectionAccountId?: string; initialSelections?: PersonalSelections|null;
 }) {
   const [feed, setFeed] = useState(initialFeed);
   const [preferences, setPreferences] = useState(initialPreferences);
@@ -38,9 +42,8 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
   const [filters, setFilters] = useState({query:"",category:"",homeOnly:false,sort:"relevance"});
   const [priorityFilters, setPriorityFilters] = useState({query:"",category:"",homeOnly:false,sort:"relevance"});
   const {query,category,homeOnly,sort}=view==="prioritized" ? priorityFilters : filters;
-  const [priorities, setPriorities] = useState<string[]>([]);
-  const [meeting, setMeeting] = useState<string[]>([]);
-  const [retained, setRetained] = useState<Record<string, IntelligenceItem>>({});
+  const selections=usePersonalSelections(selectionAccountId,initialSelections);
+  const {priorities,meeting,retained}=selections;
   const [searchQuery, setSearchQuery] = useState("");
   const [searchHomeOnly, setSearchHomeOnly] = useState(false);
   const [submittedQuery, setSubmittedQuery] = useState("");
@@ -64,9 +67,12 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
     return () => clearTimeout(timeout);
   }, [loading, feedback]);
   const t = personalMessages(preferences.language);
+  const selectionText=personalSelectionMessages(preferences.language);
   const home = preferences.homeCountry === "NO" ? t.norway : t.sweden;
   const currentItems = feed.currentItems ?? feed.items;
-  const categories = [...new Set((view === "signals" ? currentItems : feed.items).map((item) => item.workspace_topic_unclassified?"unclassified" as const:personalCategory(item.category)))];
+  const savedFeedItems=useMemo(()=>feed.items.filter(item=>!selections.bookmarkOnlyIds.includes(item.id)),[feed.items,selections.bookmarkOnlyIds]);
+  const categoryItems=view==="prioritized"?personalSelectionItems(savedFeedItems,retained,priorities).filter(item=>priorities.includes(item.id)):view==="signals"?currentItems:feed.items;
+  const categories = [...new Set(categoryItems.map((item) => item.workspace_topic_unclassified?"unclassified" as const:personalCategory(item.category)))];
   const searchView = view === "tracking";
   const workspaceSearch = searchView && Boolean(feed.workspacePilot);
   const searchTerm = normalizePersonalSearchQuery(searchQuery);
@@ -81,7 +87,7 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
   }
   const rows = useMemo(() => {
     const terms = query.toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
-    const items=searchView ? aggregated.slice(searchPageIndex*30,(searchPageIndex+1)*30) : view==="meeting" || view==="prioritized" ? personalSelectionItems(feed.items,retained,[...priorities,...meeting]) : currentItems;
+    const items=searchView ? aggregated.slice(searchPageIndex*30,(searchPageIndex+1)*30) : view==="meeting" || view==="prioritized" ? personalSelectionItems(savedFeedItems,retained,[...priorities,...meeting]) : currentItems;
     // Current signals already has the server's age-adjusted, balanced order.
     const preserveServerOrder = searchView || (view === "signals" && sort === "relevance" && Boolean(feed.workspacePilot));
     return items.map((item) => ({ item, content: personalContent(item, preferences), relevance: personalRelevance(item, preferences) }))
@@ -96,18 +102,7 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
         return terms.every((term) => text.includes(term));
       }).sort((a, b) => preserveServerOrder ? 0 : (sort === "relevance" ? b.relevance.score - a.relevance.score : 0) ||
         Date.parse(b.item.published_at) - Date.parse(a.item.published_at) || a.item.id.localeCompare(b.item.id));
-  }, [feed.items, feed.workspacePilot, currentItems, preferences, query, category, homeOnly, sort, view, meeting, priorities, aggregated, searchPageIndex, searchView, retained]);
-
-  function selectItem(kind: "priority" | "meeting", item: IntelligenceItem, checked: boolean) {
-    const setIds=kind==="priority" ? setPriorities : setMeeting;
-    const other=kind==="priority" ? meeting : priorities;
-    setIds(ids=>checked ? ids.includes(item.id) ? ids : [...ids,item.id] : ids.filter(id=>id!==item.id));
-    setRetained(previous=>{
-      if(checked) return {...previous,[item.id]:item};
-      if(other.includes(item.id)) return previous;
-      const next={...previous};delete next[item.id];return next;
-    });
-  }
+  }, [feed.workspacePilot, currentItems, preferences, query, category, homeOnly, sort, view, meeting, priorities, aggregated, searchPageIndex, searchView, retained, savedFeedItems]);
 
   const runSearch = useCallback(async (search: string, homeOnly: boolean, cursor: string | null, index: number, previousItems: IntelligenceItem[], currentItems: IntelligenceItem[]) => {
     searchController.current?.abort();
@@ -247,6 +242,10 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
         </div>
       </section>
       {error && <p role="alert" className="py-3 text-sm text-[var(--app-danger)]">{t.refreshError}</p>}
+      {((!selections.ready && selectionAccountId) || selections.saving || selections.saved || selections.error) && <div className="flex flex-wrap items-center gap-3 py-2 text-xs text-[var(--app-muted)]">
+        <span role={selections.error?"alert":"status"}>{selections.error?selections.error==="load"?selectionText.loadFailed:selections.error==="conflict"?selectionText.conflict:selectionText.saveFailed:!selections.ready?selectionText.loading:selections.saving?selectionText.saving:selectionText.saved}</span>
+        {selections.error && <button type="button" onClick={()=>void selections.reload(true)} className="min-h-8 underline underline-offset-4">{selectionText.retry}</button>}
+      </div>}
 
       <nav aria-label={t.feed} className="flex gap-1 overflow-x-auto border-b border-[var(--app-line)] pt-3">
         {tabs.map(({ id, label, icon: Icon, count }) => <button key={id} type="button" aria-current={view === id ? "page" : undefined} onClick={() => setView(id)}
@@ -292,7 +291,7 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
         <div className="missiondesk-print-screen-header mb-3 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">{title} <span className="ml-1 text-sm font-normal text-[var(--app-muted)]">{rows.length}</span></h2>
           {view === "meeting" && <div className="missiondesk-print-actions flex gap-2">
-            <IconButton label={t.clearSelection} icon={Trash2} onClick={() => {setMeeting([]);setRetained(previous=>Object.fromEntries(Object.entries(previous).filter(([id])=>priorities.includes(id))));}} />
+            <IconButton label={t.clearSelection} icon={Trash2} disabled={!selections.ready || selections.saving || !meeting.length} onClick={() => void selections.clearMeeting()} />
             <button type="button" onClick={() => window.print()} disabled={!rows.length} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-[var(--app-line)] px-3 text-sm disabled:opacity-50"><Printer className="h-4 w-4" />{t.print}</button>
           </div>}
         </div>
@@ -310,12 +309,13 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
                 <span>{t.contentLanguage}: {t.sourceLanguages[content.language] ?? content.language}</span>
                 {view!=="meeting" && item.workspace_selection && item.workspace_selection!=="selected" && <span>{t.notInFeed}</span>}
                 {item.content_kind==="reference" && <span>{t.sourceKinds.reference}</span>}
+                {(view==="meeting" || view==="prioritized") && selections.bookmarkOnlyIds.includes(item.id) && <span>{selectionText.bookmarkOnly}</span>}
               </div>
               <h3 lang={content.language} className="break-words text-base font-medium leading-6"><a href={item.source_url} target="_blank" rel="noopener noreferrer" className="hover:text-[var(--app-accent)]">{content.title}</a></h3>
               {content.summary && <p lang={content.language} className="mt-2 break-words text-sm leading-6 text-[var(--app-soft)]">{content.summary}</p>}
               <div className={`mt-3 flex flex-wrap items-start gap-x-4 gap-y-2 text-xs ${view === "meeting" ? "missiondesk-print-screen-only" : ""}`}>
                 {view !== "meeting" && <>
-                  {item.workspace_selection!=="unassessed" && <details className="relative min-w-0 max-w-full text-[var(--app-muted)]">
+                  {item.workspace_selection!=="unassessed" && (view!=="prioritized" || !selections.bookmarkOnlyIds.includes(item.id)) && <details className="relative min-w-0 max-w-full text-[var(--app-muted)]">
                     <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 py-1">{t.relevance}: <strong className="font-medium text-[var(--app-fg)]">{t.relevanceLevels[personalRelevanceLevel(relevance.score)]}</strong><Info className="h-3.5 w-3.5 shrink-0" /></summary>
                     <div className="mt-1 max-h-64 w-80 max-w-full overflow-y-auto rounded-md border border-[var(--app-line)] bg-[var(--app-panel-strong)] p-3 text-sm leading-6">
                       <p>{t.relevanceRuleBased}</p>
@@ -332,9 +332,9 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan }: {
               </p>}
             </div>
             <div className="missiondesk-print-actions flex flex-col items-start gap-3 text-xs md:items-stretch">
-              {view === "meeting" ? <IconButton label={t.remove} icon={X} onClick={() => selectItem("meeting",item,false)} /> : <>
-                <label className="inline-flex min-h-8 cursor-pointer items-center gap-2"><input type="checkbox" checked={priorities.includes(item.id)} onChange={(event) => selectItem("priority",item,event.target.checked)} className="h-4 w-4 accent-[var(--app-positive)]" />{t.prioritize}</label>
-                <label className="inline-flex min-h-8 cursor-pointer items-center gap-2"><input type="checkbox" checked={meeting.includes(item.id)} onChange={(event) => selectItem("meeting",item,event.target.checked)} className="h-4 w-4 accent-[var(--app-gold)]" />{t.meeting}</label>
+              {view === "meeting" ? <IconButton label={t.remove} icon={X} disabled={!selections.ready || selections.saving} onClick={() => void selections.select("meeting",item,false)} /> : <>
+                <label className="inline-flex min-h-8 cursor-pointer items-center gap-2"><input type="checkbox" checked={priorities.includes(item.id)} disabled={!selections.ready || selections.saving} onChange={(event) => void selections.select("priority",item,event.target.checked)} className="h-4 w-4 accent-[var(--app-positive)]" />{t.prioritize}</label>
+                <label className="inline-flex min-h-8 cursor-pointer items-center gap-2"><input type="checkbox" checked={meeting.includes(item.id)} disabled={!selections.ready || selections.saving} onChange={(event) => void selections.select("meeting",item,event.target.checked)} className="h-4 w-4 accent-[var(--app-gold)]" />{t.meeting}</label>
               </>}
             </div>
           </article>)}

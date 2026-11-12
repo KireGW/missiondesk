@@ -42,7 +42,9 @@ try {
   mock.module(moduleAt("src/components/product/ProductFooter.tsx"),{namedExports:{ProductFooter:()=>null}});
   const {PersonalDashboard} = await import("../src/components/product/PersonalDashboard");
   function render(input:PersonalFeed) {
-    const $=load(renderToStaticMarkup(React.createElement(PersonalDashboard,{initialFeed:input,initialPreferences:preferences,plan:"free"})));
+    const $=load(renderToStaticMarkup(React.createElement(PersonalDashboard,{initialFeed:input,initialPreferences:preferences,plan:"free",
+      selectionAccountId:"fixture-account",initialSelections:{accountId:"fixture-account",revision:"1",priorities:selectedIds,meeting:selectedIds,
+        retained:Object.fromEntries(feed.items.map(item=>[item.id,item])),bookmarkOnlyIds:[]}})));
     return $("article h3 a").map((_,node)=>$(node).text()).get();
   }
   const expected = (pool:typeof items)=>pool.map(item=>item.title_original);

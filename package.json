@@ -63,7 +63,8 @@
     "audit:rss": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/audit-rss-quality.ts",
     "backfill:temporal-signals": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/backfill-temporal-signals.ts",
     "backfill:event-dates": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/backfill-event-dates.ts",
-    "briefing:regenerate": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/regenerate-briefing.ts"
+    "briefing:regenerate": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/regenerate-briefing.ts",
+    "verify:personal-selections": "node --no-warnings --experimental-test-module-mocks --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/verify-personal-selections.ts"
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "^4.33.0",
@@ -80,12 +81,14 @@
     "tailwindcss": "latest"
   },
   "devDependencies": {
+    "@types/jsdom": "30.0.0",
     "@types/node": "latest",
     "@types/pg": "^8.20.0",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "eslint": "latest",
     "eslint-config-next": "16.4.4",
+    "jsdom": "29.1.1",
     "typescript": "latest"
   }
 }

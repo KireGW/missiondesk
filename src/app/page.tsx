@@ -22,6 +22,7 @@ import { PersonalDashboard } from "@/components/product/PersonalDashboard";
 import { addWorkspaceFeed } from "@/lib/product/workspace-feed";
 import { getPersonalSessionIdentity } from "@/lib/product/auth";
 import { getPilotLoginRedirect } from "@/lib/product/username-login";
+import { getPersonalSelections } from "@/lib/product/selections-store";
 
 export const dynamic = "force-dynamic";
 
@@ -36,8 +37,12 @@ export default async function Home() {
     }
     const plan = effectivePlan(account);
     const preferences = await getPersonalPreferences(account.id);
-    const feed = await addWorkspaceFeed(account.id, preferences, await getPersonalFeed(plan.id), plan.id);
-    return <PersonalDashboard key={`${preferences.homeCountry}:${preferences.language}:${preferences.contentLanguage}`} initialFeed={feed} initialPreferences={preferences} plan={plan.id} />;
+    const [feed,selections] = await Promise.all([
+      getPersonalFeed(plan.id).then(feed=>addWorkspaceFeed(account.id,preferences,feed,plan.id)),
+      getPersonalSelections(account.id,preferences,plan.id).catch(()=>null),
+    ]);
+    return <PersonalDashboard key={`${account.id}:${preferences.homeCountry}:${preferences.language}:${preferences.contentLanguage}`}
+      selectionAccountId={account.id} initialSelections={selections} initialFeed={feed} initialPreferences={preferences} plan={plan.id} />;
   }
   const primaryBriefings = await listBriefings({ onlyFresh: true, limit: 8 });
   const primaryRecords = await listProcessedItems({
