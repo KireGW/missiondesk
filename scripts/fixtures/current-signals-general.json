@@ -1,0 +1,369 @@
+{
+  "description": "Curated hypothetical editorial cases, not a capture of real news. Split by event before running the general filter. Duplicate means same reported development; distinct means retain both.",
+  "events": [
+    {
+      "id": "bank-rate",
+      "split": "calibration",
+      "language": "en",
+      "countries": [
+        "NO"
+      ],
+      "base": {
+        "title": "Norges Bank cuts policy rate to 4%",
+        "excerpt": "The central bank reduced borrowing costs at its scheduled meeting."
+      },
+      "duplicate": {
+        "title": "Norges Bank cuts policy rate to 4% after scheduled meeting",
+        "excerpt": "The central bank reduced borrowing costs at its scheduled meeting."
+      },
+      "distinct": [
+        {
+          "reason": "forecast",
+          "title": "Norges Bank expects cuts in policy rate to 4%"
+        },
+        {
+          "reason": "new figure",
+          "title": "Norges Bank cuts policy rate to 3%"
+        },
+        {
+          "reason": "different object",
+          "title": "Norges Bank cuts deposit rate to 4%"
+        },
+        {
+          "reason": "new response",
+          "excerpt": "The central bank reduced borrowing costs at its scheduled meeting. Government responds to the decision."
+        }
+      ]
+    },
+    {
+      "id": "earthquake",
+      "split": "calibration",
+      "language": "es",
+      "countries": [
+        "MX"
+      ],
+      "base": {
+        "title": "Sismo de magnitud 5.2 sacude Oaxaca sin daños",
+        "excerpt": "Protección civil informó que no hubo daños materiales."
+      },
+      "duplicate": {
+        "title": "Oaxaca sin daños: sismo de magnitud 5.2 sacude el estado",
+        "excerpt": "Protección civil informó que no hubo daños materiales."
+      },
+      "distinct": [
+        {
+          "reason": "new casualties",
+          "excerpt": "Protección civil informó de tres muertos."
+        },
+        {
+          "reason": "different place",
+          "title": "Sismo de magnitud 5.2 sacude Chiapas sin daños"
+        },
+        {
+          "reason": "different magnitude",
+          "title": "Sismo de magnitud 6.2 sacude Oaxaca sin daños"
+        }
+      ]
+    },
+    {
+      "id": "arrest",
+      "split": "calibration",
+      "language": "nb",
+      "countries": [
+        "NO"
+      ],
+      "base": {
+        "title": "Politiet pågriper tre mistenkte etter ranet i Bergen",
+        "excerpt": "Politiet opplyser at etterforskningen fortsetter."
+      },
+      "duplicate": {
+        "title": "Politiet pågriper tre mistenkte i Bergen etter ranet",
+        "excerpt": "Politiet opplyser at etterforskningen fortsetter."
+      },
+      "distinct": [
+        {
+          "reason": "release",
+          "title": "Politiet frigir tre mistenkte etter ranet i Bergen"
+        },
+        {
+          "reason": "new count",
+          "title": "Politiet pågriper fire mistenkte etter ranet i Bergen"
+        },
+        {
+          "reason": "different place",
+          "title": "Politiet pågriper tre mistenkte etter ranet i Oslo"
+        }
+      ]
+    },
+    {
+      "id": "budget",
+      "split": "calibration",
+      "language": "sv",
+      "countries": [
+        "SE"
+      ],
+      "base": {
+        "title": "Riksdagen godkänner nytt stöd till järnvägen i Sverige",
+        "excerpt": "Beslutet fattades efter debatt i kammaren."
+      },
+      "duplicate": {
+        "title": "Riksdagen godkänner efter debatt nytt stöd till järnvägen i Sverige",
+        "excerpt": "Beslutet fattades efter debatt i kammaren."
+      },
+      "distinct": [
+        {
+          "reason": "withdrawal",
+          "title": "Riksdagen återkallar nytt stöd till järnvägen i Sverige"
+        },
+        {
+          "reason": "different object",
+          "title": "Riksdagen godkänner nytt stöd till sjukvården i Sverige"
+        },
+        {
+          "reason": "implementation",
+          "excerpt": "Beslutet fattades efter debatt i kammaren. Regeringen genomför stödet."
+        }
+      ]
+    },
+    {
+      "id": "energy-project",
+      "split": "calibration",
+      "language": "en",
+      "countries": [
+        "NO"
+      ],
+      "base": {
+        "title": "Equinor announces offshore wind project near Bergen",
+        "excerpt": "The company outlined its investment plans."
+      },
+      "duplicate": {
+        "title": "Equinor announces wind project offshore near Bergen",
+        "excerpt": "The company outlined its investment plans."
+      },
+      "distinct": [
+        {
+          "reason": "new actor",
+          "title": "Statkraft announces offshore wind project near Bergen"
+        },
+        {
+          "reason": "cancellation",
+          "title": "Equinor cancels offshore wind project near Bergen"
+        },
+        {
+          "reason": "agreement",
+          "excerpt": "The company outlined its investment plans and signed an agreement."
+        }
+      ]
+    },
+    {
+      "id": "transport-strike",
+      "split": "calibration",
+      "language": "es",
+      "countries": [
+        "MX"
+      ],
+      "base": {
+        "title": "Sindicato anuncia huelga de transporte público en Monterrey",
+        "excerpt": "Los trabajadores piden mejoras laborales."
+      },
+      "duplicate": {
+        "title": "Sindicato anuncia en Monterrey huelga de transporte público",
+        "excerpt": "Los trabajadores piden mejoras laborales."
+      },
+      "distinct": [
+        {
+          "reason": "suspension",
+          "title": "Sindicato suspende huelga de transporte público en Monterrey"
+        },
+        {
+          "reason": "new deadline",
+          "excerpt": "Los trabajadores piden mejoras laborales. El plazo vence antes del 15 de noviembre."
+        },
+        {
+          "reason": "different sector",
+          "title": "Sindicato anuncia huelga de trabajadores del hospital en Monterrey"
+        }
+      ]
+    },
+    {
+      "id": "court-decision",
+      "split": "holdout",
+      "language": "en",
+      "countries": [
+        "BZ"
+      ],
+      "base": {
+        "title": "Court approves new coastal protection rules in Belize",
+        "excerpt": "The ruling follows a hearing on environmental safeguards."
+      },
+      "duplicate": {
+        "title": "Court approves coastal protection rules in Belize after new hearing",
+        "excerpt": "The ruling follows a hearing on environmental safeguards."
+      },
+      "distinct": [
+        {
+          "reason": "new outcome",
+          "title": "Court denies new coastal protection rules in Belize"
+        },
+        {
+          "reason": "new subject",
+          "title": "Court approves new fishing protection rules in Belize"
+        },
+        {
+          "reason": "new implementation",
+          "excerpt": "The ruling follows a hearing on environmental safeguards. The rules take effect tomorrow."
+        }
+      ]
+    },
+    {
+      "id": "port-investment",
+      "split": "holdout",
+      "language": "es",
+      "countries": [
+        "CR"
+      ],
+      "base": {
+        "title": "Gobierno anuncia inversión de 20 millones para puerto en Limón",
+        "excerpt": "La propuesta incluye obras de infraestructura portuaria."
+      },
+      "duplicate": {
+        "title": "Gobierno anuncia para puerto en Limón inversión de 20 millones",
+        "excerpt": "La propuesta incluye obras de infraestructura portuaria."
+      },
+      "distinct": [
+        {
+          "reason": "new amount",
+          "title": "Gobierno anuncia inversión de 30 millones para puerto en Limón"
+        },
+        {
+          "reason": "retraction",
+          "title": "Gobierno retira inversión de 20 millones para puerto en Limón"
+        },
+        {
+          "reason": "new condition",
+          "excerpt": "La propuesta incluye obras de infraestructura portuaria. El acuerdo fue firmado."
+        }
+      ]
+    },
+    {
+      "id": "school-closure",
+      "split": "holdout",
+      "language": "nb",
+      "countries": [
+        "NO"
+      ],
+      "base": {
+        "title": "Kommunen stenger skoler etter flom i Trondheim",
+        "excerpt": "Vannstanden er høy og arbeidet fortsetter."
+      },
+      "duplicate": {
+        "title": "Kommunen stenger etter flom skoler i Trondheim",
+        "excerpt": "Vannstanden er høy og arbeidet fortsetter."
+      },
+      "distinct": [
+        {
+          "reason": "new place",
+          "title": "Kommunen stenger skoler etter flom i Stavanger"
+        },
+        {
+          "reason": "different object",
+          "title": "Kommunen stenger veier etter flom i Trondheim"
+        },
+        {
+          "reason": "new figure",
+          "excerpt": "Vannstanden er høy og arbeidet fortsetter. Fem skoler er berørt."
+        }
+      ]
+    },
+    {
+      "id": "trade-approval",
+      "split": "holdout",
+      "language": "sv",
+      "countries": [
+        "SE"
+      ],
+      "base": {
+        "title": "Regeringen godkänner export av läkemedel till Norge",
+        "excerpt": "Beslutet gäller läkemedelsleveranser enligt ansökan."
+      },
+      "duplicate": {
+        "title": "Regeringen godkänner enligt ansökan export av läkemedel till Norge",
+        "excerpt": "Beslutet gäller läkemedelsleveranser enligt ansökan."
+      },
+      "distinct": [
+        {
+          "reason": "different destination",
+          "title": "Regeringen godkänner export av läkemedel till Danmark"
+        },
+        {
+          "reason": "different object",
+          "title": "Regeringen godkänner export av vapen till Norge"
+        },
+        {
+          "reason": "response",
+          "title": "Regeringen svarar om export av läkemedel till Norge"
+        }
+      ]
+    },
+    {
+      "id": "security-response",
+      "split": "holdout",
+      "language": "en",
+      "countries": [
+        "BZ"
+      ],
+      "base": {
+        "title": "Briceño responds to military confrontation on Sarstoon",
+        "excerpt": "The prime minister called for respect for the border."
+      },
+      "duplicate": {
+        "title": "Briceño responds on Sarstoon to military confrontation",
+        "excerpt": "The prime minister called for respect for the border."
+      },
+      "distinct": [
+        {
+          "reason": "different actor",
+          "title": "Foreign minister responds to military confrontation on Sarstoon"
+        },
+        {
+          "reason": "different action",
+          "title": "Briceño announces military deployment on Sarstoon after confrontation"
+        },
+        {
+          "reason": "new facts",
+          "excerpt": "The prime minister called for respect for the border. Six soldiers were involved."
+        }
+      ]
+    },
+    {
+      "id": "health-alert",
+      "split": "holdout",
+      "language": "es",
+      "countries": [
+        "GT"
+      ],
+      "base": {
+        "title": "Ministerio anuncia campaña de vacunación contra sarampión en Guatemala",
+        "excerpt": "La campaña busca reforzar la protección de la población."
+      },
+      "duplicate": {
+        "title": "Ministerio anuncia en Guatemala campaña de vacunación contra sarampión",
+        "excerpt": "La campaña busca reforzar la protección de la población."
+      },
+      "distinct": [
+        {
+          "reason": "different disease",
+          "title": "Ministerio anuncia campaña de vacunación contra influenza en Guatemala"
+        },
+        {
+          "reason": "new implementation",
+          "excerpt": "La campaña busca reforzar la protección de la población. La medida entra en vigor."
+        },
+        {
+          "reason": "denial",
+          "title": "Ministerio niega campaña de vacunación contra sarampión en Guatemala"
+        }
+      ]
+    }
+  ]
+}
