@@ -23,6 +23,7 @@ import { addWorkspaceFeed } from "@/lib/product/workspace-feed";
 import { getPersonalSessionIdentity } from "@/lib/product/auth";
 import { getPilotLoginRedirect } from "@/lib/product/username-login";
 import { getPersonalSelections } from "@/lib/product/selections-store";
+import { initializeCurrentReview } from "@/lib/product/current-review-store";
 
 export const dynamic = "force-dynamic";
 
@@ -41,8 +42,9 @@ export default async function Home() {
       getPersonalFeed(plan.id).then(feed=>addWorkspaceFeed(account.id,preferences,feed,plan.id)),
       getPersonalSelections(account.id,preferences,plan.id).catch(()=>null),
     ]);
+    const review=await initializeCurrentReview(account.id,preferences,plan.id,[...new Set((feed.currentItems??feed.items).map(item=>item.id))]).catch(()=>null);
     return <PersonalDashboard key={`${account.id}:${preferences.homeCountry}:${preferences.language}:${preferences.contentLanguage}`}
-      selectionAccountId={account.id} initialSelections={selections} initialFeed={feed} initialPreferences={preferences} plan={plan.id} />;
+      selectionAccountId={account.id} initialSelections={selections} initialCurrentReview={review} initialFeed={feed} initialPreferences={preferences} plan={plan.id} />;
   }
   const primaryBriefings = await listBriefings({ onlyFresh: true, limit: 8 });
   const primaryRecords = await listProcessedItems({

@@ -64,7 +64,8 @@
     "backfill:temporal-signals": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/backfill-temporal-signals.ts",
     "backfill:event-dates": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/backfill-event-dates.ts",
     "briefing:regenerate": "node --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/regenerate-briefing.ts",
-    "verify:personal-selections": "node --no-warnings --experimental-test-module-mocks --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/verify-personal-selections.ts"
+    "verify:personal-selections": "node --no-warnings --experimental-test-module-mocks --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/verify-personal-selections.ts",
+    "verify:current-review": "node --no-warnings --experimental-test-module-mocks --experimental-strip-types --experimental-loader ./scripts/node-ts-loader.mjs scripts/verify-current-review.ts"
   },
   "dependencies": {
     "@auth0/nextjs-auth0": "^4.33.0",

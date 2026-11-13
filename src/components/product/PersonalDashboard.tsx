@@ -20,6 +20,9 @@ import type { WorkspaceSearchPage } from "@/lib/product/workspace-search";
 import type { PersonalSelections } from "@/lib/product/selections";
 import { personalSelectionMessages } from "@/lib/product/selection-messages";
 import { usePersonalSelections } from "@/components/product/usePersonalSelections";
+import type { CurrentReview } from "@/lib/product/current-review";
+import { currentReviewMessages } from "@/lib/product/current-review-messages";
+import { useCurrentReview } from "@/components/product/useCurrentReview";
 
 type View = "signals" | "prioritized" | "tracking" | "meeting";
 
@@ -32,9 +35,10 @@ function IconButton({ label, icon: Icon, onClick, disabled = false }: {
   </button>;
 }
 
-export function PersonalDashboard({ initialFeed, initialPreferences, plan, selectionAccountId, initialSelections }: {
+export function PersonalDashboard({ initialFeed, initialPreferences, plan, selectionAccountId, initialSelections, initialCurrentReview }: {
   initialFeed: PersonalFeed; initialPreferences: PersonalPreferences; plan: PlanId;
   selectionAccountId?: string; initialSelections?: PersonalSelections|null;
+  initialCurrentReview?: CurrentReview|null;
 }) {
   const [feed, setFeed] = useState(initialFeed);
   const [preferences, setPreferences] = useState(initialPreferences);
@@ -70,6 +74,9 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan, selec
   const selectionText=personalSelectionMessages(preferences.language);
   const home = preferences.homeCountry === "NO" ? t.norway : t.sweden;
   const currentItems = feed.currentItems ?? feed.items;
+  const currentIds=useMemo(()=>[...new Set(currentItems.map(item=>item.id))],[currentItems]);
+  const review=useCurrentReview(initialCurrentReview===undefined?undefined:selectionAccountId,initialCurrentReview,currentIds);
+  const reviewText=currentReviewMessages(preferences.language);
   const savedFeedItems=useMemo(()=>feed.items.filter(item=>!selections.bookmarkOnlyIds.includes(item.id)),[feed.items,selections.bookmarkOnlyIds]);
   const categoryItems=view==="prioritized"?personalSelectionItems(savedFeedItems,retained,priorities).filter(item=>priorities.includes(item.id)):view==="signals"?currentItems:feed.items;
   const categories = [...new Set(categoryItems.map((item) => item.workspace_topic_unclassified?"unclassified" as const:personalCategory(item.category)))];
@@ -290,11 +297,22 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan, selec
       <section aria-busy={searchPending} className={view === "meeting" ? "missiondesk-print-panel py-5" : "py-5"}>
         <div className="missiondesk-print-screen-header mb-3 flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">{title} <span className="ml-1 text-sm font-normal text-[var(--app-muted)]">{rows.length}</span></h2>
+          {view==="signals" && initialCurrentReview!==undefined && <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--app-muted)]">
+            {review.ready && <span title={reviewText.help}>{reviewText.count.replace("{count}",String(review.newIds.size))}</span>}
+            <button type="button" disabled={!review.ready || review.saving} onClick={()=>void review.acknowledge()}
+              title={reviewText.scope.replace("{count}",String(currentIds.length))}
+              className="min-h-9 rounded-md border border-[var(--app-line)] px-3 hover:border-[var(--app-accent)] disabled:opacity-50">{reviewText.acknowledge}</button>
+          </div>}
           {view === "meeting" && <div className="missiondesk-print-actions flex gap-2">
             <IconButton label={t.clearSelection} icon={Trash2} disabled={!selections.ready || selections.saving || !meeting.length} onClick={() => void selections.clearMeeting()} />
             <button type="button" onClick={() => window.print()} disabled={!rows.length} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-[var(--app-line)] px-3 text-sm disabled:opacity-50"><Printer className="h-4 w-4" />{t.print}</button>
           </div>}
         </div>
+        {view==="signals" && initialCurrentReview!==undefined && (!review.ready || review.saving || review.saved || review.error) && <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-[var(--app-muted)]">
+          <span role={review.error?"alert":"status"}>{review.error?review.error==="load"?reviewText.loadFailed:review.error==="conflict"?reviewText.conflict:review.error==="unavailable"?reviewText.unavailable:reviewText.saveFailed
+            :!review.ready?reviewText.loading:review.saving?reviewText.saving:reviewText.saved}</span>
+          {review.error && <button type="button" onClick={()=>void review.reload(true)} className="min-h-8 underline underline-offset-4">{reviewText.retry}</button>}
+        </div>}
         {view === "meeting" && <p className="missiondesk-print-screen-only mb-4 text-sm leading-6 text-[var(--app-muted)]">{t.meetingHelp}</p>}
         {view === "meeting" && <><h2 className="missiondesk-print-title text-xl font-semibold">{t.meeting}</h2><p className="missiondesk-print-meta">MissionDesk · {feed.workspacePilot ? t.stationNames[preferences.homeCountry] : `${home} · ${t.mexico}`}</p></>}
         {!rows.length && !(searchView && searchError) && <div className="border-t border-[var(--app-line)] py-10 text-sm text-[var(--app-muted)]">
@@ -305,6 +323,7 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan, selec
             <div className="min-w-0">
               <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--app-muted)]">
                 <span>{item.source_name}</span><time dateTime={item.published_at}>{personalDate(item.published_at, preferences.language)}</time>
+                {view==="signals" && review.newIds.has(item.id) && <span data-current-new="true" title={reviewText.help} className="font-medium text-[var(--app-positive)]">{reviewText.label}</span>}
                 <span>{item.workspace_topic_unclassified?t.topicUnclassified:t.categories[personalCategory(item.category)]}</span>
                 <span>{t.contentLanguage}: {t.sourceLanguages[content.language] ?? content.language}</span>
                 {view!=="meeting" && item.workspace_selection && item.workspace_selection!=="selected" && <span>{t.notInFeed}</span>}
