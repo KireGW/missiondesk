@@ -159,6 +159,31 @@ a {
     margin: 11mm 12mm;
   }
 
+  body:has(.personal-desk.meeting-brief-view),
+  .personal-desk.meeting-brief-view,
+  .personal-desk.meeting-brief-view > div {
+    min-height: 0 !important;
+    height: auto !important;
+    display: block !important;
+  }
+
+  .personal-desk.meeting-brief-view > div {
+    max-width: none !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .personal-desk.meeting-brief-view > div > :not(.missiondesk-print-panel),
+  .personal-desk.meeting-brief-view > :not(div) {
+    display: none !important;
+  }
+
+  .personal-desk.meeting-brief-view .missiondesk-print-panel {
+    position: static !important;
+    inset: auto !important;
+  }
+
   html,
   body {
     background: #ffffff !important;

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { IntelligenceItem } from "@/lib/types";
 import { emptyPersonalSelections, validSelectionRevision, type PersonalSelections, type PersonalSelectionChange, type PersonalSelectionKind } from "@/lib/product/selections";
+import { moveMeetingArticle,type MeetingBriefDetails } from "@/lib/product/meeting-brief";
 
 type SelectionError = "load" | "save" | "conflict" | null;
 // Authentication/account changes require a fresh document, clearing private client state.
@@ -42,11 +43,13 @@ export function usePersonalSelections(accountId:string|undefined, initial:Person
   useEffect(()=>{if(!saved)return;const timer=setTimeout(()=>setSaved(false),5000);return()=>clearTimeout(timer);},[saved]);
 
   const change=useCallback(async(operation:PersonalSelectionChange,item?:IntelligenceItem)=>{
-    if(!accountId || !current.current || pending.current)return;
+    if(!accountId || !current.current || pending.current)return false;
     const before=current.current;
     pending.current=true;loading.current?.abort();setSaving(true);setSaved(false);setError(null);
     const optimistic={...before,priorities:[...before.priorities],meeting:[...before.meeting],retained:{...before.retained}};
     if("clear" in operation)optimistic.meeting=[];
+    else if("details" in operation)optimistic.meetingBrief={...operation.details};
+    else if("move" in operation)optimistic.meeting=moveMeetingArticle(optimistic.meeting,operation.move.itemId,operation.move.direction);
     else{
       const key=operation.kind==="priority"?"priorities":"meeting";
       optimistic[key]=operation.selected?[...new Set([...optimistic[key],operation.itemId])]:optimistic[key].filter(id=>id!==operation.itemId);
@@ -62,11 +65,13 @@ export function usePersonalSelections(accountId:string|undefined, initial:Person
         throw new Error("save");
       }
       const next=await response.json() as PersonalSelections;
-      accept(next);if(mounted.current)setSaved(true);
-    }catch(failure){current.current=before;if(mounted.current){setSnapshot(before);setError(failure instanceof Error && failure.message==="conflict"?"conflict":"save");}}
+      accept(next);if(mounted.current)setSaved(true);return true;
+    }catch(failure){current.current=before;if(mounted.current){setSnapshot(before);setError(failure instanceof Error && failure.message==="conflict"?"conflict":"save");}return false;}
     finally{pending.current=false;if(mounted.current){setSaving(false);void reload();}}
   },[accountId,accept,reload]);
   const select=(kind:PersonalSelectionKind,item:IntelligenceItem,selected:boolean)=>change({kind,itemId:item.id,selected},item);
   const clearMeeting=()=>current.current?change({kind:"meeting",clear:true,revision:current.current.revision}):Promise.resolve();
-  return {...(snapshot ?? emptyPersonalSelections(accountId ?? "")),ready:!!snapshot && !!accountId,saving,saved,error,reload,select,clearMeeting};
+  const saveMeetingDetails=(details:MeetingBriefDetails,revision:string)=>change({kind:"meeting",details,revision});
+  const moveMeeting=(itemId:string,direction:"up"|"down")=>current.current?change({kind:"meeting",move:{itemId,direction},revision:current.current.revision}):Promise.resolve(false);
+  return {...(snapshot ?? emptyPersonalSelections(accountId ?? "")),ready:!!snapshot && !!accountId,saving,saved,error,reload,select,clearMeeting,saveMeetingDetails,moveMeeting};
 }

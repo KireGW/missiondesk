@@ -6,7 +6,7 @@ import { BrandLogo } from "@/components/product/BrandLogo";
 import { ProductFooter } from "@/components/product/ProductFooter";
 import { FreePlanDialog } from "@/components/product/FreePlanDialog";
 import { PremiumDialog } from "@/components/product/PremiumDialog";
-import { ChevronLeft, ChevronRight, ClipboardList, ExternalLink, Flag, Info, Library, Loader2, Moon, Newspaper, Printer, Radar, RefreshCw, Search, Settings, Star, Sun, Trash2, X } from "lucide-react";
+import { ArrowUp, ArrowDown, ChevronLeft, ChevronRight, ClipboardList, ExternalLink, Flag, Info, Library, Loader2, Moon, Newspaper, Printer, Radar, RefreshCw, Search, Settings, Star, Sun, Trash2, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { IntelligenceCategory, IntelligenceItem } from "@/lib/types";
 import type { PersonalFeed } from "@/lib/product/feed";
@@ -23,6 +23,8 @@ import { usePersonalSelections } from "@/components/product/usePersonalSelection
 import type { CurrentReview } from "@/lib/product/current-review";
 import { currentReviewMessages } from "@/lib/product/current-review-messages";
 import { useCurrentReview } from "@/components/product/useCurrentReview";
+import { emptyMeetingBrief,meetingDateLabel,type MeetingBriefDetails } from "@/lib/product/meeting-brief";
+import { meetingBriefMessages } from "@/lib/product/meeting-brief-messages";
 
 type View = "signals" | "prioritized" | "tracking" | "meeting";
 
@@ -48,6 +50,15 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan, selec
   const {query,category,homeOnly,sort}=view==="prioritized" ? priorityFilters : filters;
   const selections=usePersonalSelections(selectionAccountId,initialSelections);
   const {priorities,meeting,retained}=selections;
+  const [meetingDraft,setMeetingDraft]=useState<{details:MeetingBriefDetails;revision:string}|null>(null);
+  const editableMeeting=!!selectionAccountId && !!selections.meetingBrief;
+  const meetingDetails=selections.meetingBrief??emptyMeetingBrief();
+  const meetingText=meetingBriefMessages(preferences.language);
+  const meetingPositions=useMemo(()=>new Map(meeting.map((id,index)=>[id,index])),[meeting]);
+  function editMeetingDetails(update:Partial<MeetingBriefDetails>) {
+    const details={...(meetingDraft?.details??meetingDetails),...update};
+    setMeetingDraft(details.title===meetingDetails.title && details.date===meetingDetails.date?null:{details,revision:meetingDraft?.revision??selections.revision});
+  }
   const [searchQuery, setSearchQuery] = useState("");
   const [searchHomeOnly, setSearchHomeOnly] = useState(false);
   const [submittedQuery, setSubmittedQuery] = useState("");
@@ -107,9 +118,9 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan, selec
         if (homeOnly && !relevance.homeConnection) return false;
         const text = `${content.title} ${content.summary} ${item.title_original} ${item.original_excerpt} ${item.source_name}`.toLocaleLowerCase();
         return terms.every((term) => text.includes(term));
-      }).sort((a, b) => preserveServerOrder ? 0 : (sort === "relevance" ? b.relevance.score - a.relevance.score : 0) ||
+      }).sort((a, b) => view==="meeting" && editableMeeting ? (meetingPositions.get(a.item.id)??0)-(meetingPositions.get(b.item.id)??0) : preserveServerOrder ? 0 : (sort === "relevance" ? b.relevance.score - a.relevance.score : 0) ||
         Date.parse(b.item.published_at) - Date.parse(a.item.published_at) || a.item.id.localeCompare(b.item.id));
-  }, [feed.workspacePilot, currentItems, preferences, query, category, homeOnly, sort, view, meeting, priorities, aggregated, searchPageIndex, searchView, retained, savedFeedItems]);
+  }, [feed.workspacePilot, currentItems, preferences, query, category, homeOnly, sort, view, meeting, priorities, aggregated, searchPageIndex, searchView, retained, savedFeedItems,editableMeeting,meetingPositions]);
 
   const runSearch = useCallback(async (search: string, homeOnly: boolean, cursor: string | null, index: number, previousItems: IntelligenceItem[], currentItems: IntelligenceItem[]) => {
     searchController.current?.abort();
@@ -204,7 +215,7 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan, selec
   const filterLabel = view === "prioritized" ? t.filterPrioritized : t.filterCurrent;
   const selectClass = "min-h-11 w-full min-w-0 rounded-md border border-[var(--app-line)] bg-[var(--app-panel-strong)] px-3 text-sm";
 
-  return <main lang={preferences.language} className={`missiondesk personal-desk flex min-h-dvh flex-col ${light ? "light" : ""}`}>
+  return <main lang={preferences.language} className={`missiondesk personal-desk flex min-h-dvh flex-col ${view==="meeting"?"meeting-brief-view":""} ${light ? "light" : ""}`}>
     <div className="mx-auto flex w-full max-w-[1440px] flex-1 flex-col px-4 sm:px-6 lg:px-8">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-[var(--app-line)] py-5">
         <div className="min-w-0">
@@ -304,8 +315,8 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan, selec
               className="min-h-9 rounded-md border border-[var(--app-line)] px-3 hover:border-[var(--app-accent)] disabled:opacity-50">{reviewText.acknowledge}</button>
           </div>}
           {view === "meeting" && <div className="missiondesk-print-actions flex gap-2">
-            <IconButton label={t.clearSelection} icon={Trash2} disabled={!selections.ready || selections.saving || !meeting.length} onClick={() => void selections.clearMeeting()} />
-            <button type="button" onClick={() => window.print()} disabled={!rows.length} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-[var(--app-line)] px-3 text-sm disabled:opacity-50"><Printer className="h-4 w-4" />{t.print}</button>
+            <IconButton label={t.clearSelection} icon={Trash2} disabled={!selections.ready || selections.saving || !meeting.length || !!meetingDraft} onClick={() => void selections.clearMeeting()} />
+            <button type="button" onClick={() => window.print()} disabled={!rows.length || (editableMeeting && (!selections.ready || selections.saving || !!meetingDraft))} className="inline-flex min-h-10 items-center gap-2 rounded-md border border-[var(--app-line)] px-3 text-sm disabled:opacity-50"><Printer className="h-4 w-4" />{t.print}</button>
           </div>}
         </div>
         {view==="signals" && initialCurrentReview!==undefined && (!review.ready || review.saving || review.saved || review.error) && <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-[var(--app-muted)]">
@@ -314,12 +325,28 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan, selec
           {review.error && <button type="button" onClick={()=>void review.reload(true)} className="min-h-8 underline underline-offset-4">{reviewText.retry}</button>}
         </div>}
         {view === "meeting" && <p className="missiondesk-print-screen-only mb-4 text-sm leading-6 text-[var(--app-muted)]">{t.meetingHelp}</p>}
-        {view === "meeting" && <><h2 className="missiondesk-print-title text-xl font-semibold">{t.meeting}</h2><p className="missiondesk-print-meta">MissionDesk · {feed.workspacePilot ? t.stationNames[preferences.homeCountry] : `${home} · ${t.mexico}`}</p></>}
+        {view==="meeting" && editableMeeting && <form className="missiondesk-print-screen-only mb-4 space-y-3" onSubmit={async event=>{
+          event.preventDefault();if(meetingDraft && await selections.saveMeetingDetails(meetingDraft.details,meetingDraft.revision))setMeetingDraft(null);
+        }}>
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_13rem]">
+            <label className="text-xs text-[var(--app-muted)]">{meetingText.title}<input name="meeting-title" type="text" maxLength={160} value={meetingDraft?.details.title??meetingDetails.title}
+              disabled={!selections.ready||selections.saving} onChange={event=>editMeetingDetails({title:event.target.value})} className={`${selectClass} mt-2 text-[var(--app-fg)]`} /></label>
+            <label className="text-xs text-[var(--app-muted)]">{meetingText.date}<input name="meeting-date" type="date" min="1000-01-01" max="9999-12-31" value={meetingDraft?.details.date??meetingDetails.date}
+              disabled={!selections.ready||selections.saving} onChange={event=>editMeetingDetails({date:event.target.value})} className={`${selectClass} mt-2 text-[var(--app-fg)]`} /></label>
+          </div>
+          <div className="flex flex-wrap items-center gap-3 text-xs">
+            <button type="submit" disabled={!selections.ready||selections.saving||!meetingDraft} className="min-h-9 rounded-md border border-[var(--app-line)] px-3 disabled:opacity-50">{meetingText.save}</button>
+            {meetingDraft && <button type="button" disabled={selections.saving} onClick={()=>setMeetingDraft(null)} className="min-h-9 underline underline-offset-4 disabled:opacity-50">{meetingText.cancel}</button>}
+            <span className="text-[var(--app-muted)]">{meetingText.help}</span>
+          </div>
+        </form>}
+        {view === "meeting" && <><h2 className="missiondesk-print-title text-xl font-semibold">{meetingDetails.title||t.meeting}</h2><p className="missiondesk-print-meta">MissionDesk · {feed.workspacePilot ? t.stationNames[preferences.homeCountry] : `${home} · ${t.mexico}`}
+          {meetingDetails.date && <> · <time dateTime={meetingDetails.date}>{meetingDateLabel(meetingDetails.date,preferences.language)}</time></>}</p></>}
         {!rows.length && !(searchView && searchError) && <div className="border-t border-[var(--app-line)] py-10 text-sm text-[var(--app-muted)]">
           <p>{view === "meeting" ? t.emptyMeeting.replace("{meeting}", t.meeting).replace("{current}", t.current).replace("{prioritized}", t.prioritized) : searchPending ? t.searching : searchView && searchTerm.length===1 ? t.searchMinimum : searchView && !searchTerm && !searchHomeOnly ? t.searchNotStarted : t.empty}</p>
         </div>}
         <div className="missiondesk-print-list divide-y divide-[var(--app-line)] border-t border-[var(--app-line)]">
-          {rows.map(({ item, content, relevance }) => <article key={item.id} className={`${view === "meeting" ? "missiondesk-print-item " : ""}grid min-w-0 gap-4 py-5 md:grid-cols-[minmax(0,1fr)_10rem]`}>
+          {rows.map(({ item, content, relevance },index) => <article key={item.id} className={`${view === "meeting" ? "missiondesk-print-item " : ""}grid min-w-0 gap-4 py-5 md:grid-cols-[minmax(0,1fr)_10rem]`}>
             <div className="min-w-0">
               <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--app-muted)]">
                 <span>{item.source_name}</span><time dateTime={item.published_at}>{personalDate(item.published_at, preferences.language)}</time>
@@ -351,7 +378,13 @@ export function PersonalDashboard({ initialFeed, initialPreferences, plan, selec
               </p>}
             </div>
             <div className="missiondesk-print-actions flex flex-col items-start gap-3 text-xs md:items-stretch">
-              {view === "meeting" ? <IconButton label={t.remove} icon={X} disabled={!selections.ready || selections.saving} onClick={() => void selections.select("meeting",item,false)} /> : <>
+              {view === "meeting" ? <>
+                {editableMeeting && <div className="flex gap-2">
+                  <IconButton label={`${meetingText.up}: ${content.title}`} icon={ArrowUp} disabled={!selections.ready||selections.saving||!!meetingDraft||index===0} onClick={()=>void selections.moveMeeting(item.id,"up")} />
+                  <IconButton label={`${meetingText.down}: ${content.title}`} icon={ArrowDown} disabled={!selections.ready||selections.saving||!!meetingDraft||index===rows.length-1} onClick={()=>void selections.moveMeeting(item.id,"down")} />
+                </div>}
+                <IconButton label={t.remove} icon={X} disabled={!selections.ready || selections.saving || !!meetingDraft} onClick={() => void selections.select("meeting",item,false)} />
+              </> : <>
                 <label className="inline-flex min-h-8 cursor-pointer items-center gap-2"><input type="checkbox" checked={priorities.includes(item.id)} disabled={!selections.ready || selections.saving} onChange={(event) => void selections.select("priority",item,event.target.checked)} className="h-4 w-4 accent-[var(--app-positive)]" />{t.prioritize}</label>
                 <label className="inline-flex min-h-8 cursor-pointer items-center gap-2"><input type="checkbox" checked={meeting.includes(item.id)} disabled={!selections.ready || selections.saving} onChange={(event) => void selections.select("meeting",item,event.target.checked)} className="h-4 w-4 accent-[var(--app-gold)]" />{t.meeting}</label>
               </>}

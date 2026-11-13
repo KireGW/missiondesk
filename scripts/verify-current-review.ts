@@ -174,7 +174,7 @@ try {
   assert.deepEqual(newCurrentSignalIds(later,a),[itemIds[4]],"A concurrent arrival not displayed at click remains new");
   assert.equal((await write({action:"acknowledge",revision:"1",ids:later})).status,409,"Stale tab cannot erase newer markers");
   assert.deepEqual(await read(),a);
-  const concurrent=await Promise.all([write({action:"acknowledge",revision:a.revision,ids:shown}),write({action:"acknowledge",revision:a.revision,ids:shown})]);
+  const concurrent=await networkAct(()=>Promise.all([0,1].map(()=>inSession(subjectA,()=>route.POST(request({action:"acknowledge",revision:a.revision,ids:shown}))))));
   assert.deepEqual(concurrent.map(response=>response.status).sort(),[200,409]);
   a=await read();
   await React.act(async()=>root.unmount());root=createRoot(container);

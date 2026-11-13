@@ -5,6 +5,7 @@ import type { PersonalPreferences } from "@/lib/product/profiles";
 import type { PlanId } from "@/lib/product/plans";
 import { personalSelectionMaterial } from "@/lib/product/selection-material";
 import { emptyPersonalSelections, type PersonalSelections, type PersonalSelectionChange, type PersonalSelectionKind } from "@/lib/product/selections";
+import { meetingArticleOrder,moveMeetingArticle } from "@/lib/product/meeting-brief";
 
 type Bookmark = Pick<IntelligenceItem,"id"|"title_original"|"source_name"|"source_url"|"source_language"|"published_at"|"category"|"geographic_tags">;
 interface SelectionRow { item_id:string;kind:PersonalSelectionKind;bookmark:Bookmark }
@@ -33,7 +34,9 @@ async function snapshot(client: PoolClient, accountId: string, preferences: Pers
   // Read revision and rows in one SQL snapshot, including after a concurrent writer commits.
   const record = (await client.query(`SELECT coalesce(s.revision,0)::text AS revision,
     coalesce((SELECT jsonb_agg(jsonb_build_object('item_id',v.item_id,'kind',v.kind,'bookmark',v.bookmark) ORDER BY v.created_at,v.item_id,v.kind)
-      FROM product_account_selections v WHERE v.account_id=$1),'[]'::jsonb) AS selections
+      FROM product_account_selections v WHERE v.account_id=$1),'[]'::jsonb) AS selections,
+    (SELECT jsonb_build_object('title',b.title,'date',coalesce(b.meeting_date::text,''),'order',b.article_order)
+      FROM product_account_meeting_briefs b WHERE b.account_id=$1) AS meeting_brief
     FROM (SELECT $1::uuid AS id) a LEFT JOIN product_account_selection_state s ON s.account_id=a.id`,[accountId])).rows[0];
   const result = {...emptyPersonalSelections(accountId),revision:record.revision};
   const rows = record.selections as SelectionRow[];
@@ -44,7 +47,14 @@ async function snapshot(client: PoolClient, accountId: string, preferences: Pers
     result.retained[row.item_id]=full.get(row.item_id) ?? bookmarkItem(row.bookmark);
   }
   result.bookmarkOnlyIds=ids.filter(id=>!full.has(id));
+  if(record.meeting_brief) {
+    result.meetingBrief={title:record.meeting_brief.title,date:record.meeting_brief.date};
+    result.meeting=meetingArticleOrder(result.meeting,record.meeting_brief.order);
+  }
   return result;
+}
+async function meetingIds(client:PoolClient,accountId:string):Promise<string[]> {
+  return (await client.query("SELECT item_id FROM product_account_selections WHERE account_id=$1 AND kind='meeting' ORDER BY created_at,item_id",[accountId])).rows.map(row=>row.item_id);
 }
 export async function getPersonalSelections(accountId:string, preferences:PersonalPreferences, plan:PlanId, db:Pool=getProductPool()):Promise<PersonalSelections> {
   const client = await db.connect();
@@ -59,7 +69,25 @@ export async function changePersonalSelection(accountId:string, preferences:Pers
     const revision = (await client.query("SELECT revision::text FROM product_account_selection_state WHERE account_id=$1 FOR UPDATE",[accountId])).rows[0]?.revision;
     if (revision===undefined) throw new PersonalSelectionDenied("Selection state unavailable");
     let changed = 0;
-    if ("clear" in change) {
+    if("details" in change || "move" in change) {
+      if(revision!==change.revision)throw new PersonalSelectionConflict("Meeting document changed in another tab");
+      const previous=(await client.query("SELECT title,coalesce(meeting_date::text,'') AS date,article_order FROM product_account_meeting_briefs WHERE account_id=$1",[accountId])).rows[0];
+      const ordered=meetingArticleOrder(await meetingIds(client,accountId),previous?.article_order??[]);
+      if("details" in change) {
+        if(!previous || previous.title!==change.details.title || previous.date!==change.details.date) {
+          await client.query(`INSERT INTO product_account_meeting_briefs(account_id,title,meeting_date,article_order) VALUES($1,$2,$3,$4::jsonb)
+            ON CONFLICT(account_id) DO UPDATE SET title=excluded.title,meeting_date=excluded.meeting_date,article_order=excluded.article_order`,
+            [accountId,change.details.title,change.details.date||null,JSON.stringify(ordered)]);changed=1;
+        }
+      }else {
+        if(!ordered.includes(change.move.itemId))throw new PersonalSelectionUnavailable("Article is not in this meeting document");
+        const moved=moveMeetingArticle(ordered,change.move.itemId,change.move.direction);
+        if(moved.some((id,index)=>id!==ordered[index])) {
+          await client.query(`INSERT INTO product_account_meeting_briefs(account_id,article_order) VALUES($1,$2::jsonb)
+            ON CONFLICT(account_id) DO UPDATE SET article_order=excluded.article_order`,[accountId,JSON.stringify(moved)]);changed=1;
+        }
+      }
+    } else if ("clear" in change) {
       if (revision!==change.revision) throw new PersonalSelectionConflict("Selection changed in another tab");
       changed=(await client.query("DELETE FROM product_account_selections WHERE account_id=$1 AND kind='meeting'",[accountId])).rowCount ?? 0;
     } else if (!change.selected) {
@@ -71,6 +99,11 @@ export async function changePersonalSelection(accountId:string, preferences:Pers
       if (!value) throw new PersonalSelectionUnavailable("Article is not available to this account");
       changed=(await client.query(`INSERT INTO product_account_selections(account_id,item_id,kind,bookmark) VALUES($1,$2,$3,$4::jsonb)
         ON CONFLICT(account_id,item_id,kind) DO NOTHING`,[accountId,change.itemId,change.kind,JSON.stringify(value)])).rowCount ?? 0;
+    }
+    if(changed && change.kind==="meeting" && !("details" in change) && !("move" in change)) {
+      const previous=(await client.query("SELECT article_order FROM product_account_meeting_briefs WHERE account_id=$1",[accountId])).rows[0];
+      if(previous)await client.query("UPDATE product_account_meeting_briefs SET article_order=$2::jsonb WHERE account_id=$1",
+        [accountId,JSON.stringify(meetingArticleOrder(await meetingIds(client,accountId),previous.article_order))]);
     }
     if (changed) await client.query("UPDATE product_account_selection_state SET revision=revision+1,updated_at=now() WHERE account_id=$1",[accountId]);
     const result=await snapshot(client,accountId,preferences,plan);

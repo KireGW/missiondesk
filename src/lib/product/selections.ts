@@ -1,4 +1,5 @@
 import type { IntelligenceItem } from "@/lib/types";
+import { emptyMeetingBrief, parseMeetingDetails, type MeetingBriefDetails } from "@/lib/product/meeting-brief";
 
 export type PersonalSelectionKind = "priority" | "meeting";
 export interface PersonalSelections {
@@ -8,9 +9,12 @@ export interface PersonalSelections {
   meeting: string[];
   retained: Record<string, IntelligenceItem>;
   bookmarkOnlyIds: string[];
+  meetingBrief?: MeetingBriefDetails;
 }
 export type PersonalSelectionChange = { kind: PersonalSelectionKind; itemId: string; selected: boolean }
-  | { kind: "meeting"; clear: true; revision: string };
+  | { kind: "meeting"; clear: true; revision: string }
+  | { kind: "meeting"; details:MeetingBriefDetails; revision:string }
+  | { kind: "meeting"; move:{itemId:string;direction:"up"|"down"};revision:string };
 
 export const validSelectionId = (value: unknown): value is string => typeof value === "string"
   && /^(?:workspace:[a-f0-9]{64}|processed-[a-zA-Z0-9_-]{1,160})$/.test(value);
@@ -18,6 +22,16 @@ export const validSelectionRevision = (value: unknown): value is string => typeo
 export function parsePersonalSelectionChange(value: unknown): PersonalSelectionChange | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const body = value as Record<string,unknown>;
+  if(body.kind==="meeting" && validSelectionRevision(body.revision)) {
+    if(Object.keys(body).sort().join(",")==="details,kind,revision") {
+      const details=parseMeetingDetails(body.details);return details?{kind:"meeting",details,revision:body.revision}:null;
+    }
+    if(Object.keys(body).sort().join(",")==="kind,move,revision" && body.move && typeof body.move==="object" && !Array.isArray(body.move)) {
+      const move=body.move as Record<string,unknown>;
+      if(Object.keys(move).sort().join(",")==="direction,itemId" && validSelectionId(move.itemId) && (move.direction==="up"||move.direction==="down"))
+        return {kind:"meeting",move:{itemId:move.itemId,direction:move.direction},revision:body.revision};
+    }
+  }
   if (body.kind === "meeting" && body.clear === true && validSelectionRevision(body.revision)
     && Object.keys(body).sort().join(",") === "clear,kind,revision") return { kind: "meeting", clear: true, revision: body.revision };
   if ((body.kind !== "priority" && body.kind !== "meeting") || !validSelectionId(body.itemId) || typeof body.selected !== "boolean"
@@ -26,5 +40,5 @@ export function parsePersonalSelectionChange(value: unknown): PersonalSelectionC
 }
 
 export function emptyPersonalSelections(accountId: string): PersonalSelections {
-  return { accountId, revision: "0", priorities: [], meeting: [], retained: {}, bookmarkOnlyIds: [] };
+  return { accountId, revision: "0", priorities: [], meeting: [], retained: {}, bookmarkOnlyIds: [],meetingBrief:emptyMeetingBrief() };
 }
